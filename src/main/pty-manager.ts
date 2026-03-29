@@ -352,8 +352,12 @@ export function scrollSession(
 }
 
 export function renameTmuxSession(oldName: string, newName: string): string {
-  // Sanitize: tmux session names cannot contain dots or colons
-  const sanitized = newName.replace(/[.:]/g, "-").replace(/\s+/g, "-") || oldName;
+  // Sanitize: strip control chars, dots, colons; collapse whitespace to hyphens
+  const sanitized = newName
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .replace(/[.:]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/^-+|-+$/g, "") || oldName;
   try {
     tmuxExec(
       `-L ${TMUX_SOCKET} rename-session -t ${shellEscape(oldName)} ${shellEscape(sanitized)}`

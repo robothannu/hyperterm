@@ -272,12 +272,20 @@ async function createPaneSession(
     input.focus();
     input.select();
 
-    const commit = () => {
+    const commit = async () => {
       const newName = input.value.trim() || current;
       paneTitle.textContent = newName;
       paneTitle.dataset.customName = "true";
       paneTitle.style.display = "";
       input.remove();
+
+      // Sync tmux session name
+      const oldTmux = sessionTmuxNames.get(ptyId);
+      if (oldTmux) {
+        const actualName = await window.terminalAPI.renameTmuxSession(oldTmux, newName);
+        sessionTmuxNames.set(ptyId, actualName);
+        saveSessionMetadata();
+      }
     };
 
     input.addEventListener("keydown", (ev) => {
@@ -970,18 +978,6 @@ function startRename(
     labelEl.style.display = "";
     input.remove();
     tabLabels.set(tabId, newName);
-
-    // Sync: rename tmux session to match tab label
-    const tab = tabMap.get(tabId);
-    if (tab) {
-      for (const leaf of getAllLeaves(tab.root)) {
-        const oldTmux = sessionTmuxNames.get(leaf.ptyId);
-        if (oldTmux) {
-          const actualName = await window.terminalAPI.renameTmuxSession(oldTmux, newName);
-          sessionTmuxNames.set(leaf.ptyId, actualName);
-        }
-      }
-    }
 
     saveSessionMetadata();
   };
