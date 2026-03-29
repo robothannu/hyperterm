@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self';"
+  />
+  <title>HyperTerm</title>
+  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="titlebar">
+      <div id="titlebar-drag"></div>
+      <span id="titlebar-title">HyperTerm</span>
+    </div>
+    <div id="main-area">
+      <aside id="sidebar">
+        <div id="sidebar-header">
+          <span class="sidebar-title">Terminals</span>
+          <button id="btn-new-terminal" title="New Terminal">+</button>
+        </div>
+        <ul id="terminal-list"></ul>
+      </aside>
+      <main id="terminal-pane"></main>
+    </div>
+    <div id="statusbar">
+      <span id="usage-5h" class="usage-metric" title="">5h: --%</span>
+      <span class="usage-sep">|</span>
+      <span id="usage-7d" class="usage-metric" title="">7d: --%</span>
+    </div>
+  </div>
+  <!-- Notes Panel -->
+  <div id="notes-panel" class="notes-panel hidden">
+    <div class="notes-header">
+      <span id="notes-title" class="notes-title">Notes</span>
+      <button id="notes-close" class="notes-close-btn">&times;</button>
+    </div>
+    <div id="notes-list" class="notes-list"></div>
+    <div class="notes-input-area">
+      <textarea id="notes-input" class="notes-input" placeholder="Write a note..." rows="3"></textarea>
+      <button id="notes-add" class="modal-btn modal-btn-ok notes-add-btn">Add</button>
+    </div>
+  </div>
+
+  <!-- New Terminal Name Modal -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal-dialog">
+      <div class="modal-title">New Terminal</div>
+      <input id="modal-input" type="text" class="modal-input" placeholder="Terminal name" autocomplete="off" spellcheck="false" />
+      <div class="modal-buttons">
+        <button id="modal-cancel" class="modal-btn modal-btn-cancel">Cancel</button>
+        <button id="modal-ok" class="modal-btn modal-btn-ok">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Context Menu -->
+  <div id="terminal-context-menu" class="context-menu hidden">
+    <div class="context-menu-item" data-action="split-horizontal">↔ 좌우 분할</div>
+    <div class="context-menu-item" data-action="split-vertical">↕ 상하 분할</div>
+    <div class="context-menu-separator"></div>
+    <div class="context-menu-item context-menu-danger" data-action="close-pane">✕ Pane 닫기</div>
+  </div>
+
+  <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="../../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+  <script src="../../node_modules/@xterm/addon-serialize/lib/addon-serialize.js"></script>
+  <script src="terminal-session.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

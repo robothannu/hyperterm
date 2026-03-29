@@ -1,0 +1,668 @@
+/* === Reset & Base === */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: #1c1c1c;
+  color: #b3b3b3;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* === App Layout === */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* === Title Bar === */
+#titlebar {
+  height: 38px;
+  min-height: 38px;
+  background: #2d2d2d;
+  border-bottom: 1px solid #3a3a3a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  -webkit-app-region: drag;
+}
+
+#titlebar-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+#titlebar-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #808080;
+  pointer-events: none;
+}
+
+#main-area {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* === Sidebar === */
+#sidebar {
+  width: 220px;
+  min-width: 180px;
+  background: #1e1e1e;
+  border-right: 1px solid #3a3a3a;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+
+#sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #3a3a3a;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-title {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #808080;
+}
+
+#btn-new-terminal {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  background: #2a2a2a;
+  color: #b3b3b3;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+#btn-new-terminal:hover {
+  background: #3a3a3a;
+  border-color: #808080;
+}
+
+/* === Terminal List === */
+#terminal-list {
+  list-style: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.terminal-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.terminal-entry:hover {
+  background: #2a2a2a;
+}
+
+.terminal-entry.active {
+  background: #2a2a2a;
+  border-left-color: #808080;
+}
+
+.terminal-label {
+  font-size: 13px;
+  color: #b3b3b3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-entry.active .terminal-label {
+  color: #e5e5e5;
+}
+
+.rename-input {
+  background: #1c1c1c;
+  border: 1px solid #808080;
+  border-radius: 3px;
+  color: #e5e5e5;
+  font-size: 13px;
+  font-family: inherit;
+  padding: 2px 4px;
+  outline: none;
+  width: 100%;
+  max-width: 140px;
+}
+
+.btn-close {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #555555;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.terminal-entry:hover .btn-close {
+  opacity: 1;
+}
+
+.btn-close:hover {
+  background: #cc3333;
+  color: #e5e5e5;
+}
+
+.btn-notes {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #555555;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.terminal-entry:hover .btn-notes,
+.terminal-entry.active .btn-notes {
+  opacity: 1;
+}
+
+.btn-notes:hover {
+  background: #3a3a3a;
+  color: #b3b3b3;
+}
+
+.btn-notes.has-notes {
+  opacity: 1;
+  color: #999900;
+}
+
+.terminal-entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* === Terminal Pane === */
+#terminal-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #1c1c1c;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+
+/* Tab container: one per sidebar tab, toggled via display */
+.tab-container {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* A single pane leaf containing one terminal */
+.pane-leaf {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.pane-leaf.focused::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #808080;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* Split container: flex row or column */
+.pane-split {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pane-split.horizontal {
+  flex-direction: row;
+}
+
+.pane-split.vertical {
+  flex-direction: column;
+}
+
+/* Divider between panes */
+.pane-divider {
+  flex-shrink: 0;
+  background: #3a3a3a;
+  z-index: 10;
+  transition: background 0.15s;
+}
+
+.pane-divider.horizontal {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.pane-divider.vertical {
+  height: 4px;
+  cursor: row-resize;
+}
+
+.pane-divider:hover {
+  background: #808080;
+}
+
+.terminal-container {
+  flex: 1;
+  overflow: hidden;
+  padding: 4px;
+}
+
+/* === Notes Panel === */
+.notes-panel {
+  position: fixed;
+  top: 38px;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  background: #1e1e1e;
+  border-left: 1px solid #3a3a3a;
+  display: flex;
+  flex-direction: column;
+  z-index: 500;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.4);
+  transition: transform 0.2s ease;
+}
+
+.notes-panel.hidden {
+  display: none;
+}
+
+.notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #3a3a3a;
+  flex-shrink: 0;
+}
+
+.notes-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.notes-close-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #808080;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notes-close-btn:hover {
+  background: #3a3a3a;
+  color: #e5e5e5;
+}
+
+.notes-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.notes-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.notes-list::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 3px;
+}
+
+.note-item {
+  background: #1c1c1c;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  position: relative;
+}
+
+.note-content {
+  color: #b3b3b3;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.note-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.note-time {
+  font-size: 11px;
+  color: #555555;
+}
+
+.note-delete {
+  border: none;
+  background: transparent;
+  color: #555555;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.note-delete:hover {
+  background: #cc3333;
+  color: #e5e5e5;
+}
+
+.notes-input-area {
+  padding: 12px;
+  border-top: 1px solid #3a3a3a;
+  flex-shrink: 0;
+}
+
+.notes-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: #1c1c1c;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #e5e5e5;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+  min-height: 60px;
+  max-height: 150px;
+  transition: border-color 0.15s;
+}
+
+.notes-input:focus {
+  border-color: #808080;
+}
+
+.notes-add-btn {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.notes-empty {
+  text-align: center;
+  color: #555555;
+  font-size: 13px;
+  padding: 24px 16px;
+}
+
+/* === New Terminal Modal === */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal-dialog {
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  padding: 20px 24px;
+  width: 340px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e5e5e5;
+  margin-bottom: 14px;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: #1c1c1c;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #e5e5e5;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.modal-input:focus {
+  border-color: #808080;
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.modal-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid #3a3a3a;
+  transition: background 0.15s;
+}
+
+.modal-btn-cancel {
+  background: #2a2a2a;
+  color: #b3b3b3;
+}
+
+.modal-btn-cancel:hover {
+  background: #3a3a3a;
+}
+
+.modal-btn-ok {
+  background: #2a6e2a;
+  border-color: #2a6e2a;
+  color: #fff;
+}
+
+.modal-btn-ok:hover {
+  background: #348834;
+}
+
+/* === Context Menu === */
+.context-menu {
+  position: fixed;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  padding: 4px 0;
+  min-width: 180px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 2000;
+  user-select: none;
+}
+
+.context-menu.hidden {
+  display: none;
+}
+
+.context-menu-item {
+  padding: 7px 16px;
+  font-size: 13px;
+  color: #b3b3b3;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.context-menu-item:hover {
+  background: #3a3a3a;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: #3a3a3a;
+  margin: 4px 0;
+}
+
+.context-menu-danger {
+  color: #e55555;
+}
+
+.context-menu-danger:hover {
+  background: #cc3333;
+  color: #e5e5e5;
+}
+
+/* === Status Bar === */
+#statusbar {
+  height: 24px;
+  min-height: 24px;
+  background: #252525;
+  border-top: 1px solid #3a3a3a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+
+.usage-metric {
+  font-size: 11px;
+  font-family: "SF Mono", "Menlo", monospace;
+  color: #808080;
+  padding: 0 8px;
+  transition: color 0.2s;
+}
+
+.usage-sep {
+  font-size: 11px;
+  color: #3a3a3a;
+}
+
+.usage-warn {
+  color: #ccaa00;
+}
+
+.usage-critical {
+  color: #cc3333;
+}
+
+#statusbar:hover {
+  background: #2a2a2a;
+}
+
+#statusbar:active {
+  background: #1e1e1e;
+}
+
+/* xterm.js overrides */
+.terminal-container .xterm {
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.terminal-container .xterm * {
+  -webkit-app-region: no-drag;
+}
+
+.terminal-container .xterm-viewport {
+  overflow-y: scroll !important;
+}
+
+/* Scrollbar styling — always visible */
+.terminal-container .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.terminal-container .xterm-viewport::-webkit-scrollbar-track {
+  background: #2a2a2a;
+}
+
+.terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #666666;
+  border-radius: 5px;
+  border: 2px solid #2a2a2a;
+}
+
+.terminal-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #888888;
+}

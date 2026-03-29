@@ -1,0 +1,26 @@
+{
+  "name": "terminal-app",
+  "version": "0.1.0",
+  "description": "A cross-platform terminal manager with sidebar navigation",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "rebuild": "electron-rebuild -f -w node-pty",
+    "copy-static": "cp src/renderer/index.html dist/renderer/index.html && cp src/renderer/styles.css dist/renderer/styles.css",
+    "build": "tsc && npm run copy-static",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.1.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "electron": "^34.0.0",
+    "electron-builder": "^26.0.0",
+    "typescript": "^5.7.0"
+  }
+}
