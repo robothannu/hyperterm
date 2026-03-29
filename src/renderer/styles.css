@@ -244,6 +244,7 @@ html, body {
 /* A single pane leaf containing one terminal */
 .pane-leaf {
   display: flex;
+  flex-direction: column;
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
@@ -300,6 +301,42 @@ html, body {
 
 .pane-divider:hover {
   background: #808080;
+}
+
+/* Pane header with session name */
+.pane-header {
+  height: 22px;
+  min-height: 22px;
+  background: #252525;
+  border-bottom: 1px solid #3a3a3a;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+
+.pane-title {
+  font-size: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #808080;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+.pane-title-input {
+  background: #1c1c1c;
+  border: 1px solid #808080;
+  border-radius: 3px;
+  color: #e5e5e5;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 1px 4px;
+  outline: none;
+  width: 100%;
+  max-width: 200px;
 }
 
 .terminal-container {
@@ -648,21 +685,8 @@ html, body {
   overflow-y: scroll !important;
 }
 
-/* Scrollbar styling — always visible */
+/* Hide xterm scrollbar — scrolling handled by tmux copy-mode */
 .terminal-container .xterm-viewport::-webkit-scrollbar {
-  width: 10px;
-}
-
-.terminal-container .xterm-viewport::-webkit-scrollbar-track {
-  background: #2a2a2a;
-}
-
-.terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
-  background: #666666;
-  border-radius: 5px;
-  border: 2px solid #2a2a2a;
-}
-
-.terminal-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: #888888;
+  width: 0;
+  display: none;
 }

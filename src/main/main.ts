@@ -260,6 +260,18 @@ ipcMain.handle("tmux:navigatePane", (_event, tmuxName: string, direction: string
   return PtyManager.navigatePane(tmuxName, direction as "U" | "D" | "L" | "R");
 });
 
+ipcMain.on("tmux:scroll", (_event, tmuxName: string, direction: string, lines: number) => {
+  PtyManager.scrollSession(tmuxName, direction as "up" | "down", lines);
+});
+
+ipcMain.on("tmux:exitCopyMode", (_event, tmuxName: string) => {
+  PtyManager.exitCopyMode(tmuxName);
+});
+
+ipcMain.handle("tmux:renameSession", (_event, oldName: string, newName: string) => {
+  return PtyManager.renameTmuxSession(oldName, newName);
+});
+
 // Renderer signals that session metadata has been saved — safe to quit
 ipcMain.on("app:quit-ready", () => {
   PtyManager.detachAll(); // keep tmux sessions alive

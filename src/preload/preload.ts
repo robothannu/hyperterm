@@ -29,6 +29,9 @@ export interface TerminalAPI {
   splitPane(tmuxName: string, direction: "horizontal" | "vertical"): Promise<void>;
   closePane(tmuxName: string): Promise<void>;
   navigatePane(tmuxName: string, direction: "U" | "D" | "L" | "R"): Promise<void>;
+  scrollTmux(tmuxName: string, direction: "up" | "down", lines: number): void;
+  exitCopyMode(tmuxName: string): void;
+  renameTmuxSession(oldName: string, newName: string): Promise<string>;
   fetchUsage(): Promise<{ data?: any; error?: string }>;
 }
 
@@ -109,6 +112,15 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   },
   navigatePane: (tmuxName: string, direction: "U" | "D" | "L" | "R"): Promise<void> => {
     return ipcRenderer.invoke("tmux:navigatePane", tmuxName, direction);
+  },
+  scrollTmux: (tmuxName: string, direction: "up" | "down", lines: number): void => {
+    ipcRenderer.send("tmux:scroll", tmuxName, direction, lines);
+  },
+  exitCopyMode: (tmuxName: string): void => {
+    ipcRenderer.send("tmux:exitCopyMode", tmuxName);
+  },
+  renameTmuxSession: (oldName: string, newName: string): Promise<string> => {
+    return ipcRenderer.invoke("tmux:renameSession", oldName, newName);
   },
   fetchUsage: (): Promise<{ data?: any; error?: string }> => {
     return ipcRenderer.invoke("usage:fetch");

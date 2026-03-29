@@ -52,6 +52,9 @@ interface TerminalAPI {
   splitPane(tmuxName: string, direction: "horizontal" | "vertical"): Promise<void>;
   closePane(tmuxName: string): Promise<void>;
   navigatePane(tmuxName: string, direction: "U" | "D" | "L" | "R"): Promise<void>;
+  scrollTmux(tmuxName: string, direction: "up" | "down", lines: number): void;
+  exitCopyMode(tmuxName: string): void;
+  renameTmuxSession(oldName: string, newName: string): Promise<string>;
   fetchUsage(): Promise<UsageResult>;
 }
 

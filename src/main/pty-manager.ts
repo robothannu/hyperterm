@@ -122,6 +122,10 @@ export function createSession(
       tmuxExec(
         `-L ${TMUX_SOCKET} set-option -t ${shellEscape(tmuxName)} mouse off`
       );
+      // Disable alternate screen — lets xterm.js manage scrollback directly
+      tmuxExec(
+        `-L ${TMUX_SOCKET} set-option -g terminal-overrides ",xterm-256color:smcup@:rmcup@"`
+      );
       // Disable tmux right-click popup menu (custom context menu in renderer)
       tmuxExec(
         `-L ${TMUX_SOCKET} unbind-key -T root MouseDown3Pane`
@@ -325,6 +329,48 @@ export function closePane(tmuxName: string): void {
     );
   } catch {
     // pane or session may already be dead
+  }
+}
+
+export function scrollSession(
+  tmuxName: string,
+  direction: "up" | "down",
+  lines: number
+): void {
+  try {
+    // Enter copy-mode (no-op if already in copy-mode)
+    tmuxExec(
+      `-L ${TMUX_SOCKET} copy-mode -t ${shellEscape(tmuxName)}`
+    );
+    const cmd = direction === "up" ? "scroll-up" : "scroll-down";
+    tmuxExec(
+      `-L ${TMUX_SOCKET} send-keys -t ${shellEscape(tmuxName)} -X -N ${lines} ${cmd}`
+    );
+  } catch {
+    // ignore — might not be in copy-mode or session may not exist
+  }
+}
+
+export function renameTmuxSession(oldName: string, newName: string): string {
+  // Sanitize: tmux session names cannot contain dots or colons
+  const sanitized = newName.replace(/[.:]/g, "-").replace(/\s+/g, "-") || oldName;
+  try {
+    tmuxExec(
+      `-L ${TMUX_SOCKET} rename-session -t ${shellEscape(oldName)} ${shellEscape(sanitized)}`
+    );
+    return sanitized;
+  } catch {
+    return oldName;
+  }
+}
+
+export function exitCopyMode(tmuxName: string): void {
+  try {
+    tmuxExec(
+      `-L ${TMUX_SOCKET} send-keys -t ${shellEscape(tmuxName)} -X cancel`
+    );
+  } catch {
+    // ignore — might not be in copy-mode
   }
 }
 

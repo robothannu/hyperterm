@@ -220,6 +220,16 @@ async function createPaneSession(
   paneElement.className = "pane-leaf";
   parentElement.appendChild(paneElement);
 
+  // Pane header showing session name
+  const paneHeader = document.createElement("div");
+  paneHeader.className = "pane-header";
+  paneElement.appendChild(paneHeader);
+
+  const paneTitle = document.createElement("span");
+  paneTitle.className = "pane-title";
+  paneTitle.textContent = "...";
+  paneHeader.appendChild(paneTitle);
+
   const termContainer = document.createElement("div");
   termContainer.className = "terminal-container";
   paneElement.appendChild(termContainer);
@@ -242,9 +252,55 @@ async function createPaneSession(
   sessions.set(ptyId, session);
   sessionTmuxNames.set(ptyId, tmuxName);
 
+  // Set pane title to working directory name
+  window.terminalAPI.getCwd(ptyId).then((cwd) => {
+    const dirName = cwd.split("/").pop() || cwd;
+    paneTitle.textContent = dirName;
+    paneTitle.dataset.customName = "";
+  }).catch(() => {});
+
+  // Double-click pane header to rename
+  paneTitle.addEventListener("dblclick", (e) => {
+    e.stopPropagation();
+    const current = paneTitle.textContent || "";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "pane-title-input";
+    input.value = current;
+    paneTitle.style.display = "none";
+    paneHeader.insertBefore(input, paneTitle);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+      const newName = input.value.trim() || current;
+      paneTitle.textContent = newName;
+      paneTitle.dataset.customName = "true";
+      paneTitle.style.display = "";
+      input.remove();
+    };
+
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") { ev.preventDefault(); commit(); }
+      else if (ev.key === "Escape") { ev.preventDefault(); paneTitle.style.display = ""; input.remove(); }
+    });
+    input.addEventListener("blur", commit);
+    input.addEventListener("click", (ev) => ev.stopPropagation());
+  });
+
   session.onData((data: string) => {
+    window.terminalAPI.exitCopyMode(tmuxName);
     window.terminalAPI.writePty(ptyId, data);
   });
+
+  // Scroll: capture wheel events before xterm.js and proxy to tmux scrollback
+  termContainer.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const direction = e.deltaY < 0 ? "up" : "down";
+    const lines = Math.max(1, Math.round(Math.abs(e.deltaY) / 25));
+    window.terminalAPI.scrollTmux(tmuxName, direction, lines);
+  }, { capture: true, passive: false });
 
   session.onResize((size: { cols: number; rows: number }) => {
     window.terminalAPI.resizePty(ptyId, size.cols, size.rows);
@@ -908,12 +964,25 @@ function startRename(
   input.focus();
   input.select();
 
-  const commit = () => {
+  const commit = async () => {
     const newName = input.value.trim() || currentName;
     labelEl.textContent = newName;
     labelEl.style.display = "";
     input.remove();
     tabLabels.set(tabId, newName);
+
+    // Sync: rename tmux session to match tab label
+    const tab = tabMap.get(tabId);
+    if (tab) {
+      for (const leaf of getAllLeaves(tab.root)) {
+        const oldTmux = sessionTmuxNames.get(leaf.ptyId);
+        if (oldTmux) {
+          const actualName = await window.terminalAPI.renameTmuxSession(oldTmux, newName);
+          sessionTmuxNames.set(leaf.ptyId, actualName);
+        }
+      }
+    }
+
     saveSessionMetadata();
   };
 

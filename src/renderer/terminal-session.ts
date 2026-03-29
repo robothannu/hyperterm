@@ -20,7 +20,7 @@ class TerminalSession {
       fontSize: 12,
       fontFamily:
         "'SF Mono', Menlo, Monaco, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', monospace",
-      scrollback: 10000,
+      scrollback: 0,
       theme: {
         background: "#1c1c1c",
         foreground: "#d0d0d0",
@@ -110,6 +110,7 @@ class TerminalSession {
     } catch {
       // WebGL not available; canvas renderer is used automatically
     }
+
     this.fit();
   }
 
