@@ -1,4 +1,4 @@
-# HyperTerm
+# HyperTerm for Claude Code
 
 A macOS terminal app built with Electron, xterm.js, and tmux.
 
