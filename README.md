@@ -13,6 +13,12 @@ Sessions are managed by tmux, so your work persists even after quitting the app 
 - **Claude usage monitor** — Status bar showing Claude Code plan usage (5h/7d, auto-refreshes every 5 minutes)
 - **Clipboard** — Text and image paste support (compatible with Claude Code image input)
 - **macOS Terminal theme** — SF Mono 12pt, neutral grey tones
+- **Command Palette** — Searchable command list (Cmd+Shift+P)
+- **tmux copy-mode search** — Search within terminal scrollback (Cmd+F)
+- **Font size** — Adjust terminal font size (Cmd+Plus/Minus/Zero)
+- **Session Clusters** — Group terminals by project name (Cmd+Shift+G)
+- **Activity Monitor** — Per-pane CPU/Memory usage in status bar
+- **SSH Profiles** — Save and connect to SSH hosts (Cmd+Shift+S)
 
 ## System Requirements
 
@@ -75,6 +81,17 @@ Right-click in the terminal area and choose horizontal or vertical split from th
 | `Cmd+V` | Paste text |
 | `Ctrl+V` | Paste image (Claude Code compatible) |
 | `Cmd+A` | Select all |
+| `Cmd+N` | New terminal |
+| `Cmd+W` | Close terminal |
+| `Cmd+Shift+P` | Open Command Palette |
+| `Cmd+F` | Search in terminal (tmux copy-mode) |
+| `Cmd+Shift+G` | Set cluster/project name |
+| `Cmd+Shift+S` | Open SSH Profiles |
+| `Cmd+Shift+Enter` | Toggle broadcast input (send to all panes) |
+| `Cmd+Arrow` | Navigate between panes |
+| `Cmd+Plus` | Increase font size |
+| `Cmd+Minus` | Decrease font size |
+| `Cmd+0` | Reset font size |
 
 ### Claude Usage Status Bar
 
@@ -89,6 +106,15 @@ The bottom status bar displays your Claude Code plan usage.
 ### Notes
 
 Click the pencil icon in the sidebar to open notes for that terminal. Press `Cmd+Enter` to quickly add a note.
+
+### SSH Profiles
+
+Save SSH connection profiles for quick access:
+
+1. Press `Cmd+Shift+S` or open the Command Palette and select "Open SSH Profiles"
+2. Click "+ Add Profile" to save a new SSH host (name, host, user, port, key file)
+3. Click any profile to open a new terminal and connect via SSH
+4. Profiles persist across app restarts
 
 ## Tech Stack
 

@@ -205,6 +205,48 @@ export function getTmuxSessionCwd(tmuxName: string): string {
   }
 }
 
+export function getTmuxSessionName(tmuxName: string): string {
+  try {
+    return tmuxExec(
+      `-L ${TMUX_SOCKET} display-message -p -t ${shellEscape(tmuxName)} "#{session_name}" 2>/dev/null`
+    ).trim();
+  } catch {
+    return tmuxName;
+  }
+}
+
+export function getTmuxPaneCurrentCommand(tmuxName: string): string {
+  try {
+    // #{pane_current_command} gives the process name (e.g., "bash", "zsh", "node")
+    return tmuxExec(
+      `-L ${TMUX_SOCKET} display-message -p -t ${shellEscape(tmuxName)} "#{pane_current_command}" 2>/dev/null`
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+export function getTmuxPanePid(tmuxName: string): string {
+  try {
+    return tmuxExec(
+      `-L ${TMUX_SOCKET} display-message -p -t ${shellEscape(tmuxName)} "#{pane_pid}" 2>/dev/null`
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+export function getProcessInfo(pid: string): { cpu: number; memory: number } {
+  if (!pid) return { cpu: 0, memory: 0 };
+  try {
+    const output = execSync(`ps -p ${pid} -o %cpu=,%mem=`, { encoding: "utf8", timeout: 2000 }).trim();
+    const [cpu, mem] = output.split(",").map(s => parseFloat(s.trim()) || 0);
+    return { cpu, memory: mem };
+  } catch {
+    return { cpu: 0, memory: 0 };
+  }
+}
+
 export function getSessionTmuxName(id: number): string | null {
   return sessions.get(id)?.tmuxName || null;
 }
@@ -346,8 +388,8 @@ export function scrollSession(
     tmuxExec(
       `-L ${TMUX_SOCKET} send-keys -t ${shellEscape(tmuxName)} -X -N ${lines} ${cmd}`
     );
-  } catch {
-    // ignore — might not be in copy-mode or session may not exist
+  } catch (err) {
+    console.error(`[pty-manager] scrollSession failed for ${tmuxName}:`, err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -375,6 +417,17 @@ export function exitCopyMode(tmuxName: string): void {
     );
   } catch {
     // ignore — might not be in copy-mode
+  }
+}
+
+export function sendTmuxKey(tmuxName: string, key: string): void {
+  try {
+    // In copy-mode, send search command with the query string
+    tmuxExec(
+      `-L ${TMUX_SOCKET} send-keys -t ${shellEscape(tmuxName)} -X search-forward "${key.replace(/"/g, '\\"')}"`
+    );
+  } catch {
+    // ignore
   }
 }
 

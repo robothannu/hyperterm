@@ -42,10 +42,11 @@ interface SavedPaneSplit {
 type SavedPaneNode = SavedPaneLeaf | SavedPaneSplit;
 interface SavedTab {
   label: string;
+  cluster?: string;
   layout: SavedPaneNode;
 }
 interface SavedStateV2 {
-  version: 2;
+  version: 3;
   tabs: SavedTab[];
   activeTabIndex: number;
 }
@@ -63,8 +64,12 @@ const sessionTmuxNames = new Map<number, string>();
 const tabMap = new Map<number, Tab>();
 const tabLabels = new Map<number, string>();
 const ptyToTab = new Map<number, number>();
+const commandPollIntervals = new Map<number, ReturnType<typeof setInterval>>();
+const tabClusters = new Map<number, string>();
 let activeTabId: number | null = null;
 let sessionCounter = 0;
+let broadcastMode = false;
+const broadcastPtyIds = new Set<number>();
 
 const terminalPane = document.getElementById("terminal-pane")!;
 const terminalList = document.getElementById("terminal-list")!;
@@ -123,6 +128,183 @@ function showNameDialog(): Promise<string | null> {
     modalCancel.addEventListener("click", onCancel);
     modalInput.addEventListener("keydown", onKey);
     modalOverlay.addEventListener("click", onOverlay);
+  });
+}
+
+// Cluster modal
+const clusterModal = document.getElementById("cluster-modal")!;
+const clusterInput = document.getElementById("cluster-input") as HTMLInputElement;
+const clusterOk = document.getElementById("cluster-ok")!;
+const clusterCancel = document.getElementById("cluster-cancel")!;
+const clusterClear = document.getElementById("cluster-clear")!;
+
+// SSH Panel
+const sshPanel = document.getElementById("ssh-panel")!;
+const sshList = document.getElementById("ssh-list")!;
+const sshCloseBtn = document.getElementById("ssh-close")!;
+const sshAddBtn = document.getElementById("ssh-add-btn")!;
+const sshModal = document.getElementById("ssh-modal")!;
+const sshModalTitle = document.getElementById("ssh-modal-title")!;
+const sshNameInput = document.getElementById("ssh-name") as HTMLInputElement;
+const sshHostInput = document.getElementById("ssh-host") as HTMLInputElement;
+const sshUserInput = document.getElementById("ssh-user") as HTMLInputElement;
+const sshPortInput = document.getElementById("ssh-port") as HTMLInputElement;
+const sshKeyInput = document.getElementById("ssh-key") as HTMLInputElement;
+const sshModalCancel = document.getElementById("ssh-modal-cancel")!;
+const sshModalSave = document.getElementById("ssh-modal-save")!;
+
+let editingSshProfileId: string | null = null;
+
+function showSshPanel(): void {
+  sshPanel.classList.remove("hidden");
+  loadAndRenderSshProfiles();
+}
+
+function hideSshPanel(): void {
+  sshPanel.classList.add("hidden");
+}
+
+async function loadAndRenderSshProfiles(): Promise<void> {
+  const profiles = await window.terminalAPI.listSshProfiles();
+  sshList.innerHTML = "";
+  for (const profile of profiles) {
+    const item = document.createElement("div");
+    item.className = "ssh-item";
+    item.innerHTML = `
+      <div class="ssh-item-info">
+        <span class="ssh-item-name">${profile.name}</span>
+        <span class="ssh-item-host">${profile.user}@${profile.host}:${profile.port}</span>
+      </div>
+      <button class="ssh-item-delete" data-id="${profile.id}">✕</button>
+    `;
+    item.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).classList.contains("ssh-item-delete")) {
+        e.stopPropagation();
+        deleteSshProfile(profile.id);
+      } else {
+        connectSshProfile(profile);
+      }
+    });
+    sshList.appendChild(item);
+  }
+}
+
+function showSshModal(profile?: SshProfile): void {
+  editingSshProfileId = profile?.id ?? null;
+  sshModalTitle.textContent = profile ? "Edit SSH Profile" : "Add SSH Profile";
+  sshNameInput.value = profile?.name ?? "";
+  sshHostInput.value = profile?.host ?? "";
+  sshUserInput.value = profile?.user ?? "";
+  sshPortInput.value = profile?.port?.toString() ?? "22";
+  sshKeyInput.value = profile?.keyFile ?? "";
+  sshModal.classList.remove("hidden");
+  sshNameInput.focus();
+}
+
+function hideSshModal(): void {
+  sshModal.classList.add("hidden");
+  editingSshProfileId = null;
+}
+
+async function saveSshProfile(): Promise<void> {
+  const name = sshNameInput.value.trim();
+  const host = sshHostInput.value.trim();
+  const user = sshUserInput.value.trim();
+  const port = parseInt(sshPortInput.value) || 22;
+  const keyFile = sshKeyInput.value.trim();
+
+  if (!name || !host || !user) return;
+
+  const profile: SshProfile = {
+    id: editingSshProfileId || crypto.randomUUID(),
+    name,
+    host,
+    user,
+    port,
+    keyFile: keyFile || undefined,
+  };
+
+  await window.terminalAPI.saveSshProfile(profile);
+  hideSshModal();
+  loadAndRenderSshProfiles();
+}
+
+async function deleteSshProfile(id: string): Promise<void> {
+  await window.terminalAPI.deleteSshProfile(id);
+  loadAndRenderSshProfiles();
+}
+
+async function connectSshProfile(profile: SshProfile): Promise<void> {
+  hideSshPanel();
+  const cmd = await window.terminalAPI.getSshCommand(profile);
+  const ptyId = await createNewTab(`ssh:${profile.name}`);
+  if (ptyId !== null) {
+    setTimeout(() => {
+      window.terminalAPI.writePty(ptyId, cmd + "\n");
+    }, 300);
+  }
+}
+
+// SSH Panel event listeners
+sshCloseBtn.addEventListener("click", hideSshPanel);
+sshAddBtn.addEventListener("click", () => showSshModal());
+sshModalCancel.addEventListener("click", hideSshModal);
+sshModalSave.addEventListener("click", saveSshProfile);
+sshModal.addEventListener("click", (e) => {
+  if (e.target === sshModal) hideSshModal();
+});
+
+function showClusterDialog(currentName: string = ""): Promise<string | null> {
+  return new Promise((resolve) => {
+    clusterInput.value = currentName;
+    clusterModal.classList.remove("hidden");
+    clusterInput.focus();
+    clusterInput.select();
+
+    function cleanup() {
+      clusterModal.classList.add("hidden");
+      clusterOk.removeEventListener("click", onOk);
+      clusterCancel.removeEventListener("click", onCancel);
+      clusterClear.removeEventListener("click", onClear);
+      clusterInput.removeEventListener("keydown", onKey);
+      clusterModal.removeEventListener("click", onOverlay);
+    }
+
+    function onOk() {
+      const name = clusterInput.value.trim();
+      cleanup();
+      resolve(name || null);
+    }
+
+    function onCancel() {
+      cleanup();
+      resolve(null);
+    }
+
+    function onClear() {
+      cleanup();
+      resolve(""); // Empty string means clear cluster
+    }
+
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        onOk();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      }
+    }
+
+    function onOverlay(e: MouseEvent) {
+      if (e.target === clusterModal) onCancel();
+    }
+
+    clusterOk.addEventListener("click", onOk);
+    clusterCancel.addEventListener("click", onCancel);
+    clusterClear.addEventListener("click", onClear);
+    clusterInput.addEventListener("keydown", onKey);
+    clusterModal.addEventListener("click", onOverlay);
   });
 }
 
@@ -208,6 +390,7 @@ function setFocusedPane(ptyId: number): void {
       break;
     }
   }
+  updateBroadcastIndicator();
 }
 
 // --- Core Functions ---
@@ -252,12 +435,37 @@ async function createPaneSession(
   sessions.set(ptyId, session);
   sessionTmuxNames.set(ptyId, tmuxName);
 
-  // Set pane title to working directory name
-  window.terminalAPI.getCwd(ptyId).then((cwd) => {
-    const dirName = cwd.split("/").pop() || cwd;
-    paneTitle.textContent = dirName;
-    paneTitle.dataset.customName = "";
-  }).catch(() => {});
+  // Set initial pane title to tmux session name (only if user hasn't set a custom name)
+  window.terminalAPI.getTmuxSessionName(tmuxName).then((name) => {
+    if (!paneTitle.hasAttribute("data-custom-name")) {
+      paneTitle.textContent = name;
+    }
+  }).catch(() => {
+    // Keep "..." if getTmuxSessionName fails and no custom name is set
+  });
+
+  // Poll current pane command and update title (unless custom name set)
+  const commandPollInterval = setInterval(async () => {
+    if (paneTitle.hasAttribute("data-custom-name")) {
+      clearInterval(commandPollInterval);
+      commandPollIntervals.delete(ptyId);
+      return;
+    }
+    try {
+      const cmd = await window.terminalAPI.getPaneCommand(tmuxName);
+      // Show command name if not default shell (bash/zsh), otherwise show session name
+      const defaultShells = ["bash", "zsh", "sh", "dash", "fish"];
+      if (cmd && !defaultShells.includes(cmd)) {
+        paneTitle.textContent = cmd;
+      } else {
+        const name = await window.terminalAPI.getTmuxSessionName(tmuxName);
+        paneTitle.textContent = name;
+      }
+    } catch {
+      // ignore polling errors
+    }
+  }, 500);
+  commandPollIntervals.set(ptyId, commandPollInterval);
 
   // Double-click pane header to rename
   paneTitle.addEventListener("dblclick", (e) => {
@@ -274,8 +482,6 @@ async function createPaneSession(
 
     const commit = async () => {
       const newName = input.value.trim() || current;
-      paneTitle.textContent = newName;
-      paneTitle.dataset.customName = "true";
       paneTitle.style.display = "";
       input.remove();
 
@@ -284,7 +490,12 @@ async function createPaneSession(
       if (oldTmux) {
         const actualName = await window.terminalAPI.renameTmuxSession(oldTmux, newName);
         sessionTmuxNames.set(ptyId, actualName);
+        paneTitle.textContent = actualName;
+        paneTitle.setAttribute("data-custom-name", "true");
         saveSessionMetadata();
+      } else {
+        paneTitle.textContent = newName;
+        paneTitle.setAttribute("data-custom-name", "true");
       }
     };
 
@@ -298,6 +509,14 @@ async function createPaneSession(
 
   session.onData((data: string) => {
     window.terminalAPI.exitCopyMode(tmuxName);
+    // In broadcast mode, also send to all OTHER broadcast panes
+    if (broadcastMode && broadcastPtyIds.size > 1) {
+      for (const broadcastPtyId of broadcastPtyIds) {
+        if (broadcastPtyId !== ptyId) {
+          window.terminalAPI.writePty(broadcastPtyId, data);
+        }
+      }
+    }
     window.terminalAPI.writePty(ptyId, data);
   });
 
@@ -330,7 +549,7 @@ async function createPaneSession(
 async function createNewTab(
   label?: string,
   tmuxSession?: string
-): Promise<void> {
+): Promise<number | null> {
   const displayLabel = label || `Terminal ${sessionCounter}`;
 
   const tabContainer = document.createElement("div");
@@ -359,9 +578,11 @@ async function createNewTab(
     addSidebarEntry(tabId, displayLabel);
     switchToTab(tabId);
     saveSessionMetadata();
+    return tabId;
   } catch (err: any) {
     console.error("[renderer] Failed to create tab:", err?.message || err);
     tabContainer.remove();
+    return null;
   }
 }
 
@@ -503,7 +724,8 @@ function closePaneByPtyId(ptyId: number): void {
   const siblingIndex = parentInfo.index === 0 ? 1 : 0;
   const sibling = parentInfo.parent.children[siblingIndex];
 
-  // Replace split element with sibling in DOM
+  // Replace split element with sibling in DOM and reset flex so it fills the space
+  sibling.element.style.flex = "1 1 0px";
   parentInfo.parent.element.replaceWith(sibling.element);
 
   // Update tree
@@ -515,6 +737,11 @@ function closePaneByPtyId(ptyId: number): void {
   }
 
   // Clean up closed pane
+  const interval = commandPollIntervals.get(ptyId);
+  if (interval) {
+    clearInterval(interval);
+    commandPollIntervals.delete(ptyId);
+  }
   window.terminalAPI.destroyPty(ptyId);
   sessions.get(ptyId)?.dispose();
   sessions.delete(ptyId);
@@ -551,6 +778,11 @@ function closeTab(tabId: number): void {
 
   // Destroy all panes
   for (const leaf of getAllLeaves(tab.root)) {
+    const interval = commandPollIntervals.get(leaf.ptyId);
+    if (interval) {
+      clearInterval(interval);
+      commandPollIntervals.delete(leaf.ptyId);
+    }
     window.terminalAPI.destroyPty(leaf.ptyId);
     leaf.session.dispose();
     sessions.delete(leaf.ptyId);
@@ -613,11 +845,12 @@ async function saveSessionMetadata(): Promise<void> {
     const tab = tabMap.get(tabId)!;
     savedTabs.push({
       label: tabLabels.get(tabId) || `Terminal ${i + 1}`,
+      cluster: tabClusters.get(tabId),
       layout: serializePaneTree(tab.root),
     });
   }
 
-  const state: SavedStateV2 = { version: 2, tabs: savedTabs, activeTabIndex };
+  const state: SavedStateV2 = { version: 3, tabs: savedTabs, activeTabIndex };
   await window.terminalAPI.saveSessions(JSON.stringify(state));
 }
 
@@ -682,9 +915,9 @@ async function restoreFromTmux(): Promise<boolean> {
       if (parsed.version === 2) {
         savedState = parsed;
       } else if (parsed.sessions) {
-        // Convert V1 → V2
+        // Convert V1 → V3
         savedState = {
-          version: 2,
+          version: 3,
           tabs: parsed.sessions.map((s: any) => ({
             label: s.label,
             layout: { type: "leaf", tmuxName: s.tmuxName } as SavedPaneLeaf,
@@ -750,6 +983,9 @@ async function restoreFromTmux(): Promise<boolean> {
 
       tabMap.set(tabId, tab);
       tabLabels.set(tabId, savedTab.label);
+      if (savedTab.cluster) {
+        tabClusters.set(tabId, savedTab.cluster);
+      }
       addSidebarEntry(tabId, savedTab.label);
     }
   }
@@ -910,11 +1146,94 @@ notesInput.addEventListener("keydown", (e) => {
 });
 
 // --- Sidebar Management ---
+let draggedTabId: number | null = null;
 
 function addSidebarEntry(tabId: number, label: string): void {
+  addSidebarEntryDOM(tabId, label);
+  // Check for existing notes
+  const tmuxName = getTabTmuxName(tabId);
+  if (tmuxName) {
+    window.terminalAPI.loadNotes(tmuxName).then((notes) => {
+      if (notes.length > 0) {
+        sessionNotesCache.set(tabId, notes);
+        updateNoteIndicator(tabId, true);
+      }
+    });
+  }
+}
+
+function reorderTabs(fromTabId: number, toTabId: number): void {
+  const fromLi = terminalList.querySelector(`[data-id="${fromTabId}"]`);
+  const toLi = terminalList.querySelector(`[data-id="${toTabId}"]`);
+  if (!fromLi || !toLi || fromLi === toLi) return;
+
+  // Get current order of sidebar entries
+  const entries = Array.from(terminalList.querySelectorAll(".terminal-entry")) as HTMLLIElement[];
+  const fromIndex = entries.findIndex(el => el.dataset.id === String(fromTabId));
+  const toIndex = entries.findIndex(el => el.dataset.id === String(toTabId));
+  if (fromIndex === -1 || toIndex === -1) return;
+
+  // Reorder in DOM
+  if (fromIndex < toIndex) {
+    toLi.parentNode?.insertBefore(fromLi, toLi.nextSibling);
+  } else {
+    toLi.parentNode?.insertBefore(fromLi, toLi);
+  }
+
+  // Update active indicator if needed
+  if (activeTabId !== null) {
+    updateSidebarActive(activeTabId);
+  }
+
+  saveSessionMetadata();
+}
+
+function renderSidebar(): void {
+  terminalList.innerHTML = "";
+
+  // Get tabs in DOM order
+  const entries = Array.from(terminalList.querySelectorAll(".terminal-entry"));
+  const orderedTabIds = entries.map(el => Number(el.getAttribute("data-id"))).filter(id => !isNaN(id));
+
+  // Group tabs by cluster
+  const clusters = new Map<string, number[]>();
+  const noCluster: number[] = [];
+
+  for (const tabId of orderedTabIds) {
+    const cluster = tabClusters.get(tabId);
+    if (cluster) {
+      if (!clusters.has(cluster)) clusters.set(cluster, []);
+      clusters.get(cluster)!.push(tabId);
+    } else {
+      noCluster.push(tabId);
+    }
+  }
+
+  // Render no-cluster tabs first
+  for (const tabId of noCluster) {
+    const label = tabLabels.get(tabId) || `Terminal ${tabId}`;
+    addSidebarEntryDOM(tabId, label);
+  }
+
+  // Render clusters
+  for (const [clusterName, tabIds] of clusters) {
+    const header = document.createElement("li");
+    header.className = "sidebar-cluster-header";
+    header.textContent = clusterName;
+    terminalList.appendChild(header);
+
+    for (const tabId of tabIds) {
+      const label = tabLabels.get(tabId) || `Terminal ${tabId}`;
+      addSidebarEntryDOM(tabId, label);
+    }
+  }
+}
+
+function addSidebarEntryDOM(tabId: number, label: string): void {
   const li = document.createElement("li");
   li.dataset.id = String(tabId);
   li.className = "terminal-entry";
+  li.draggable = true;
   li.innerHTML = `
     <span class="terminal-label">${label}</span>
     <div class="terminal-entry-actions">
@@ -925,11 +1244,18 @@ function addSidebarEntry(tabId: number, label: string): void {
 
   const labelEl = li.querySelector(".terminal-label") as HTMLSpanElement;
 
-  li.addEventListener("click", () => switchToTab(tabId));
+  li.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest(".terminal-label")) return;
+    switchToTab(tabId);
+  });
 
-  labelEl.addEventListener("dblclick", (e) => {
-    e.stopPropagation();
-    startRename(tabId, li, labelEl);
+  labelEl.addEventListener("click", (e) => {
+    if (e.detail === 2) {
+      e.preventDefault();
+      e.stopPropagation();
+      startRename(tabId, li, labelEl);
+    }
   });
 
   li.querySelector(".btn-notes")!.addEventListener("click", (e) => {
@@ -942,18 +1268,35 @@ function addSidebarEntry(tabId: number, label: string): void {
     closeTab(tabId);
   });
 
-  terminalList.appendChild(li);
+  li.addEventListener("dragstart", (e) => {
+    draggedTabId = tabId;
+    li.style.opacity = "0.5";
+    e.dataTransfer?.setData("text/plain", String(tabId));
+  });
 
-  // Check for existing notes
-  const tmuxName = getTabTmuxName(tabId);
-  if (tmuxName) {
-    window.terminalAPI.loadNotes(tmuxName).then((notes) => {
-      if (notes.length > 0) {
-        sessionNotesCache.set(tabId, notes);
-        updateNoteIndicator(tabId, true);
-      }
-    });
-  }
+  li.addEventListener("dragend", () => {
+    li.style.opacity = "1";
+    draggedTabId = null;
+  });
+
+  li.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (draggedTabId === null || draggedTabId === tabId) return;
+    li.style.borderTop = "2px solid #007aff";
+  });
+
+  li.addEventListener("dragleave", () => {
+    li.style.borderTop = "";
+  });
+
+  li.addEventListener("drop", (e) => {
+    e.preventDefault();
+    li.style.borderTop = "";
+    if (draggedTabId === null || draggedTabId === tabId) return;
+    reorderTabs(draggedTabId, tabId);
+  });
+
+  terminalList.appendChild(li);
 }
 
 function startRename(
@@ -978,7 +1321,6 @@ function startRename(
     labelEl.style.display = "";
     input.remove();
     tabLabels.set(tabId, newName);
-
     saveSessionMetadata();
   };
 
@@ -1027,6 +1369,25 @@ function hideContextMenu(): void {
   contextMenu.classList.add("hidden");
 }
 
+function updateBroadcastIndicator(): void {
+  const indicator = document.getElementById("broadcast-indicator");
+  if (!indicator) return;
+  if (broadcastMode && broadcastPtyIds.size > 0) {
+    indicator.classList.remove("hidden");
+  } else {
+    indicator.classList.add("hidden");
+  }
+  // Update context menu item label
+  const activeTab = activeTabId !== null ? tabMap.get(activeTabId) : null;
+  if (activeTab) {
+    const broadcastItem = contextMenu.querySelector('[data-action="toggle-broadcast"]');
+    if (broadcastItem) {
+      const isInBroadcast = broadcastPtyIds.has(activeTab.focusedPtyId);
+      broadcastItem.textContent = isInBroadcast ? "◎ Broadcast ✓" : "◎ Broadcast";
+    }
+  }
+}
+
 terminalPane.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   if (activeTabId === null) return;
@@ -1038,7 +1399,122 @@ document.addEventListener("mousedown", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") hideContextMenu();
+  if (e.key === "Escape") {
+    hideContextMenu();
+    hideCommandPalette();
+  }
+  // Cmd+Shift+P: command palette
+  if (e.key === "p" && e.metaKey && e.shiftKey) {
+    e.preventDefault();
+    showCommandPalette();
+    return;
+  }
+  // Cmd+F: search in terminal
+  if (e.key === "f" && e.metaKey && !e.shiftKey && !e.ctrlKey) {
+    e.preventDefault();
+    showSearchBar();
+    return;
+  }
+  // Cmd+Plus: increase font size
+  if ((e.key === "+" || e.key === "=") && e.metaKey && !e.shiftKey) {
+    e.preventDefault();
+    for (const session of sessions.values()) {
+      session.increaseFontSize();
+    }
+    return;
+  }
+  // Cmd+Minus: decrease font size
+  if (e.key === "-" && e.metaKey) {
+    e.preventDefault();
+    for (const session of sessions.values()) {
+      session.decreaseFontSize();
+    }
+    return;
+  }
+  // Cmd+0: reset font size
+  if (e.key === "0" && e.metaKey) {
+    e.preventDefault();
+    for (const session of sessions.values()) {
+      session.setFontSize(12);
+    }
+    return;
+  }
+  // Cmd+N: new terminal
+  if (e.key === "n" && e.metaKey && !e.shiftKey && !e.ctrlKey) {
+    e.preventDefault();
+    showNameDialog().then(name => { if (name !== null) createNewTab(name); });
+    return;
+  }
+  // Cmd+Arrow: navigate between panes
+  if (activeTabId !== null) {
+    const tab = tabMap.get(activeTabId);
+    if (tab) {
+      const tmuxName = sessionTmuxNames.get(tab.focusedPtyId);
+      if (tmuxName) {
+        if (e.key === "ArrowLeft" && e.metaKey && !e.shiftKey) {
+          e.preventDefault();
+          window.terminalAPI.navigatePane(tmuxName, "L");
+          return;
+        }
+        if (e.key === "ArrowRight" && e.metaKey && !e.shiftKey) {
+          e.preventDefault();
+          window.terminalAPI.navigatePane(tmuxName, "R");
+          return;
+        }
+        if (e.key === "ArrowUp" && e.metaKey && !e.shiftKey) {
+          e.preventDefault();
+          window.terminalAPI.navigatePane(tmuxName, "U");
+          return;
+        }
+        if (e.key === "ArrowDown" && e.metaKey && !e.shiftKey) {
+          e.preventDefault();
+          window.terminalAPI.navigatePane(tmuxName, "D");
+          return;
+        }
+      }
+    }
+  }
+
+  // Cmd+Shift+G: set cluster/project name for current tab
+  if (e.key === "g" && e.metaKey && e.shiftKey) {
+    e.preventDefault();
+    if (activeTabId === null) return;
+    const currentTabId = activeTabId;
+    const currentCluster = tabClusters.get(currentTabId) || "";
+    showClusterDialog(currentCluster).then(name => {
+      if (name === null) return;
+      if (name === "") {
+        tabClusters.delete(currentTabId);
+      } else {
+        tabClusters.set(currentTabId, name);
+      }
+      saveSessionMetadata();
+      renderSidebar();
+    });
+    return;
+  }
+  // Cmd+Shift+S: open SSH profiles panel
+  if (e.key === "s" && e.metaKey && e.shiftKey) {
+    e.preventDefault();
+    showSshPanel();
+    return;
+  }
+  // Cmd+Shift+Enter: toggle broadcast on focused pane
+  if (e.key === "Enter" && e.metaKey && e.shiftKey) {
+    e.preventDefault();
+    if (activeTabId === null) return;
+    const tab = tabMap.get(activeTabId);
+    if (!tab) return;
+    const ptyId = tab.focusedPtyId;
+    if (broadcastPtyIds.has(ptyId)) {
+      broadcastPtyIds.delete(ptyId);
+      if (broadcastPtyIds.size === 0) broadcastMode = false;
+    } else {
+      broadcastPtyIds.add(ptyId);
+      broadcastMode = true;
+    }
+    updateBroadcastIndicator();
+  }
 });
 
 contextMenu.addEventListener("click", async (e) => {
@@ -1057,11 +1533,201 @@ contextMenu.addEventListener("click", async (e) => {
     case "split-vertical":
       await splitFocusedPane("vertical");
       break;
+    case "toggle-broadcast": {
+      const tab = tabMap.get(activeTabId);
+      if (!tab) break;
+      const ptyId = tab.focusedPtyId;
+      if (broadcastPtyIds.has(ptyId)) {
+        broadcastPtyIds.delete(ptyId);
+        if (broadcastPtyIds.size === 0) {
+          broadcastMode = false;
+        }
+      } else {
+        broadcastPtyIds.add(ptyId);
+        broadcastMode = true;
+      }
+      updateBroadcastIndicator();
+      break;
+    }
     case "close-pane": {
       const tab = tabMap.get(activeTabId);
       if (tab) closePaneByPtyId(tab.focusedPtyId);
       break;
     }
+  }
+});
+
+// --- Command Palette ---
+
+interface Command {
+  id: string;
+  label: string;
+  shortcut?: string;
+  action: () => void | Promise<void>;
+}
+
+const commands: Command[] = [
+  { id: "split-h", label: "Split Horizontal", shortcut: "", action: () => splitFocusedPane("horizontal") },
+  { id: "split-v", label: "Split Vertical", shortcut: "", action: () => splitFocusedPane("vertical") },
+  { id: "close-pane", label: "Close Pane", shortcut: "", action: () => {
+    if (activeTabId !== null) {
+      const tab = tabMap.get(activeTabId);
+      if (tab) closePaneByPtyId(tab.focusedPtyId);
+    }
+  }},
+  { id: "toggle-broadcast", label: "Toggle Broadcast", shortcut: "⌘⇧↵", action: () => {
+    if (activeTabId === null) return;
+    const tab = tabMap.get(activeTabId);
+    if (!tab) return;
+    const ptyId = tab.focusedPtyId;
+    if (broadcastPtyIds.has(ptyId)) {
+      broadcastPtyIds.delete(ptyId);
+      if (broadcastPtyIds.size === 0) broadcastMode = false;
+    } else {
+      broadcastPtyIds.add(ptyId);
+      broadcastMode = true;
+    }
+    updateBroadcastIndicator();
+  }},
+  { id: "new-terminal", label: "New Terminal", shortcut: "⌘N", action: async () => {
+    const name = await showNameDialog();
+    if (name !== null) await createNewTab(name);
+  }},
+  { id: "open-notes", label: "Open Notes", shortcut: "", action: () => {
+    if (activeTabId !== null) openNotesPanel(activeTabId);
+  }},
+  { id: "close-notes", label: "Close Notes", shortcut: "", action: () => closeNotesPanel() },
+{ id: "open-ssh", label: "Open SSH Profiles", shortcut: "⌘⇧S", action: () => showSshPanel() },
+];
+
+const commandPalette = document.getElementById("command-palette")!;
+const commandInput = document.getElementById("command-input") as HTMLInputElement;
+const commandList = document.getElementById("command-list")!;
+let selectedIndex = 0;
+
+function showCommandPalette(): void {
+  commandPalette.classList.remove("hidden");
+  commandInput.value = "";
+  selectedIndex = 0;
+  renderCommandList("");
+  commandInput.focus();
+  hideContextMenu();
+}
+
+function hideCommandPalette(): void {
+  commandPalette.classList.add("hidden");
+}
+
+function renderCommandList(filter: string): void {
+  const filtered = filter
+    ? commands.filter(c => c.label.toLowerCase().includes(filter.toLowerCase()))
+    : commands;
+  commandList.innerHTML = "";
+  filtered.forEach((cmd, i) => {
+    const item = document.createElement("div");
+    item.className = "command-item" + (i === selectedIndex ? " selected" : "");
+    item.innerHTML = `<span>${cmd.label}</span><span class="command-item-shortcut">${cmd.shortcut}</span>`;
+    item.addEventListener("click", () => {
+      cmd.action();
+      hideCommandPalette();
+    });
+    commandList.appendChild(item);
+  });
+}
+
+commandInput.addEventListener("input", () => {
+  selectedIndex = 0;
+  renderCommandList(commandInput.value);
+});
+
+commandInput.addEventListener("keydown", (e) => {
+  const items = commandList.querySelectorAll(".command-item");
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+    renderCommandList(commandInput.value);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    selectedIndex = Math.max(selectedIndex - 1, 0);
+    renderCommandList(commandInput.value);
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    const filtered = commandInput.value
+      ? commands.filter(c => c.label.toLowerCase().includes(commandInput.value.toLowerCase()))
+      : commands;
+    if (filtered[selectedIndex]) {
+      filtered[selectedIndex].action();
+    }
+    hideCommandPalette();
+  } else if (e.key === "Escape") {
+    hideCommandPalette();
+  }
+});
+
+commandPalette.addEventListener("click", (e) => {
+  if (e.target === commandPalette) hideCommandPalette();
+});
+
+// --- Search Bar (tmux copy-mode search) ---
+const searchBar = document.getElementById("search-bar")!;
+const searchInput = document.getElementById("search-input") as HTMLInputElement;
+const searchCount = document.getElementById("search-count")!;
+const searchPrev = document.getElementById("search-prev")!;
+const searchNext = document.getElementById("search-next")!;
+const searchClose = document.getElementById("search-close")!;
+let searchTmuxName: string | null = null;
+
+function showSearchBar(): void {
+  if (activeTabId === null) return;
+  const tab = tabMap.get(activeTabId);
+  if (!tab) return;
+  searchTmuxName = sessionTmuxNames.get(tab.focusedPtyId) || null;
+  if (!searchTmuxName) return;
+  searchBar.classList.remove("hidden");
+  searchInput.value = "";
+  searchCount.textContent = "";
+  searchInput.focus();
+  hideContextMenu();
+  // Enter copy-mode for search
+  window.terminalAPI.scrollTmux(searchTmuxName, "up", 0);
+}
+
+function hideSearchBar(): void {
+  searchBar.classList.add("hidden");
+  if (searchTmuxName) {
+    window.terminalAPI.exitCopyMode(searchTmuxName);
+    searchTmuxName = null;
+  }
+}
+
+function doSearch(direction: "next" | "prev"): void {
+  const query = searchInput.value;
+  if (!query || !searchTmuxName) return;
+  // tmux search: send search string via copy-mode
+  window.terminalAPI.exitCopyMode(searchTmuxName);
+  setTimeout(() => {
+    // In copy-mode, send the search query character by character
+    for (const char of query) {
+      window.terminalAPI.sendTmuxKey(searchTmuxName!, char);
+    }
+    window.terminalAPI.scrollTmux(searchTmuxName!, direction === "next" ? "down" : "up", 1);
+  }, 50);
+}
+
+searchInput.addEventListener("input", () => {
+  doSearch("next");
+});
+
+searchPrev.addEventListener("click", () => doSearch("prev"));
+searchNext.addEventListener("click", () => doSearch("next"));
+searchClose.addEventListener("click", hideSearchBar);
+
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    doSearch(e.shiftKey ? "prev" : "next");
+  } else if (e.key === "Escape") {
+    hideSearchBar();
   }
 });
 
@@ -1097,6 +1763,7 @@ window.terminalAPI.onBeforeQuit(async () => {
 const statusBarEl = document.getElementById("statusbar")!;
 const usage5h = document.getElementById("usage-5h")!;
 const usage7d = document.getElementById("usage-7d")!;
+const processInfoEl = document.getElementById("process-info")!;
 let usageLoading = false;
 
 function getUsageColorClass(utilization: number): string {
@@ -1180,6 +1847,32 @@ statusBarEl.addEventListener("click", () => {
 setInterval(() => {
   refreshUsage();
 }, 5 * 60 * 1000);
+
+// Poll process info every 2 seconds
+async function refreshProcessInfo(): Promise<void> {
+  if (activeTabId === null) return;
+  const tab = tabMap.get(activeTabId);
+  if (!tab) return;
+  const tmuxName = sessionTmuxNames.get(tab.focusedPtyId);
+  if (!tmuxName) return;
+
+  try {
+    const info = await window.terminalAPI.getProcessInfo(tmuxName);
+    if (info.cpu > 0 || info.memory > 0) {
+      processInfoEl.textContent = `CPU ${info.cpu.toFixed(1)}% | MEM ${info.memory.toFixed(1)}%`;
+      processInfoEl.style.color = info.cpu > 80 ? "#cc3333" : info.cpu > 50 ? "#ccaa00" : "#808080";
+    } else {
+      processInfoEl.textContent = "--";
+      processInfoEl.style.color = "#808080";
+    }
+  } catch {
+    processInfoEl.textContent = "--";
+  }
+}
+
+setInterval(() => {
+  refreshProcessInfo();
+}, 2000);
 
 // --- Init ---
 

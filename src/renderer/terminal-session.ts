@@ -7,6 +7,7 @@ class TerminalSession {
   public readonly container: HTMLElement;
   private fitAddon: any;
   private serializeAddon: any;
+  private fontSize: number = 12;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -17,7 +18,7 @@ class TerminalSession {
 
     this.terminal = new (window as any).Terminal({
       cursorBlink: true,
-      fontSize: 12,
+      fontSize: this.fontSize,
       fontFamily:
         "'SF Mono', Menlo, Monaco, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', monospace",
       scrollback: 0,
@@ -128,6 +129,24 @@ class TerminalSession {
 
   focus(): void {
     this.terminal.focus();
+  }
+
+  getFontSize(): number {
+    return this.fontSize;
+  }
+
+  setFontSize(size: number): void {
+    this.fontSize = Math.max(8, Math.min(24, size));
+    this.terminal.options.fontSize = this.fontSize;
+    this.fit();
+  }
+
+  increaseFontSize(): void {
+    this.setFontSize(this.fontSize + 1);
+  }
+
+  decreaseFontSize(): void {
+    this.setFontSize(this.fontSize - 1);
   }
 
   write(data: string): void {

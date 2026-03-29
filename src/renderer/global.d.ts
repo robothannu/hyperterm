@@ -54,8 +54,25 @@ interface TerminalAPI {
   navigatePane(tmuxName: string, direction: "U" | "D" | "L" | "R"): Promise<void>;
   scrollTmux(tmuxName: string, direction: "up" | "down", lines: number): void;
   exitCopyMode(tmuxName: string): void;
+  sendTmuxKey(tmuxName: string, key: string): void;
   renameTmuxSession(oldName: string, newName: string): Promise<string>;
+  getTmuxSessionName(tmuxName: string): Promise<string>;
+  getPaneCommand(tmuxName: string): Promise<string>;
+  getProcessInfo(tmuxName: string): Promise<{ cpu: number; memory: number }>;
   fetchUsage(): Promise<UsageResult>;
+  listSshProfiles(): Promise<SshProfile[]>;
+  saveSshProfile(profile: SshProfile): Promise<boolean>;
+  deleteSshProfile(id: string): Promise<boolean>;
+  getSshCommand(profile: SshProfile): Promise<string>;
+}
+
+interface SshProfile {
+  id: string;
+  name: string;
+  host: string;
+  user: string;
+  port: number;
+  keyFile?: string;
 }
 
 interface Window {

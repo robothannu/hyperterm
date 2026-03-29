@@ -10,6 +10,7 @@ let isQuitting = false;
 
 const sessionsFilePath = path.join(app.getPath("userData"), "sessions.json");
 const notesFilePath = path.join(app.getPath("userData"), "notes.json");
+const sshProfilesFilePath = path.join(app.getPath("userData"), "ssh-profiles.json");
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -175,6 +176,57 @@ ipcMain.handle("notes:deleteSession", (_event, tmuxName: string) => {
   writeNotes(all);
 });
 
+// --- SSH Profiles IPC ---
+
+interface SshProfile {
+  id: string;
+  name: string;
+  host: string;
+  user: string;
+  port: number;
+  keyFile?: string;
+}
+
+function readSshProfiles(): SshProfile[] {
+  try {
+    if (fs.existsSync(sshProfilesFilePath)) {
+      return JSON.parse(fs.readFileSync(sshProfilesFilePath, "utf8"));
+    }
+  } catch { /* ignore */ }
+  return [];
+}
+
+function writeSshProfiles(profiles: SshProfile[]): void {
+  fs.writeFileSync(sshProfilesFilePath, JSON.stringify(profiles, null, 2), "utf8");
+}
+
+ipcMain.handle("ssh:listProfiles", () => {
+  return readSshProfiles();
+});
+
+ipcMain.handle("ssh:saveProfile", (_event, profile: SshProfile) => {
+  const profiles = readSshProfiles();
+  const idx = profiles.findIndex(p => p.id === profile.id);
+  if (idx >= 0) {
+    profiles[idx] = profile;
+  } else {
+    profiles.push(profile);
+  }
+  writeSshProfiles(profiles);
+  return true;
+});
+
+ipcMain.handle("ssh:deleteProfile", (_event, id: string) => {
+  const profiles = readSshProfiles().filter(p => p.id !== id);
+  writeSshProfiles(profiles);
+  return true;
+});
+
+ipcMain.handle("ssh:getSshCommand", (_event, profile: SshProfile) => {
+  const keyFlag = profile.keyFile ? ` -i "${profile.keyFile}"` : "";
+  return `ssh${keyFlag} ${profile.user}@${profile.host} -p ${profile.port}`;
+});
+
 // --- Usage IPC ---
 
 function getOAuthToken(): string | null {
@@ -268,8 +320,25 @@ ipcMain.on("tmux:exitCopyMode", (_event, tmuxName: string) => {
   PtyManager.exitCopyMode(tmuxName);
 });
 
+ipcMain.on("tmux:sendKey", (_event, tmuxName: string, key: string) => {
+  PtyManager.sendTmuxKey(tmuxName, key);
+});
+
 ipcMain.handle("tmux:renameSession", (_event, oldName: string, newName: string) => {
   return PtyManager.renameTmuxSession(oldName, newName);
+});
+
+ipcMain.handle("tmux:getSessionName", (_event, tmuxName: string) => {
+  return PtyManager.getTmuxSessionName(tmuxName);
+});
+
+ipcMain.handle("tmux:getPaneCommand", (_event, tmuxName: string) => {
+  return PtyManager.getTmuxPaneCurrentCommand(tmuxName);
+});
+
+ipcMain.handle("tmux:getProcessInfo", (_event, tmuxName: string) => {
+  const pid = PtyManager.getTmuxPanePid(tmuxName);
+  return PtyManager.getProcessInfo(pid);
 });
 
 // Renderer signals that session metadata has been saved — safe to quit

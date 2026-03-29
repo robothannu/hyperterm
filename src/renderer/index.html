@@ -15,6 +15,7 @@
     <div id="titlebar">
       <div id="titlebar-drag"></div>
       <span id="titlebar-title">HyperTerm</span>
+      <span id="broadcast-indicator" class="hidden">Broadcast</span>
     </div>
     <div id="main-area">
       <aside id="sidebar">
@@ -30,6 +31,8 @@
       <span id="usage-5h" class="usage-metric" title="">5h: --%</span>
       <span class="usage-sep">|</span>
       <span id="usage-7d" class="usage-metric" title="">7d: --%</span>
+      <span class="statusbar-sep">|</span>
+      <span id="process-info" class="process-info" title="CPU / Memory">--</span>
     </div>
   </div>
   <!-- Notes Panel -->
@@ -48,7 +51,7 @@
   <!-- New Terminal Name Modal -->
   <div id="modal-overlay" class="modal-overlay hidden">
     <div class="modal-dialog">
-      <div class="modal-title">New Terminal</div>
+      <div class="modal-title" id="modal-title">New Terminal</div>
       <input id="modal-input" type="text" class="modal-input" placeholder="Terminal name" autocomplete="off" spellcheck="false" />
       <div class="modal-buttons">
         <button id="modal-cancel" class="modal-btn modal-btn-cancel">Cancel</button>
@@ -57,10 +60,72 @@
     </div>
   </div>
 
+  <!-- Cluster Name Modal -->
+  <div id="cluster-modal" class="modal-overlay hidden">
+    <div class="modal-dialog">
+      <div class="modal-title">Set Project / Cluster</div>
+      <input id="cluster-input" type="text" class="modal-input" placeholder="Project name (e.g., backend, frontend)" autocomplete="off" spellcheck="false" />
+      <div class="modal-buttons">
+        <button id="cluster-cancel" class="modal-btn modal-btn-cancel">Cancel</button>
+        <button id="cluster-clear" class="modal-btn modal-btn-cancel">Clear</button>
+        <button id="cluster-ok" class="modal-btn modal-btn-ok">Set</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SSH Profiles Panel -->
+  <div id="ssh-panel" class="ssh-panel hidden">
+    <div class="ssh-header">
+      <span class="ssh-title">SSH Profiles</span>
+      <button id="ssh-close" class="notes-close-btn">&times;</button>
+    </div>
+    <div id="ssh-list" class="ssh-list"></div>
+    <div class="ssh-add-area">
+      <button id="ssh-add-btn" class="modal-btn modal-btn-ok">+ Add Profile</button>
+    </div>
+  </div>
+
+  <!-- SSH Profile Edit Modal -->
+  <div id="ssh-modal" class="modal-overlay hidden">
+    <div class="modal-dialog">
+      <div class="modal-title" id="ssh-modal-title">Add SSH Profile</div>
+      <div class="ssh-form">
+        <input id="ssh-name" type="text" class="modal-input" placeholder="Profile name" autocomplete="off" />
+        <input id="ssh-host" type="text" class="modal-input" placeholder="Host (e.g., 192.168.1.1)" autocomplete="off" />
+        <input id="ssh-user" type="text" class="modal-input" placeholder="User" autocomplete="off" />
+        <input id="ssh-port" type="number" class="modal-input" placeholder="Port (default 22)" value="22" autocomplete="off" />
+        <input id="ssh-key" type="text" class="modal-input" placeholder="Key file (optional)" autocomplete="off" />
+      </div>
+      <div class="modal-buttons">
+        <button id="ssh-modal-cancel" class="modal-btn modal-btn-cancel">Cancel</button>
+        <button id="ssh-modal-save" class="modal-btn modal-btn-ok">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command Palette -->
+  <div id="command-palette" class="command-palette hidden">
+    <div class="command-palette-input-wrap">
+      <input id="command-input" type="text" placeholder="Type a command..." autocomplete="off" spellcheck="false" />
+    </div>
+    <div id="command-list"></div>
+  </div>
+
+  <!-- Search Bar (tmux copy-mode search) -->
+  <div id="search-bar" class="search-bar hidden">
+    <input id="search-input" type="text" placeholder="Search..." autocomplete="off" spellcheck="false" />
+    <span id="search-count"></span>
+    <button id="search-prev">↑</button>
+    <button id="search-next">↓</button>
+    <button id="search-close">✕</button>
+  </div>
+
   <!-- Context Menu -->
   <div id="terminal-context-menu" class="context-menu hidden">
     <div class="context-menu-item" data-action="split-horizontal">↔ 좌우 분할</div>
     <div class="context-menu-item" data-action="split-vertical">↕ 상하 분할</div>
+    <div class="context-menu-separator"></div>
+    <div class="context-menu-item" data-action="toggle-broadcast">◎ Broadcast</div>
     <div class="context-menu-separator"></div>
     <div class="context-menu-item context-menu-danger" data-action="close-pane">✕ Pane 닫기</div>
   </div>
