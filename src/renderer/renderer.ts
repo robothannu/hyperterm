@@ -68,8 +68,6 @@ const commandPollIntervals = new Map<number, ReturnType<typeof setInterval>>();
 const tabClusters = new Map<number, string>();
 let activeTabId: number | null = null;
 let sessionCounter = 0;
-let broadcastMode = false;
-const broadcastPtyIds = new Set<number>();
 
 const terminalPane = document.getElementById("terminal-pane")!;
 const terminalList = document.getElementById("terminal-list")!;
@@ -83,52 +81,8 @@ const modalOk = document.getElementById("modal-ok")!;
 const modalCancel = document.getElementById("modal-cancel")!;
 
 function showNameDialog(): Promise<string | null> {
-  return new Promise((resolve) => {
-    sessionCounter++;
-    modalInput.value = `Terminal ${sessionCounter}`;
-    modalOverlay.classList.remove("hidden");
-    modalInput.focus();
-    modalInput.select();
-
-    function cleanup() {
-      modalOverlay.classList.add("hidden");
-      modalOk.removeEventListener("click", onOk);
-      modalCancel.removeEventListener("click", onCancel);
-      modalInput.removeEventListener("keydown", onKey);
-      modalOverlay.removeEventListener("click", onOverlay);
-    }
-
-    function onOk() {
-      const name = modalInput.value.trim() || `Terminal ${sessionCounter}`;
-      cleanup();
-      resolve(name);
-    }
-
-    function onCancel() {
-      sessionCounter--;
-      cleanup();
-      resolve(null);
-    }
-
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        onOk();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel();
-      }
-    }
-
-    function onOverlay(e: MouseEvent) {
-      if (e.target === modalOverlay) onCancel();
-    }
-
-    modalOk.addEventListener("click", onOk);
-    modalCancel.addEventListener("click", onCancel);
-    modalInput.addEventListener("keydown", onKey);
-    modalOverlay.addEventListener("click", onOverlay);
-  });
+  sessionCounter++;
+  return Promise.resolve(`Terminal ${sessionCounter}`);
 }
 
 // Cluster modal
@@ -137,122 +91,6 @@ const clusterInput = document.getElementById("cluster-input") as HTMLInputElemen
 const clusterOk = document.getElementById("cluster-ok")!;
 const clusterCancel = document.getElementById("cluster-cancel")!;
 const clusterClear = document.getElementById("cluster-clear")!;
-
-// SSH Panel
-const sshPanel = document.getElementById("ssh-panel")!;
-const sshList = document.getElementById("ssh-list")!;
-const sshCloseBtn = document.getElementById("ssh-close")!;
-const sshAddBtn = document.getElementById("ssh-add-btn")!;
-const sshModal = document.getElementById("ssh-modal")!;
-const sshModalTitle = document.getElementById("ssh-modal-title")!;
-const sshNameInput = document.getElementById("ssh-name") as HTMLInputElement;
-const sshHostInput = document.getElementById("ssh-host") as HTMLInputElement;
-const sshUserInput = document.getElementById("ssh-user") as HTMLInputElement;
-const sshPortInput = document.getElementById("ssh-port") as HTMLInputElement;
-const sshKeyInput = document.getElementById("ssh-key") as HTMLInputElement;
-const sshModalCancel = document.getElementById("ssh-modal-cancel")!;
-const sshModalSave = document.getElementById("ssh-modal-save")!;
-
-let editingSshProfileId: string | null = null;
-
-function showSshPanel(): void {
-  sshPanel.classList.remove("hidden");
-  loadAndRenderSshProfiles();
-}
-
-function hideSshPanel(): void {
-  sshPanel.classList.add("hidden");
-}
-
-async function loadAndRenderSshProfiles(): Promise<void> {
-  const profiles = await window.terminalAPI.listSshProfiles();
-  sshList.innerHTML = "";
-  for (const profile of profiles) {
-    const item = document.createElement("div");
-    item.className = "ssh-item";
-    item.innerHTML = `
-      <div class="ssh-item-info">
-        <span class="ssh-item-name">${profile.name}</span>
-        <span class="ssh-item-host">${profile.user}@${profile.host}:${profile.port}</span>
-      </div>
-      <button class="ssh-item-delete" data-id="${profile.id}">✕</button>
-    `;
-    item.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).classList.contains("ssh-item-delete")) {
-        e.stopPropagation();
-        deleteSshProfile(profile.id);
-      } else {
-        connectSshProfile(profile);
-      }
-    });
-    sshList.appendChild(item);
-  }
-}
-
-function showSshModal(profile?: SshProfile): void {
-  editingSshProfileId = profile?.id ?? null;
-  sshModalTitle.textContent = profile ? "Edit SSH Profile" : "Add SSH Profile";
-  sshNameInput.value = profile?.name ?? "";
-  sshHostInput.value = profile?.host ?? "";
-  sshUserInput.value = profile?.user ?? "";
-  sshPortInput.value = profile?.port?.toString() ?? "22";
-  sshKeyInput.value = profile?.keyFile ?? "";
-  sshModal.classList.remove("hidden");
-  sshNameInput.focus();
-}
-
-function hideSshModal(): void {
-  sshModal.classList.add("hidden");
-  editingSshProfileId = null;
-}
-
-async function saveSshProfile(): Promise<void> {
-  const name = sshNameInput.value.trim();
-  const host = sshHostInput.value.trim();
-  const user = sshUserInput.value.trim();
-  const port = parseInt(sshPortInput.value) || 22;
-  const keyFile = sshKeyInput.value.trim();
-
-  if (!name || !host || !user) return;
-
-  const profile: SshProfile = {
-    id: editingSshProfileId || crypto.randomUUID(),
-    name,
-    host,
-    user,
-    port,
-    keyFile: keyFile || undefined,
-  };
-
-  await window.terminalAPI.saveSshProfile(profile);
-  hideSshModal();
-  loadAndRenderSshProfiles();
-}
-
-async function deleteSshProfile(id: string): Promise<void> {
-  await window.terminalAPI.deleteSshProfile(id);
-  loadAndRenderSshProfiles();
-}
-
-async function connectSshProfile(profile: SshProfile): Promise<void> {
-  hideSshPanel();
-  const cmd = await window.terminalAPI.getSshCommand(profile);
-  const ptyId = await createNewTab(`ssh:${profile.name}`);
-  if (ptyId !== null) {
-    setTimeout(() => {
-      window.terminalAPI.writePty(ptyId, cmd + "\n");
-    }, 300);
-  }
-}
-
-// SSH Panel event listeners
-sshCloseBtn.addEventListener("click", hideSshPanel);
-sshAddBtn.addEventListener("click", () => showSshModal());
-sshModalCancel.addEventListener("click", hideSshModal);
-sshModalSave.addEventListener("click", saveSshProfile);
-sshModal.addEventListener("click", (e) => {
-  if (e.target === sshModal) hideSshModal();
-});
 
 function showClusterDialog(currentName: string = ""): Promise<string | null> {
   return new Promise((resolve) => {
@@ -390,7 +228,6 @@ function setFocusedPane(ptyId: number): void {
       break;
     }
   }
-  updateBroadcastIndicator();
 }
 
 // --- Core Functions ---
@@ -509,14 +346,6 @@ async function createPaneSession(
 
   session.onData((data: string) => {
     window.terminalAPI.exitCopyMode(tmuxName);
-    // In broadcast mode, also send to all OTHER broadcast panes
-    if (broadcastMode && broadcastPtyIds.size > 1) {
-      for (const broadcastPtyId of broadcastPtyIds) {
-        if (broadcastPtyId !== ptyId) {
-          window.terminalAPI.writePty(broadcastPtyId, data);
-        }
-      }
-    }
     window.terminalAPI.writePty(ptyId, data);
   });
 
@@ -1369,25 +1198,6 @@ function hideContextMenu(): void {
   contextMenu.classList.add("hidden");
 }
 
-function updateBroadcastIndicator(): void {
-  const indicator = document.getElementById("broadcast-indicator");
-  if (!indicator) return;
-  if (broadcastMode && broadcastPtyIds.size > 0) {
-    indicator.classList.remove("hidden");
-  } else {
-    indicator.classList.add("hidden");
-  }
-  // Update context menu item label
-  const activeTab = activeTabId !== null ? tabMap.get(activeTabId) : null;
-  if (activeTab) {
-    const broadcastItem = contextMenu.querySelector('[data-action="toggle-broadcast"]');
-    if (broadcastItem) {
-      const isInBroadcast = broadcastPtyIds.has(activeTab.focusedPtyId);
-      broadcastItem.textContent = isInBroadcast ? "◎ Broadcast ✓" : "◎ Broadcast";
-    }
-  }
-}
-
 terminalPane.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   if (activeTabId === null) return;
@@ -1401,19 +1211,6 @@ document.addEventListener("mousedown", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     hideContextMenu();
-    hideCommandPalette();
-  }
-  // Cmd+Shift+P: command palette
-  if (e.key === "p" && e.metaKey && e.shiftKey) {
-    e.preventDefault();
-    showCommandPalette();
-    return;
-  }
-  // Cmd+F: search in terminal
-  if (e.key === "f" && e.metaKey && !e.shiftKey && !e.ctrlKey) {
-    e.preventDefault();
-    showSearchBar();
-    return;
   }
   // Cmd+Plus: increase font size
   if ((e.key === "+" || e.key === "=") && e.metaKey && !e.shiftKey) {
@@ -1493,28 +1290,6 @@ document.addEventListener("keydown", (e) => {
     });
     return;
   }
-  // Cmd+Shift+S: open SSH profiles panel
-  if (e.key === "s" && e.metaKey && e.shiftKey) {
-    e.preventDefault();
-    showSshPanel();
-    return;
-  }
-  // Cmd+Shift+Enter: toggle broadcast on focused pane
-  if (e.key === "Enter" && e.metaKey && e.shiftKey) {
-    e.preventDefault();
-    if (activeTabId === null) return;
-    const tab = tabMap.get(activeTabId);
-    if (!tab) return;
-    const ptyId = tab.focusedPtyId;
-    if (broadcastPtyIds.has(ptyId)) {
-      broadcastPtyIds.delete(ptyId);
-      if (broadcastPtyIds.size === 0) broadcastMode = false;
-    } else {
-      broadcastPtyIds.add(ptyId);
-      broadcastMode = true;
-    }
-    updateBroadcastIndicator();
-  }
 });
 
 contextMenu.addEventListener("click", async (e) => {
@@ -1533,22 +1308,6 @@ contextMenu.addEventListener("click", async (e) => {
     case "split-vertical":
       await splitFocusedPane("vertical");
       break;
-    case "toggle-broadcast": {
-      const tab = tabMap.get(activeTabId);
-      if (!tab) break;
-      const ptyId = tab.focusedPtyId;
-      if (broadcastPtyIds.has(ptyId)) {
-        broadcastPtyIds.delete(ptyId);
-        if (broadcastPtyIds.size === 0) {
-          broadcastMode = false;
-        }
-      } else {
-        broadcastPtyIds.add(ptyId);
-        broadcastMode = true;
-      }
-      updateBroadcastIndicator();
-      break;
-    }
     case "close-pane": {
       const tab = tabMap.get(activeTabId);
       if (tab) closePaneByPtyId(tab.focusedPtyId);
@@ -1575,20 +1334,6 @@ const commands: Command[] = [
       if (tab) closePaneByPtyId(tab.focusedPtyId);
     }
   }},
-  { id: "toggle-broadcast", label: "Toggle Broadcast", shortcut: "⌘⇧↵", action: () => {
-    if (activeTabId === null) return;
-    const tab = tabMap.get(activeTabId);
-    if (!tab) return;
-    const ptyId = tab.focusedPtyId;
-    if (broadcastPtyIds.has(ptyId)) {
-      broadcastPtyIds.delete(ptyId);
-      if (broadcastPtyIds.size === 0) broadcastMode = false;
-    } else {
-      broadcastPtyIds.add(ptyId);
-      broadcastMode = true;
-    }
-    updateBroadcastIndicator();
-  }},
   { id: "new-terminal", label: "New Terminal", shortcut: "⌘N", action: async () => {
     const name = await showNameDialog();
     if (name !== null) await createNewTab(name);
@@ -1597,139 +1342,7 @@ const commands: Command[] = [
     if (activeTabId !== null) openNotesPanel(activeTabId);
   }},
   { id: "close-notes", label: "Close Notes", shortcut: "", action: () => closeNotesPanel() },
-{ id: "open-ssh", label: "Open SSH Profiles", shortcut: "⌘⇧S", action: () => showSshPanel() },
 ];
-
-const commandPalette = document.getElementById("command-palette")!;
-const commandInput = document.getElementById("command-input") as HTMLInputElement;
-const commandList = document.getElementById("command-list")!;
-let selectedIndex = 0;
-
-function showCommandPalette(): void {
-  commandPalette.classList.remove("hidden");
-  commandInput.value = "";
-  selectedIndex = 0;
-  renderCommandList("");
-  commandInput.focus();
-  hideContextMenu();
-}
-
-function hideCommandPalette(): void {
-  commandPalette.classList.add("hidden");
-}
-
-function renderCommandList(filter: string): void {
-  const filtered = filter
-    ? commands.filter(c => c.label.toLowerCase().includes(filter.toLowerCase()))
-    : commands;
-  commandList.innerHTML = "";
-  filtered.forEach((cmd, i) => {
-    const item = document.createElement("div");
-    item.className = "command-item" + (i === selectedIndex ? " selected" : "");
-    item.innerHTML = `<span>${cmd.label}</span><span class="command-item-shortcut">${cmd.shortcut}</span>`;
-    item.addEventListener("click", () => {
-      cmd.action();
-      hideCommandPalette();
-    });
-    commandList.appendChild(item);
-  });
-}
-
-commandInput.addEventListener("input", () => {
-  selectedIndex = 0;
-  renderCommandList(commandInput.value);
-});
-
-commandInput.addEventListener("keydown", (e) => {
-  const items = commandList.querySelectorAll(".command-item");
-  if (e.key === "ArrowDown") {
-    e.preventDefault();
-    selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
-    renderCommandList(commandInput.value);
-  } else if (e.key === "ArrowUp") {
-    e.preventDefault();
-    selectedIndex = Math.max(selectedIndex - 1, 0);
-    renderCommandList(commandInput.value);
-  } else if (e.key === "Enter") {
-    e.preventDefault();
-    const filtered = commandInput.value
-      ? commands.filter(c => c.label.toLowerCase().includes(commandInput.value.toLowerCase()))
-      : commands;
-    if (filtered[selectedIndex]) {
-      filtered[selectedIndex].action();
-    }
-    hideCommandPalette();
-  } else if (e.key === "Escape") {
-    hideCommandPalette();
-  }
-});
-
-commandPalette.addEventListener("click", (e) => {
-  if (e.target === commandPalette) hideCommandPalette();
-});
-
-// --- Search Bar (tmux copy-mode search) ---
-const searchBar = document.getElementById("search-bar")!;
-const searchInput = document.getElementById("search-input") as HTMLInputElement;
-const searchCount = document.getElementById("search-count")!;
-const searchPrev = document.getElementById("search-prev")!;
-const searchNext = document.getElementById("search-next")!;
-const searchClose = document.getElementById("search-close")!;
-let searchTmuxName: string | null = null;
-
-function showSearchBar(): void {
-  if (activeTabId === null) return;
-  const tab = tabMap.get(activeTabId);
-  if (!tab) return;
-  searchTmuxName = sessionTmuxNames.get(tab.focusedPtyId) || null;
-  if (!searchTmuxName) return;
-  searchBar.classList.remove("hidden");
-  searchInput.value = "";
-  searchCount.textContent = "";
-  searchInput.focus();
-  hideContextMenu();
-  // Enter copy-mode for search
-  window.terminalAPI.scrollTmux(searchTmuxName, "up", 0);
-}
-
-function hideSearchBar(): void {
-  searchBar.classList.add("hidden");
-  if (searchTmuxName) {
-    window.terminalAPI.exitCopyMode(searchTmuxName);
-    searchTmuxName = null;
-  }
-}
-
-function doSearch(direction: "next" | "prev"): void {
-  const query = searchInput.value;
-  if (!query || !searchTmuxName) return;
-  // tmux search: send search string via copy-mode
-  window.terminalAPI.exitCopyMode(searchTmuxName);
-  setTimeout(() => {
-    // In copy-mode, send the search query character by character
-    for (const char of query) {
-      window.terminalAPI.sendTmuxKey(searchTmuxName!, char);
-    }
-    window.terminalAPI.scrollTmux(searchTmuxName!, direction === "next" ? "down" : "up", 1);
-  }, 50);
-}
-
-searchInput.addEventListener("input", () => {
-  doSearch("next");
-});
-
-searchPrev.addEventListener("click", () => doSearch("prev"));
-searchNext.addEventListener("click", () => doSearch("next"));
-searchClose.addEventListener("click", hideSearchBar);
-
-searchInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    doSearch(e.shiftKey ? "prev" : "next");
-  } else if (e.key === "Escape") {
-    hideSearchBar();
-  }
-});
 
 // --- Global IPC Listeners ---
 
@@ -1763,13 +1376,12 @@ window.terminalAPI.onBeforeQuit(async () => {
 const statusBarEl = document.getElementById("statusbar")!;
 const usage5h = document.getElementById("usage-5h")!;
 const usage7d = document.getElementById("usage-7d")!;
-const processInfoEl = document.getElementById("process-info")!;
 let usageLoading = false;
 
 function getUsageColorClass(utilization: number): string {
-  if (utilization >= 95) return "usage-critical";
-  if (utilization >= 80) return "usage-warn";
-  return "";
+  if (utilization >= 95) return "critical";
+  if (utilization >= 80) return "warn";
+  return "normal";
 }
 
 function formatResetTime(resetsAt: string | null): string {
@@ -1778,10 +1390,12 @@ function formatResetTime(resetsAt: string | null): string {
   const now = new Date();
   const diffMs = date.getTime() - now.getTime();
   if (diffMs <= 0) return "reset imminent";
-  const diffH = Math.floor(diffMs / 3600000);
+  const diffD = Math.floor(diffMs / 86400000);
+  const diffH = Math.floor((diffMs % 86400000) / 3600000);
   const diffM = Math.floor((diffMs % 3600000) / 60000);
-  if (diffH > 0) return `resets in ${diffH}h ${diffM}m`;
-  return `resets in ${diffM}m`;
+  if (diffD > 0) return `${diffD}d ${diffH}h`;
+  if (diffH > 0) return `${diffH}h ${diffM}m`;
+  return `${diffM}m`;
 }
 
 function updateUsageMetric(
@@ -1790,15 +1404,18 @@ function updateUsageMetric(
   metric: { utilization: number; resets_at: string | null } | undefined
 ): void {
   if (!metric || metric.utilization == null) {
-    el.textContent = `${label}: --`;
+    el.innerHTML = `<span class="usage-label">${label}</span><span class="usage-bar-wrap"><span class="usage-bar"><span class="usage-bar-fill normal" style="width:0%"></span></span><span class="usage-pct">--</span></span><span class="usage-reset"></span>`;
     el.title = "";
     el.className = "usage-metric";
     return;
   }
   const pct = Math.round(metric.utilization);
-  el.textContent = `${label}: ${pct}%`;
-  el.title = formatResetTime(metric.resets_at);
-  el.className = "usage-metric " + getUsageColorClass(metric.utilization);
+  const colorClass = getUsageColorClass(metric.utilization);
+  const pctClass = colorClass === 'critical' ? 'usage-critical' : colorClass === 'warn' ? 'usage-warn' : '';
+  const resetText = formatResetTime(metric.resets_at);
+  el.innerHTML = `<span class="usage-label">${label}</span><span class="usage-bar-wrap"><span class="usage-bar"><span class="usage-bar-fill ${colorClass}" style="width:${pct}%"></span></span><span class="usage-pct ${pctClass}">${pct}%</span></span><span class="usage-reset">${resetText}</span>`;
+  el.title = "";
+  el.className = "usage-metric";
 }
 
 async function refreshUsage(): Promise<void> {
@@ -1848,32 +1465,6 @@ setInterval(() => {
   refreshUsage();
 }, 5 * 60 * 1000);
 
-// Poll process info every 2 seconds
-async function refreshProcessInfo(): Promise<void> {
-  if (activeTabId === null) return;
-  const tab = tabMap.get(activeTabId);
-  if (!tab) return;
-  const tmuxName = sessionTmuxNames.get(tab.focusedPtyId);
-  if (!tmuxName) return;
-
-  try {
-    const info = await window.terminalAPI.getProcessInfo(tmuxName);
-    if (info.cpu > 0 || info.memory > 0) {
-      processInfoEl.textContent = `CPU ${info.cpu.toFixed(1)}% | MEM ${info.memory.toFixed(1)}%`;
-      processInfoEl.style.color = info.cpu > 80 ? "#cc3333" : info.cpu > 50 ? "#ccaa00" : "#808080";
-    } else {
-      processInfoEl.textContent = "--";
-      processInfoEl.style.color = "#808080";
-    }
-  } catch {
-    processInfoEl.textContent = "--";
-  }
-}
-
-setInterval(() => {
-  refreshProcessInfo();
-}, 2000);
-
 // --- Init ---
 
 btnNew.addEventListener("click", async () => {
@@ -1885,13 +1476,7 @@ btnNew.addEventListener("click", async () => {
   try {
     const restored = await restoreFromTmux();
     if (!restored) {
-      const name = await showNameDialog();
-      if (name !== null) {
-        await createNewTab(name);
-      } else {
-        sessionCounter++;
-        await createNewTab();
-      }
+      await createNewTab();
     }
     // Load usage data
     refreshUsage();

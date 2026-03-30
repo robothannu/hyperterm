@@ -41,6 +41,8 @@ export interface TerminalAPI {
   scrollTmux(tmuxName: string, direction: "up" | "down", lines: number): void;
   exitCopyMode(tmuxName: string): void;
   sendTmuxKey(tmuxName: string, key: string): void;
+  sendTextToTmux(tmuxName: string, text: string): void;
+  startTmuxSearch(tmuxName: string): void;
   renameTmuxSession(oldName: string, newName: string): Promise<string>;
   getTmuxSessionName(tmuxName: string): Promise<string>;
   getPaneCommand(tmuxName: string): Promise<string>;
@@ -138,6 +140,12 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   },
   sendTmuxKey: (tmuxName: string, key: string): void => {
     ipcRenderer.send("tmux:sendKey", tmuxName, key);
+  },
+  sendTextToTmux: (tmuxName: string, text: string): void => {
+    ipcRenderer.send("tmux:sendText", tmuxName, text);
+  },
+  startTmuxSearch: (tmuxName: string): void => {
+    ipcRenderer.send("tmux:startSearch", tmuxName);
   },
   renameTmuxSession: (oldName: string, newName: string): Promise<string> => {
     return ipcRenderer.invoke("tmux:renameSession", oldName, newName);

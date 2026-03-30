@@ -324,6 +324,14 @@ ipcMain.on("tmux:sendKey", (_event, tmuxName: string, key: string) => {
   PtyManager.sendTmuxKey(tmuxName, key);
 });
 
+ipcMain.on("tmux:sendText", (_event, tmuxName: string, text: string) => {
+  PtyManager.sendTextToTmux(tmuxName, text);
+});
+
+ipcMain.on("tmux:startSearch", (_event, tmuxName: string) => {
+  PtyManager.startTmuxSearch(tmuxName);
+});
+
 ipcMain.handle("tmux:renameSession", (_event, oldName: string, newName: string) => {
   return PtyManager.renameTmuxSession(oldName, newName);
 });
