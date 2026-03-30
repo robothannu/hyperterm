@@ -1,14 +1,5 @@
 import { contextBridge, ipcRenderer, clipboard } from "electron";
 
-export interface SshProfile {
-  id: string;
-  name: string;
-  host: string;
-  user: string;
-  port: number;
-  keyFile?: string;
-}
-
 export interface TerminalAPI {
   createPty(
     cols: number,
@@ -41,17 +32,11 @@ export interface TerminalAPI {
   scrollTmux(tmuxName: string, direction: "up" | "down", lines: number): void;
   exitCopyMode(tmuxName: string): void;
   sendTmuxKey(tmuxName: string, key: string): void;
-  sendTextToTmux(tmuxName: string, text: string): void;
-  startTmuxSearch(tmuxName: string): void;
   renameTmuxSession(oldName: string, newName: string): Promise<string>;
   getTmuxSessionName(tmuxName: string): Promise<string>;
   getPaneCommand(tmuxName: string): Promise<string>;
   getProcessInfo(tmuxName: string): Promise<{ cpu: number; memory: number }>;
   fetchUsage(): Promise<{ data?: any; error?: string }>;
-  listSshProfiles(): Promise<SshProfile[]>;
-  saveSshProfile(profile: SshProfile): Promise<boolean>;
-  deleteSshProfile(id: string): Promise<boolean>;
-  getSshCommand(profile: SshProfile): Promise<string>;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -141,12 +126,6 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   sendTmuxKey: (tmuxName: string, key: string): void => {
     ipcRenderer.send("tmux:sendKey", tmuxName, key);
   },
-  sendTextToTmux: (tmuxName: string, text: string): void => {
-    ipcRenderer.send("tmux:sendText", tmuxName, text);
-  },
-  startTmuxSearch: (tmuxName: string): void => {
-    ipcRenderer.send("tmux:startSearch", tmuxName);
-  },
   renameTmuxSession: (oldName: string, newName: string): Promise<string> => {
     return ipcRenderer.invoke("tmux:renameSession", oldName, newName);
   },
@@ -158,18 +137,6 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   },
   getProcessInfo: (tmuxName: string): Promise<{ cpu: number; memory: number }> => {
     return ipcRenderer.invoke("tmux:getProcessInfo", tmuxName);
-  },
-  listSshProfiles: (): Promise<SshProfile[]> => {
-    return ipcRenderer.invoke("ssh:listProfiles");
-  },
-  saveSshProfile: (profile: SshProfile): Promise<boolean> => {
-    return ipcRenderer.invoke("ssh:saveProfile", profile);
-  },
-  deleteSshProfile: (id: string): Promise<boolean> => {
-    return ipcRenderer.invoke("ssh:deleteProfile", id);
-  },
-  getSshCommand: (profile: SshProfile): Promise<string> => {
-    return ipcRenderer.invoke("ssh:getSshCommand", profile);
   },
   fetchUsage: (): Promise<{ data?: any; error?: string }> => {
     return ipcRenderer.invoke("usage:fetch");

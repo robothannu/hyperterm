@@ -73,16 +73,9 @@ const terminalPane = document.getElementById("terminal-pane")!;
 const terminalList = document.getElementById("terminal-list")!;
 const btnNew = document.getElementById("btn-new-terminal")!;
 
-// --- Modal Dialog ---
-
-const modalOverlay = document.getElementById("modal-overlay")!;
-const modalInput = document.getElementById("modal-input") as HTMLInputElement;
-const modalOk = document.getElementById("modal-ok")!;
-const modalCancel = document.getElementById("modal-cancel")!;
-
-function showNameDialog(): Promise<string | null> {
+function nextTerminalName(): string {
   sessionCounter++;
-  return Promise.resolve(`Terminal ${sessionCounter}`);
+  return `Terminal ${sessionCounter}`;
 }
 
 // Cluster modal
@@ -1239,7 +1232,7 @@ document.addEventListener("keydown", (e) => {
   // Cmd+N: new terminal
   if (e.key === "n" && e.metaKey && !e.shiftKey && !e.ctrlKey) {
     e.preventDefault();
-    showNameDialog().then(name => { if (name !== null) createNewTab(name); });
+    createNewTab(nextTerminalName());
     return;
   }
   // Cmd+Arrow: navigate between panes
@@ -1316,34 +1309,6 @@ contextMenu.addEventListener("click", async (e) => {
   }
 });
 
-// --- Command Palette ---
-
-interface Command {
-  id: string;
-  label: string;
-  shortcut?: string;
-  action: () => void | Promise<void>;
-}
-
-const commands: Command[] = [
-  { id: "split-h", label: "Split Horizontal", shortcut: "", action: () => splitFocusedPane("horizontal") },
-  { id: "split-v", label: "Split Vertical", shortcut: "", action: () => splitFocusedPane("vertical") },
-  { id: "close-pane", label: "Close Pane", shortcut: "", action: () => {
-    if (activeTabId !== null) {
-      const tab = tabMap.get(activeTabId);
-      if (tab) closePaneByPtyId(tab.focusedPtyId);
-    }
-  }},
-  { id: "new-terminal", label: "New Terminal", shortcut: "⌘N", action: async () => {
-    const name = await showNameDialog();
-    if (name !== null) await createNewTab(name);
-  }},
-  { id: "open-notes", label: "Open Notes", shortcut: "", action: () => {
-    if (activeTabId !== null) openNotesPanel(activeTabId);
-  }},
-  { id: "close-notes", label: "Close Notes", shortcut: "", action: () => closeNotesPanel() },
-];
-
 // --- Global IPC Listeners ---
 
 window.terminalAPI.onPtyData((id: number, data: string) => {
@@ -1376,6 +1341,7 @@ window.terminalAPI.onBeforeQuit(async () => {
 const statusBarEl = document.getElementById("statusbar")!;
 const usage5h = document.getElementById("usage-5h")!;
 const usage7d = document.getElementById("usage-7d")!;
+const usageSeps = statusBarEl.querySelectorAll(".usage-sep");
 let usageLoading = false;
 
 function getUsageColorClass(utilization: number): string {
@@ -1435,7 +1401,7 @@ async function refreshUsage(): Promise<void> {
       usage7d.className = "usage-metric";
       usage7d.title = "";
       // Hide separators when showing error
-      statusBarEl.querySelectorAll(".usage-sep").forEach((sep) => {
+      usageSeps.forEach((sep) => {
         (sep as HTMLElement).style.display = "none";
       });
       return;
@@ -1443,7 +1409,7 @@ async function refreshUsage(): Promise<void> {
 
     if (result.data) {
       // Show separators
-      statusBarEl.querySelectorAll(".usage-sep").forEach((sep) => {
+      usageSeps.forEach((sep) => {
         (sep as HTMLElement).style.display = "";
       });
       updateUsageMetric(usage5h, "5h", result.data.five_hour);
@@ -1467,9 +1433,8 @@ setInterval(() => {
 
 // --- Init ---
 
-btnNew.addEventListener("click", async () => {
-  const name = await showNameDialog();
-  if (name !== null) await createNewTab(name);
+btnNew.addEventListener("click", () => {
+  createNewTab(nextTerminalName());
 });
 
 (async () => {

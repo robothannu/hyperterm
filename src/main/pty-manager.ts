@@ -431,6 +431,28 @@ export function sendTmuxKey(tmuxName: string, key: string): void {
   }
 }
 
+export function sendTextToTmux(tmuxName: string, text: string): void {
+  try {
+    tmuxExec(
+      `-L ${TMUX_SOCKET} send-keys -t ${shellEscape(tmuxName)} "${text.replace(/"/g, '\\"')}"`
+    );
+  } catch {
+    // ignore
+  }
+}
+
+export function startTmuxSearch(tmuxName: string): void {
+  try {
+    // Enter copy-mode and start search with /
+    tmuxExec(`-L ${TMUX_SOCKET} copy-mode -t ${shellEscape(tmuxName)}`);
+    tmuxExec(
+      `-L ${TMUX_SOCKET} send-keys -t ${shellEscape(tmuxName)} "/"`
+    );
+  } catch {
+    // ignore
+  }
+}
+
 export function navigatePane(
   tmuxName: string,
   direction: "U" | "D" | "L" | "R"
