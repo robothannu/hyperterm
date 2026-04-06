@@ -1,5 +1,5 @@
 /// <reference path="./global.d.ts" />
-import { TerminalSession } from "./terminal-session";
+/// <reference path="./terminal-session.ts" />
 
 // --- Pane Layout Types ---
 

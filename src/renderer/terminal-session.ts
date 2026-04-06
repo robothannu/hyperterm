@@ -1,13 +1,20 @@
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { SerializeAddon } from "@xterm/addon-serialize";
-import { WebglAddon } from "@xterm/addon-webgl";
+// UMD globals loaded via <script> tags in index.html
+// xterm.js spreads exports onto globalThis: Terminal is a direct constructor,
+// addons are namespaces (e.g. window.FitAddon = { FitAddon: class ... })
+declare const Terminal: typeof import("@xterm/xterm").Terminal;
+declare const FitAddon: { FitAddon: typeof import("@xterm/addon-fit").FitAddon };
+declare const SerializeAddon: { SerializeAddon: typeof import("@xterm/addon-serialize").SerializeAddon };
+declare const WebglAddon: { WebglAddon: typeof import("@xterm/addon-webgl").WebglAddon };
 
-export class TerminalSession {
-  public readonly terminal: Terminal;
+type TerminalInstance = InstanceType<typeof Terminal>;
+type FitAddonInstance = InstanceType<typeof FitAddon.FitAddon>;
+type SerializeAddonInstance = InstanceType<typeof SerializeAddon.SerializeAddon>;
+
+class TerminalSession {
+  public readonly terminal: TerminalInstance;
   public readonly container: HTMLElement;
-  private fitAddon: FitAddon;
-  private serializeAddon: SerializeAddon;
+  private fitAddon: FitAddonInstance;
+  private serializeAddon: SerializeAddonInstance;
   private fontSize: number = 12;
   private autoCopyListener: () => void;
   private paneClickListeners: { mousedown: (e: MouseEvent) => void; mouseup: (e: MouseEvent) => void } | null = null;
@@ -96,17 +103,17 @@ export class TerminalSession {
     };
     this.container.addEventListener("mouseup", this.autoCopyListener);
 
-    this.fitAddon = new FitAddon();
+    this.fitAddon = new FitAddon.FitAddon();
     this.terminal.loadAddon(this.fitAddon);
 
-    this.serializeAddon = new SerializeAddon();
+    this.serializeAddon = new SerializeAddon.SerializeAddon();
     this.terminal.loadAddon(this.serializeAddon);
   }
 
   open(): void {
     this.terminal.open(this.container);
     try {
-      const webgl = new WebglAddon();
+      const webgl = new WebglAddon.WebglAddon();
       this.terminal.loadAddon(webgl);
     } catch {
       // WebGL not available; canvas renderer is used automatically
