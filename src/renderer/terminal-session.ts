@@ -1,22 +1,21 @@
-declare const FitAddon: { FitAddon: new () => any };
-declare const WebglAddon: { WebglAddon: new () => any };
-declare const SerializeAddon: { SerializeAddon: new () => any };
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { WebglAddon } from "@xterm/addon-webgl";
 
-class TerminalSession {
-  public readonly terminal: any;
+export class TerminalSession {
+  public readonly terminal: Terminal;
   public readonly container: HTMLElement;
-  private fitAddon: any;
-  private serializeAddon: any;
+  private fitAddon: FitAddon;
+  private serializeAddon: SerializeAddon;
   private fontSize: number = 12;
+  private autoCopyListener: () => void;
+  private paneClickListeners: { mousedown: (e: MouseEvent) => void; mouseup: (e: MouseEvent) => void } | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
 
-    if (!(window as any).Terminal) {
-      throw new Error("xterm.js failed to load. Check script tags in index.html.");
-    }
-
-    this.terminal = new (window as any).Terminal({
+    this.terminal = new Terminal({
       cursorBlink: true,
       fontSize: this.fontSize,
       fontFamily:
@@ -89,24 +88,25 @@ class TerminalSession {
     });
 
     // Auto-copy: 드래그 후 마우스를 놓으면 선택된 텍스트를 클립보드에 자동 복사
-    this.container.addEventListener("mouseup", () => {
+    this.autoCopyListener = () => {
       const selection = this.terminal.getSelection();
       if (selection) {
         window.terminalAPI.copyToClipboard(selection);
       }
-    });
+    };
+    this.container.addEventListener("mouseup", this.autoCopyListener);
 
-    this.fitAddon = new FitAddon.FitAddon();
+    this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
 
-    this.serializeAddon = new SerializeAddon.SerializeAddon();
+    this.serializeAddon = new SerializeAddon();
     this.terminal.loadAddon(this.serializeAddon);
   }
 
   open(): void {
     this.terminal.open(this.container);
     try {
-      const webgl = new WebglAddon.WebglAddon();
+      const webgl = new WebglAddon();
       this.terminal.loadAddon(webgl);
     } catch {
       // WebGL not available; canvas renderer is used automatically
@@ -166,14 +166,19 @@ class TerminalSession {
   }
 
   onPaneClick(callback: (col: number, row: number) => void): void {
+    // Remove existing listeners before adding new ones to prevent accumulation
+    if (this.paneClickListeners) {
+      this.container.removeEventListener("mousedown", this.paneClickListeners.mousedown);
+      this.container.removeEventListener("mouseup", this.paneClickListeners.mouseup);
+    }
     let startX = 0;
     let startY = 0;
-    this.container.addEventListener("mousedown", (e: MouseEvent) => {
+    const mousedown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       startX = e.clientX;
       startY = e.clientY;
-    });
-    this.container.addEventListener("mouseup", (e: MouseEvent) => {
+    };
+    const mouseup = (e: MouseEvent) => {
       if (e.button !== 0) return;
       const dx = Math.abs(e.clientX - startX);
       const dy = Math.abs(e.clientY - startY);
@@ -181,16 +186,25 @@ class TerminalSession {
         const xtermEl = this.container.querySelector(".xterm-screen");
         if (!xtermEl) return;
         const rect = xtermEl.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
         const cellWidth = rect.width / this.terminal.cols;
         const cellHeight = rect.height / this.terminal.rows;
         const col = Math.floor((e.clientX - rect.left) / cellWidth);
         const row = Math.floor((e.clientY - rect.top) / cellHeight);
         callback(col, row);
       }
-    });
+    };
+    this.container.addEventListener("mousedown", mousedown);
+    this.container.addEventListener("mouseup", mouseup);
+    this.paneClickListeners = { mousedown, mouseup };
   }
 
   dispose(): void {
+    this.container.removeEventListener("mouseup", this.autoCopyListener);
+    if (this.paneClickListeners) {
+      this.container.removeEventListener("mousedown", this.paneClickListeners.mousedown);
+      this.container.removeEventListener("mouseup", this.paneClickListeners.mouseup);
+    }
     this.terminal.dispose();
   }
 }

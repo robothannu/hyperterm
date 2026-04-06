@@ -1,9 +1,12 @@
 import * as pty from "node-pty";
-import { execSync } from "child_process";
+import { execSync, execFile } from "child_process";
+import { promisify } from "util";
 import { platform } from "os";
 import * as path from "path";
 import { app } from "electron";
 import * as fs from "fs";
+
+const execFileAsync = promisify(execFile);
 
 const TMUX_SOCKET = "terminal-app";
 
@@ -24,34 +27,24 @@ interface PtySession {
 let nextId = 1;
 const sessions = new Map<number, PtySession>();
 
+/**
+ * Returns the path to a bundled vendor resource.
+ * @param segment - "bin" or "lib"
+ */
+function getVendorPath(segment: "bin" | "lib"): string {
+  const vendorSegment = app.isPackaged
+    ? path.join(process.resourcesPath, "app.asar.unpacked", "vendor", segment)
+    : path.join(app.getAppPath(), "vendor", segment);
+  return vendorSegment;
+}
+
 // Resolve the bundled tmux binary path
 function getTmuxPath(): string {
-  if (app.isPackaged) {
-    // In packaged app: Contents/Resources/app.asar.unpacked/vendor/bin/tmux
-    return path.join(
-      process.resourcesPath,
-      "app.asar.unpacked",
-      "vendor",
-      "bin",
-      "tmux"
-    );
-  }
-  return path.join(app.getAppPath(), "vendor", "bin", "tmux");
+  return path.join(getVendorPath("bin"), "tmux");
 }
 
 function getTmuxEnv(): { [key: string]: string } {
-  let libDir: string;
-  if (app.isPackaged) {
-    libDir = path.join(
-      process.resourcesPath,
-      "app.asar.unpacked",
-      "vendor",
-      "lib"
-    );
-  } else {
-    libDir = path.join(app.getAppPath(), "vendor", "lib");
-  }
-
+  const libDir = getVendorPath("lib");
   return {
     ...(process.env as { [key: string]: string }),
     DYLD_LIBRARY_PATH: libDir,
@@ -87,7 +80,7 @@ function getDefaultShell(): string {
 function tmuxExec(args: string): string {
   const tmuxPath = getTmuxPath();
   const env = getTmuxEnv();
-  return execSync(`"${tmuxPath}" ${args}`, {
+  return execSync(`'${tmuxPath}' ${args}`, {
     encoding: "utf8",
     stdio: "pipe",
     env,
@@ -104,7 +97,11 @@ export function createSession(
 ): { id: number; tmuxName: string } {
   const id = nextId++;
   const tmuxName = existingTmuxSession || getNextTmuxName();
-  const sessionCwd = cwd || process.env.HOME || "/";
+  let sessionCwd = cwd || process.env.HOME || "/";
+  // Validate cwd is an absolute path to prevent shell injection via tmux -c flag
+  if (sessionCwd && (typeof sessionCwd !== "string" || !path.isAbsolute(sessionCwd) || !fs.existsSync(sessionCwd))) {
+    sessionCwd = process.env.HOME || "/";
+  }
 
   // Create tmux session if it doesn't already exist
   const existing = listTmuxSessions();
@@ -121,6 +118,10 @@ export function createSession(
       // Disable tmux mouse mode (scrolling handled by xterm.js)
       tmuxExec(
         `-L ${TMUX_SOCKET} set-option -t ${shellEscape(tmuxName)} mouse off`
+      );
+      // Enable aggressive-resize so window tracks the attached client size
+      tmuxExec(
+        `-L ${TMUX_SOCKET} set-window-option -t ${shellEscape(tmuxName)} aggressive-resize on`
       );
       // Disable alternate screen — lets xterm.js manage scrollback directly
       tmuxExec(
@@ -236,10 +237,12 @@ export function getTmuxPanePid(tmuxName: string): string {
   }
 }
 
-export function getProcessInfo(pid: string): { cpu: number; memory: number } {
-  if (!pid) return { cpu: 0, memory: 0 };
+export async function getProcessInfo(pid: string): Promise<{ cpu: number; memory: number }> {
+  // Validate pid is numeric to prevent shell injection
+  if (!pid || !/^\d+$/.test(pid)) return { cpu: 0, memory: 0 };
   try {
-    const output = execSync(`ps -p ${pid} -o %cpu=,%mem=`, { encoding: "utf8", timeout: 2000 }).trim();
+    const { stdout } = await execFileAsync("ps", ["-p", pid, "-o", "%cpu=,%mem="], { encoding: "utf8", timeout: 2000 });
+    const output = stdout.trim();
     const [cpu, mem] = output.split(",").map(s => parseFloat(s.trim()) || 0);
     return { cpu, memory: mem };
   } catch {
@@ -358,10 +361,14 @@ export function splitPane(
   tmuxName: string,
   direction: "horizontal" | "vertical"
 ): void {
-  const flag = direction === "horizontal" ? "-v" : "-h";
-  tmuxExec(
-    `-L ${TMUX_SOCKET} split-window ${flag} -t ${shellEscape(tmuxName)}`
-  );
+  try {
+    const flag = direction === "horizontal" ? "-v" : "-h";
+    tmuxExec(
+      `-L ${TMUX_SOCKET} split-window ${flag} -t ${shellEscape(tmuxName)}`
+    );
+  } catch {
+    // pane or session may already be dead
+  }
 }
 
 export function closePane(tmuxName: string): void {
@@ -422,9 +429,10 @@ export function exitCopyMode(tmuxName: string): void {
 
 export function sendTmuxKey(tmuxName: string, key: string): void {
   try {
-    // In copy-mode, send search command with the query string
+    // Escape all shell metacharacters to prevent injection
+    const safeKey = key.replace(/[\\$`"';|&<>!#]/g, "\\$&");
     tmuxExec(
-      `-L ${TMUX_SOCKET} send-keys -t ${shellEscape(tmuxName)} -X search-forward "${key.replace(/"/g, '\\"')}"`
+      `-L ${TMUX_SOCKET} send-keys -t ${shellEscape(tmuxName)} -X search-forward '${safeKey}'`
     );
   } catch {
     // ignore
@@ -433,8 +441,10 @@ export function sendTmuxKey(tmuxName: string, key: string): void {
 
 export function sendTextToTmux(tmuxName: string, text: string): void {
   try {
+    // Escape all shell metacharacters to prevent injection
+    const safeText = text.replace(/[\\$`"';|&<>!#\r\n]/g, "\\$&");
     tmuxExec(
-      `-L ${TMUX_SOCKET} send-keys -t ${shellEscape(tmuxName)} "${text.replace(/"/g, '\\"')}"`
+      `-L ${TMUX_SOCKET} send-keys -t ${shellEscape(tmuxName)} '${safeText}'`
     );
   } catch {
     // ignore

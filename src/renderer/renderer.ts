@@ -1,5 +1,5 @@
 /// <reference path="./global.d.ts" />
-/// <reference path="./terminal-session.ts" />
+import { TerminalSession } from "./terminal-session";
 
 // --- Pane Layout Types ---
 
@@ -29,6 +29,10 @@ interface Tab {
 }
 
 // Persistence types
+interface V1Session {
+  label: string;
+  tmuxName: string;
+}
 interface SavedPaneLeaf {
   type: "leaf";
   tmuxName: string;
@@ -85,6 +89,28 @@ const clusterOk = document.getElementById("cluster-ok")!;
 const clusterCancel = document.getElementById("cluster-cancel")!;
 const clusterClear = document.getElementById("cluster-clear")!;
 
+const helpModal = document.getElementById("help-modal")!;
+const helpClose = document.getElementById("help-close")!;
+
+const aboutModal = document.getElementById("about-modal")!;
+const aboutClose = document.getElementById("about-close")!;
+
+function showHelpGuide(): void {
+  helpModal.classList.remove("hidden");
+}
+
+function closeHelpGuide(): void {
+  helpModal.classList.add("hidden");
+}
+
+function showAbout(): void {
+  aboutModal.classList.remove("hidden");
+}
+
+function closeAbout(): void {
+  aboutModal.classList.add("hidden");
+}
+
 function showClusterDialog(currentName: string = ""): Promise<string | null> {
   return new Promise((resolve) => {
     clusterInput.value = currentName;
@@ -138,6 +164,18 @@ function showClusterDialog(currentName: string = ""): Promise<string | null> {
     clusterModal.addEventListener("click", onOverlay);
   });
 }
+
+// --- Help & About Modals ---
+
+helpClose.addEventListener("click", closeHelpGuide);
+helpModal.addEventListener("click", (e) => {
+  if (e.target === helpModal) closeHelpGuide();
+});
+
+aboutClose.addEventListener("click", closeAbout);
+aboutModal.addEventListener("click", (e) => {
+  if (e.target === aboutModal) closeAbout();
+});
 
 // --- Pane Tree Helpers ---
 
@@ -248,19 +286,38 @@ async function createPaneSession(
   paneElement.appendChild(termContainer);
 
   const session = new TerminalSession(termContainer);
-  session.open();
 
-  const cols = session.getCols();
-  const rows = session.getRows();
+  let cols: number;
+  let rows: number;
+  try {
+    session.open();
+    cols = session.getCols();
+    rows = session.getRows();
+  } catch (err) {
+    // session.open() throws if xterm.js fails to initialize
+    paneElement.remove();
+    session.dispose();
+    throw err;
+  }
 
-  const result = await window.terminalAPI.createPty(
-    cols,
-    rows,
-    undefined,
-    tmuxSession
-  );
-  const ptyId = result.id;
-  const tmuxName = result.tmuxName;
+  let ptyId: number;
+  let tmuxName: string;
+
+  try {
+    const result = await window.terminalAPI.createPty(
+      cols,
+      rows,
+      undefined,
+      tmuxSession
+    );
+    ptyId = result.id;
+    tmuxName = result.tmuxName;
+  } catch (err) {
+    // Clean up DOM and session on failure
+    paneElement.remove();
+    session.dispose();
+    throw err;
+  }
 
   sessions.set(ptyId, session);
   sessionTmuxNames.set(ptyId, tmuxName);
@@ -322,7 +379,7 @@ async function createPaneSession(
         sessionTmuxNames.set(ptyId, actualName);
         paneTitle.textContent = actualName;
         paneTitle.setAttribute("data-custom-name", "true");
-        saveSessionMetadata();
+        await saveSessionMetadata();
       } else {
         paneTitle.textContent = newName;
         paneTitle.setAttribute("data-custom-name", "true");
@@ -399,10 +456,10 @@ async function createNewTab(
 
     addSidebarEntry(tabId, displayLabel);
     switchToTab(tabId);
-    saveSessionMetadata();
+    await saveSessionMetadata();
     return tabId;
-  } catch (err: any) {
-    console.error("[renderer] Failed to create tab:", err?.message || err);
+  } catch (err: unknown) {
+    console.error("[renderer] Failed to create tab:", err instanceof Error ? err.message : String(err));
     tabContainer.remove();
     return null;
   }
@@ -483,7 +540,7 @@ async function splitFocusedPane(
     setFocusedPane(newLeaf.ptyId);
   });
 
-  saveSessionMetadata();
+  await saveSessionMetadata();
 }
 
 function setupDividerDrag(splitNode: PaneSplit): void {
@@ -740,7 +797,7 @@ async function restoreFromTmux(): Promise<boolean> {
         // Convert V1 → V3
         savedState = {
           version: 3,
-          tabs: parsed.sessions.map((s: any) => ({
+          tabs: parsed.sessions.map((s: V1Session) => ({
             label: s.label,
             layout: { type: "leaf", tmuxName: s.tmuxName } as SavedPaneLeaf,
           })),
@@ -753,6 +810,9 @@ async function restoreFromTmux(): Promise<boolean> {
   }
 
   const restoredTmuxNames = new Set<string>();
+
+  // Clear sidebar before restoring (否则旧entries会残留)
+  terminalList.innerHTML = "";
 
   if (savedState) {
     for (const savedTab of savedState.tabs) {
@@ -788,6 +848,7 @@ async function restoreFromTmux(): Promise<boolean> {
       );
 
       const leaves = getAllLeaves(rootNode);
+      if (leaves.length === 0) continue;
       const tabId = leaves[0].ptyId;
 
       // Fix up tabId in ptyToTab
@@ -815,8 +876,7 @@ async function restoreFromTmux(): Promise<boolean> {
   // Restore orphaned live sessions not in saved state
   for (const name of liveSessions) {
     if (!restoredTmuxNames.has(name)) {
-      sessionCounter++;
-      await createNewTab(name, name);
+      await createNewTab(nextTerminalName(), name);
     }
   }
 
@@ -895,7 +955,7 @@ function renderNotes(notes: Note[]): void {
     item.innerHTML = `
       <div class="note-content">${escapeHtml(note.content)}</div>
       <div class="note-footer">
-        <span class="note-time">${timeStr}</span>
+        <span class="note-time">${escapeHtml(timeStr)}</span>
         <button class="note-delete" data-id="${note.id}">Delete</button>
       </div>
     `;
@@ -1057,7 +1117,7 @@ function addSidebarEntryDOM(tabId: number, label: string): void {
   li.className = "terminal-entry";
   li.draggable = true;
   li.innerHTML = `
-    <span class="terminal-label">${label}</span>
+    <span class="terminal-label">${escapeHtml(label)}</span>
     <div class="terminal-entry-actions">
       <button class="btn-notes" title="Notes">&#9998;</button>
       <button class="btn-close" title="Close terminal">&times;</button>
@@ -1143,7 +1203,7 @@ function startRename(
     labelEl.style.display = "";
     input.remove();
     tabLabels.set(tabId, newName);
-    saveSessionMetadata();
+    await saveSessionMetadata();
   };
 
   input.addEventListener("keydown", (e) => {
@@ -1331,8 +1391,15 @@ resizeObserver.observe(terminalPane);
 
 // --- Save on Close ---
 
+let usageRefreshInterval: ReturnType<typeof setInterval> | null = null;
+
 window.terminalAPI.onBeforeQuit(async () => {
   await saveSessionMetadata();
+  resizeObserver.disconnect();
+  if (usageRefreshInterval !== null) {
+    clearInterval(usageRefreshInterval);
+    usageRefreshInterval = null;
+  }
   window.terminalAPI.quitReady();
 });
 
@@ -1427,9 +1494,19 @@ statusBarEl.addEventListener("click", () => {
 });
 
 // Auto-refresh every 5 minutes
-setInterval(() => {
+usageRefreshInterval = setInterval(() => {
   refreshUsage();
 }, 5 * 60 * 1000);
+
+// --- Help Menu IPC ---
+
+window.terminalAPI.onHelpGuide(() => {
+  showHelpGuide();
+});
+
+window.terminalAPI.onHelpAbout(() => {
+  showAbout();
+});
 
 // --- Init ---
 

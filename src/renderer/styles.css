@@ -228,6 +228,22 @@ html, body {
   color: #999900;
 }
 
+.pane-status-badge {
+  font-size: 10px;
+  color: #666;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.pane-status-badge.has-dead {
+  color: #cc8800;
+}
+
+.pane-status-badge.dead {
+  color: #cc3333;
+  font-size: 8px;
+}
+
 .terminal-entry-actions {
   display: flex;
   align-items: center;
@@ -355,6 +371,53 @@ html, body {
   flex: 1;
   overflow: hidden;
   padding: 4px;
+}
+
+/* === Dead Pane Overlay === */
+.dead-pane-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #1c1c1c;
+  cursor: pointer;
+  z-index: 5;
+  transition: background 0.15s;
+}
+
+.dead-pane-overlay:hover {
+  background: #252525;
+}
+
+.dead-pane-icon {
+  font-size: 36px;
+  color: #555;
+  margin-bottom: 8px;
+  transition: color 0.15s;
+}
+
+.dead-pane-overlay:hover .dead-pane-icon {
+  color: #4a9eff;
+}
+
+.dead-pane-text {
+  font-size: 14px;
+  color: #808080;
+  margin-bottom: 4px;
+}
+
+.dead-pane-hint {
+  font-size: 12px;
+  color: #555;
+}
+
+.dead-pane-overlay:hover .dead-pane-hint {
+  color: #808080;
 }
 
 /* === Notes Panel === */
@@ -776,3 +839,140 @@ html, body {
   cursor: default;
   user-select: none;
 }
+
+/* === Help Modal === */
+.help-dialog {
+  width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.help-content {
+  flex: 1;
+  overflow-y: auto;
+  max-height: calc(80vh - 100px);
+  padding-right: 8px;
+  color: #b3b3b3;
+  line-height: 1.6;
+}
+
+.help-content h3 {
+  color: #e5e5e5;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 16px 0 6px;
+  border-bottom: 1px solid #333;
+  padding-bottom: 4px;
+}
+
+.help-content h3:first-child {
+  margin-top: 0;
+}
+
+.help-content p {
+  margin: 6px 0;
+}
+
+.help-content ul {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+
+.help-content li {
+  margin: 3px 0;
+}
+
+.help-content kbd {
+  background: #2d2d2d;
+  border: 1px solid #444;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  color: #d0d0d0;
+}
+
+.help-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0;
+}
+
+.help-table td {
+  padding: 3px 8px 3px 0;
+  vertical-align: top;
+}
+
+.help-table td:first-child {
+  white-space: nowrap;
+  color: #999;
+}
+
+.help-table td:last-child {
+  color: #b3b3b3;
+}
+
+/* === About Modal === */
+.about-dialog {
+  width: 340px;
+  text-align: center;
+}
+
+.about-content {
+  padding: 8px 0;
+}
+
+.about-logo {
+  font-size: 48px;
+  color: #4a9eff;
+  margin-bottom: 8px;
+  line-height: 1;
+}
+
+.about-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.about-version {
+  font-size: 12px;
+  color: #666;
+  margin: 2px 0 8px;
+}
+
+.about-desc {
+  font-size: 13px;
+  color: #888;
+  line-height: 1.5;
+}
+
+.about-divider {
+  height: 1px;
+  background: #333;
+  margin: 16px 0;
+}
+
+.about-contact {
+  padding: 0 8px;
+}
+
+.about-contact-label {
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.about-email {
+  font-size: 14px;
+  color: #4a9eff;
+  text-decoration: none;
+}
+
+.about-email:hover {
+  text-decoration: underline;
+}
+

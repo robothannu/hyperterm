@@ -1,3 +1,9 @@
+interface Note {
+  id: number;
+  content: string;
+  createdAt: string;
+}
+
 interface UsageMetric {
   utilization: number;
   resets_at: string | null;
@@ -40,8 +46,8 @@ interface TerminalAPI {
   listTmuxSessions(): Promise<string[]>;
   saveSessions(data: string): Promise<boolean>;
   loadSessions(): Promise<string | null>;
-  loadNotes(tmuxName: string): Promise<any[]>;
-  saveNotes(tmuxName: string, notes: any[]): Promise<void>;
+  loadNotes(tmuxName: string): Promise<Note[]>;
+  saveNotes(tmuxName: string, notes: Note[]): Promise<void>;
   deleteSessionNotes(tmuxName: string): Promise<void>;
   onBeforeQuit(callback: () => void): void;
   quitReady(): void;
@@ -60,6 +66,8 @@ interface TerminalAPI {
   getPaneCommand(tmuxName: string): Promise<string>;
   getProcessInfo(tmuxName: string): Promise<{ cpu: number; memory: number }>;
   fetchUsage(): Promise<UsageResult>;
+  onHelpGuide(callback: () => void): void;
+  onHelpAbout(callback: () => void): void;
 }
 
 interface Window {

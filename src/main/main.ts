@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, MenuItem, shell } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { execFile } from "child_process";
@@ -8,8 +8,26 @@ const execFileAsync = promisify(execFile);
 import * as https from "https";
 import * as PtyManager from "./pty-manager";
 
+interface Note {
+  id: number;
+  content: string;
+  createdAt: string;
+}
+
+app.setName("HyperT");
+
+// Global exception handlers
+process.on("uncaughtException", (err) => {
+  console.error("[main] Uncaught exception:", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[main] Unhandled rejection:", reason);
+});
+
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
+let forceQuitTimer: NodeJS.Timeout | null = null;
 
 const sessionsFilePath = path.join(app.getPath("userData"), "sessions.json");
 const notesFilePath = path.join(app.getPath("userData"), "notes.json");
@@ -27,7 +45,7 @@ function createWindow(): void {
       preload: path.join(__dirname, "..", "preload", "preload.js"),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -51,7 +69,7 @@ function createWindow(): void {
       mainWindow?.webContents.send("app:before-quit");
 
       // Force-quit if renderer never responds with app:quit-ready
-      setTimeout(() => {
+      forceQuitTimer = setTimeout(() => {
         console.warn("[main] Renderer did not respond to app:before-quit in time, force-quitting.");
         PtyManager.detachAll();
         if (mainWindow) {
@@ -72,6 +90,10 @@ function createWindow(): void {
 ipcMain.handle(
   "pty:create",
   (_event, cols: number, rows: number, cwd?: string, tmuxSession?: string) => {
+    // Validate cols/rows to prevent NaN or out-of-bounds values reaching node-pty
+    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 10000 || rows > 10000) {
+      throw new Error(`Invalid dimensions: cols=${cols}, rows=${rows}`);
+    }
     const result = PtyManager.createSession(
       cols,
       rows,
@@ -93,6 +115,9 @@ ipcMain.on("pty:write", (_event, id: number, data: string) => {
 });
 
 ipcMain.on("pty:resize", (_event, id: number, cols: number, rows: number) => {
+  if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 10000 || rows > 10000) {
+    return;
+  }
   PtyManager.resizeSession(id, cols, rows);
 });
 
@@ -138,7 +163,7 @@ ipcMain.handle("session:load", () => {
 
 // --- Notes IPC ---
 
-function readNotes(): Record<string, any[]> {
+function readNotes(): Record<string, Note[]> {
   try {
     if (fs.existsSync(notesFilePath)) {
       return JSON.parse(fs.readFileSync(notesFilePath, "utf8"));
@@ -149,7 +174,7 @@ function readNotes(): Record<string, any[]> {
   return {};
 }
 
-function writeNotes(data: Record<string, any[]>): void {
+function writeNotes(data: Record<string, Note[]>): void {
   try {
     fs.writeFileSync(notesFilePath, JSON.stringify(data, null, 2), "utf8");
   } catch (err) {
@@ -162,7 +187,7 @@ ipcMain.handle("notes:load", (_event, tmuxName: string) => {
   return all[tmuxName] || [];
 });
 
-ipcMain.handle("notes:save", (_event, tmuxName: string, notes: any[]) => {
+ipcMain.handle("notes:save", (_event, tmuxName: string, notes: Note[]) => {
   const all = readNotes();
   if (notes.length === 0) {
     delete all[tmuxName];
@@ -238,9 +263,10 @@ ipcMain.handle("usage:fetch", async () => {
   try {
     const data = await fetchUsageFromAPI(token);
     return { data };
-  } catch (err: any) {
-    console.error("[main] Usage fetch failed:", err?.message || err);
-    return { error: err?.message === "parse" ? "parse" : "api" };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[main] Usage fetch failed:", message);
+    return { error: message === "parse" ? "parse" : "api" };
   }
 });
 
@@ -290,13 +316,17 @@ ipcMain.handle("tmux:getPaneCommand", (_event, tmuxName: string) => {
   return PtyManager.getTmuxPaneCurrentCommand(tmuxName);
 });
 
-ipcMain.handle("tmux:getProcessInfo", (_event, tmuxName: string) => {
+ipcMain.handle("tmux:getProcessInfo", async (_event, tmuxName: string) => {
   const pid = PtyManager.getTmuxPanePid(tmuxName);
-  return PtyManager.getProcessInfo(pid);
+  return await PtyManager.getProcessInfo(pid);
 });
 
 // Renderer signals that session metadata has been saved — safe to quit
 ipcMain.on("app:quit-ready", () => {
+  if (forceQuitTimer !== null) {
+    clearTimeout(forceQuitTimer);
+    forceQuitTimer = null;
+  }
   PtyManager.detachAll(); // keep tmux sessions alive
   if (mainWindow) {
     mainWindow.destroy();
@@ -306,7 +336,84 @@ ipcMain.on("app:quit-ready", () => {
 
 // --- App Lifecycle ---
 
-app.whenReady().then(createWindow);
+function createMenu(): void {
+  const template: (Electron.MenuItemConstructorOptions | MenuItem)[] = [
+    {
+      label: "HyperT",
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        { role: "close" },
+      ],
+    },
+    {
+      label: "Help",
+      submenu: [
+        {
+          label: "User Guide",
+          click: () => {
+            mainWindow?.webContents.send("help:show-guide");
+          },
+        },
+        { type: "separator" },
+        {
+          label: "About",
+          click: () => {
+            mainWindow?.webContents.send("help:show-about");
+          },
+        },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  createMenu();
+});
 
 app.on("window-all-closed", () => {
   app.quit();

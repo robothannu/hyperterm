@@ -1,5 +1,22 @@
 import { contextBridge, ipcRenderer, clipboard } from "electron";
 
+interface Note {
+  id: number;
+  content: string;
+  createdAt: string;
+}
+
+interface UsageData {
+  five_hour: { utilization: number; resets_at: string | null };
+  seven_day: { utilization: number; resets_at: string | null };
+  seven_day_opus: { utilization: number; resets_at: string | null };
+}
+
+interface UsageResult {
+  data?: UsageData;
+  error?: "keychain" | "api" | "parse";
+}
+
 export interface TerminalAPI {
   createPty(
     cols: number,
@@ -17,8 +34,8 @@ export interface TerminalAPI {
   listTmuxSessions(): Promise<string[]>;
   saveSessions(data: string): Promise<boolean>;
   loadSessions(): Promise<string | null>;
-  loadNotes(tmuxName: string): Promise<any[]>;
-  saveNotes(tmuxName: string, notes: any[]): Promise<void>;
+  loadNotes(tmuxName: string): Promise<Note[]>;
+  saveNotes(tmuxName: string, notes: Note[]): Promise<void>;
   deleteSessionNotes(tmuxName: string): Promise<void>;
   onBeforeQuit(callback: () => void): void;
   quitReady(): void;
@@ -36,7 +53,9 @@ export interface TerminalAPI {
   getTmuxSessionName(tmuxName: string): Promise<string>;
   getPaneCommand(tmuxName: string): Promise<string>;
   getProcessInfo(tmuxName: string): Promise<{ cpu: number; memory: number }>;
-  fetchUsage(): Promise<{ data?: any; error?: string }>;
+  fetchUsage(): Promise<UsageResult>;
+  onHelpGuide(callback: () => void): void;
+  onHelpAbout(callback: () => void): void;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -80,10 +99,10 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   loadSessions: (): Promise<string | null> => {
     return ipcRenderer.invoke("session:load");
   },
-  loadNotes: (tmuxName: string): Promise<any[]> => {
+  loadNotes: (tmuxName: string): Promise<Note[]> => {
     return ipcRenderer.invoke("notes:load", tmuxName);
   },
-  saveNotes: (tmuxName: string, notes: any[]): Promise<void> => {
+  saveNotes: (tmuxName: string, notes: Note[]): Promise<void> => {
     return ipcRenderer.invoke("notes:save", tmuxName, notes);
   },
   deleteSessionNotes: (tmuxName: string): Promise<void> => {
@@ -138,7 +157,15 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   getProcessInfo: (tmuxName: string): Promise<{ cpu: number; memory: number }> => {
     return ipcRenderer.invoke("tmux:getProcessInfo", tmuxName);
   },
-  fetchUsage: (): Promise<{ data?: any; error?: string }> => {
+  fetchUsage: (): Promise<UsageResult> => {
     return ipcRenderer.invoke("usage:fetch");
+  },
+  onHelpGuide: (callback: () => void): void => {
+    ipcRenderer.removeAllListeners("help:show-guide");
+    ipcRenderer.on("help:show-guide", () => callback());
+  },
+  onHelpAbout: (callback: () => void): void => {
+    ipcRenderer.removeAllListeners("help:show-about");
+    ipcRenderer.on("help:show-about", () => callback());
   },
 } satisfies TerminalAPI);

@@ -2,6 +2,7 @@
   "name": "terminal-app",
   "version": "0.1.0",
   "description": "A cross-platform terminal manager with sidebar navigation",
+  "author": "robothannu@gmail.com",
   "main": "dist/main/main.js",
   "scripts": {
     "rebuild": "electron-rebuild -f -w node-pty",

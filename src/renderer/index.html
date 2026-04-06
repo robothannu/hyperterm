@@ -14,13 +14,13 @@
   <div id="app">
     <div id="titlebar">
       <div id="titlebar-drag"></div>
-      <span id="titlebar-title">HyperTerm</span>
+      <span id="titlebar-title">HyperTerm ⬡</span>
     </div>
     <div id="main-area">
       <aside id="sidebar">
         <div id="sidebar-header">
-          <span class="sidebar-title">Terminals</span>
-          <button id="btn-new-terminal" title="New Terminal">+</button>
+          <span class="sidebar-title">Terminal Groups</span>
+          <button id="btn-new-terminal" title="New Group">+</button>
         </div>
         <ul id="terminal-list"></ul>
       </aside>
@@ -54,6 +54,89 @@
         <button id="cluster-cancel" class="modal-btn modal-btn-cancel">Cancel</button>
         <button id="cluster-clear" class="modal-btn modal-btn-cancel">Clear</button>
         <button id="cluster-ok" class="modal-btn modal-btn-ok">Set</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help Guide Modal -->
+  <div id="help-modal" class="modal-overlay hidden">
+    <div class="modal-dialog help-dialog">
+      <div class="modal-title">HyperT 매뉴얼</div>
+      <div class="help-content">
+        <h3>Groups &amp; Sessions</h3>
+        <p>A <strong>Group</strong> is a named container for one or more terminal sessions (panes). Groups persist across app restarts — your work is automatically saved.</p>
+
+        <h3>Creating &amp; Managing Groups</h3>
+        <ul>
+          <li><strong>New Group</strong> — Click the <kbd>+</kbd> button in the sidebar</li>
+          <li><strong>Rename Group</strong> — Double-click the group name in the sidebar</li>
+          <li><strong>Close Group</strong> — Click the <kbd>×</kbd> button on the group entry</li>
+          <li><strong>Switch Groups</strong> — Click a group in the sidebar, or use <kbd>Cmd+1</kbd>–<kbd>Cmd+9</kbd></li>
+        </ul>
+
+        <h3>Split &amp; Arrange Panes</h3>
+        <ul>
+          <li><strong>Split Horizontally</strong> — Right-click → "좌우 분할" or <kbd>Cmd+D</kbd></li>
+          <li><strong>Split Vertically</strong> — Right-click → "상하 분할"</li>
+          <li><strong>Close Pane</strong> — Right-click → "Pane 닫기"</li>
+          <li><strong>Navigate Panes</strong> — <kbd>Cmd+←</kbd> <kbd>Cmd+→</kbd> <kbd>Cmd+↑</kbd> <kbd>Cmd+↓</kbd></li>
+          <li><strong>Resize Dividers</strong> — Drag the divider between panes</li>
+        </ul>
+
+        <h3>Pane Header</h3>
+        <ul>
+          <li><strong>Rename Pane Title</strong> — Double-click the pane header title</li>
+          <li><strong>Dead Session Recovery</strong> — If a session ends, click "Session ended" overlay to restart it</li>
+        </ul>
+
+        <h3>Projects / Clusters</h3>
+        <ul>
+          <li><strong>Set Cluster</strong> — <kbd>Cmd+Shift+G</kbd> to group related terminals under a project name</li>
+        </ul>
+
+        <h3>Notes</h3>
+        <ul>
+          <li><strong>Open Notes</strong> — Click the pencil icon <kbd>✎</kbd> on a group entry</li>
+          <li><strong>Add Note</strong> — Type in the notes panel and press <kbd>Cmd+Enter</kbd></li>
+        </ul>
+
+        <h3>Keyboard Shortcuts</h3>
+        <table class="help-table">
+          <tr><td><kbd>Cmd+N</kbd></td><td>New Group</td></tr>
+          <tr><td><kbd>Cmd+1</kbd>–<kbd>Cmd+9</kbd></td><td>Switch to Nth group</td></tr>
+          <tr><td><kbd>Cmd+←</kbd> <kbd>Cmd+→</kbd> <kbd>Cmd+↑</kbd> <kbd>Cmd+↓</kbd></td><td>Navigate panes</td></tr>
+          <tr><td><kbd>Cmd+Shift+G</kbd></td><td>Set cluster/project name</td></tr>
+          <tr><td><kbd>Cmd+0</kbd></td><td>Reset font size</td></tr>
+          <tr><td><kbd>Cmd++</kbd></td><td>Increase font size</td></tr>
+          <tr><td><kbd>Cmd+-</kbd></td><td>Decrease font size</td></tr>
+          <tr><td><kbd>Cmd+A</kbd></td><td>Select all</td></tr>
+          <tr><td><kbd>Cmd+C</kbd></td><td>Copy (or send SIGINT if no selection)</td></tr>
+          <tr><td><kbd>Cmd+V</kbd></td><td>Paste</td></tr>
+        </table>
+      </div>
+      <div class="modal-buttons">
+        <button id="help-close" class="modal-btn modal-btn-ok">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- About Modal -->
+  <div id="about-modal" class="modal-overlay hidden">
+    <div class="modal-dialog about-dialog">
+      <div class="modal-title">About HyperTerm</div>
+      <div class="about-content">
+        <div class="about-logo">⬡</div>
+        <div class="about-name">HyperTerm</div>
+        <div class="about-version">Version 0.1.0</div>
+        <div class="about-desc">A terminal emulator with tmux integration for macOS.</div>
+        <div class="about-divider"></div>
+        <div class="about-contact">
+          <div class="about-contact-label">Bug Reports &amp; Feature Requests</div>
+          <a href="mailto:robothannu@gmail.com" class="about-email">robothannu@gmail.com</a>
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button id="about-close" class="modal-btn modal-btn-ok">Close</button>
       </div>
     </div>
   </div>
