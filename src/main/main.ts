@@ -61,7 +61,7 @@ function createWindow(): void {
     e.preventDefault();
   });
 
-  // Intercept close to save session metadata first, then detach (keep tmux alive)
+  // Intercept close to save session metadata first, then destroy all pty sessions
   mainWindow.on("close", (e) => {
     if (!isQuitting) {
       e.preventDefault();
@@ -71,7 +71,7 @@ function createWindow(): void {
       // Force-quit if renderer never responds with app:quit-ready
       forceQuitTimer = setTimeout(() => {
         console.warn("[main] Renderer did not respond to app:before-quit in time, force-quitting.");
-        PtyManager.detachAll();
+        PtyManager.destroyAll();
         if (mainWindow) {
           mainWindow.destroy();
         }
@@ -89,7 +89,7 @@ function createWindow(): void {
 
 ipcMain.handle(
   "pty:create",
-  (_event, cols: number, rows: number, cwd?: string, tmuxSession?: string) => {
+  (_event, cols: number, rows: number, cwd?: string) => {
     // Validate cols/rows to prevent NaN or out-of-bounds values reaching node-pty
     if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 10000 || rows > 10000) {
       throw new Error(`Invalid dimensions: cols=${cols}, rows=${rows}`);
@@ -104,9 +104,8 @@ ipcMain.handle(
         mainWindow?.webContents.send("pty:exit", sessionId, exitCode);
       },
       cwd,
-      tmuxSession
     );
-    return result; // { id, tmuxName }
+    return result; // { id, sessionKey }
   }
 );
 
@@ -126,17 +125,7 @@ ipcMain.on("pty:destroy", (_event, id: number) => {
 });
 
 ipcMain.handle("pty:getCwd", (_event, id: number) => {
-  return PtyManager.getSessionCwd(id);
-});
-
-// --- tmux IPC ---
-
-ipcMain.handle("tmux:check", () => {
-  return PtyManager.isTmuxAvailable();
-});
-
-ipcMain.handle("tmux:list", () => {
-  return PtyManager.listTmuxSessions();
+  return PtyManager.getCwd(id);
 });
 
 // --- Session metadata IPC ---
@@ -182,24 +171,24 @@ function writeNotes(data: Record<string, Note[]>): void {
   }
 }
 
-ipcMain.handle("notes:load", (_event, tmuxName: string) => {
+ipcMain.handle("notes:load", (_event, sessionKey: string) => {
   const all = readNotes();
-  return all[tmuxName] || [];
+  return all[sessionKey] || [];
 });
 
-ipcMain.handle("notes:save", (_event, tmuxName: string, notes: Note[]) => {
+ipcMain.handle("notes:save", (_event, sessionKey: string, notes: Note[]) => {
   const all = readNotes();
   if (notes.length === 0) {
-    delete all[tmuxName];
+    delete all[sessionKey];
   } else {
-    all[tmuxName] = notes;
+    all[sessionKey] = notes;
   }
   writeNotes(all);
 });
 
-ipcMain.handle("notes:deleteSession", (_event, tmuxName: string) => {
+ipcMain.handle("notes:deleteSession", (_event, sessionKey: string) => {
   const all = readNotes();
-  delete all[tmuxName];
+  delete all[sessionKey];
   writeNotes(all);
 });
 
@@ -270,55 +259,10 @@ ipcMain.handle("usage:fetch", async () => {
   }
 });
 
-// --- Pane IPC ---
+// --- Process info IPC (pty ID based) ---
 
-ipcMain.handle("tmux:listPanes", (_event, tmuxName: string) => {
-  return PtyManager.listPanes(tmuxName);
-});
-
-ipcMain.handle("tmux:selectPane", (_event, tmuxName: string, paneId: string) => {
-  return PtyManager.selectPane(tmuxName, paneId);
-});
-
-ipcMain.handle("tmux:splitPane", (_event, tmuxName: string, direction: string) => {
-  return PtyManager.splitPane(tmuxName, direction as "horizontal" | "vertical");
-});
-
-ipcMain.handle("tmux:closePane", (_event, tmuxName: string) => {
-  return PtyManager.closePane(tmuxName);
-});
-
-ipcMain.handle("tmux:navigatePane", (_event, tmuxName: string, direction: string) => {
-  return PtyManager.navigatePane(tmuxName, direction as "U" | "D" | "L" | "R");
-});
-
-ipcMain.on("tmux:scroll", (_event, tmuxName: string, direction: string, lines: number) => {
-  PtyManager.scrollSession(tmuxName, direction as "up" | "down", lines);
-});
-
-ipcMain.on("tmux:exitCopyMode", (_event, tmuxName: string) => {
-  PtyManager.exitCopyMode(tmuxName);
-});
-
-ipcMain.on("tmux:sendKey", (_event, tmuxName: string, key: string) => {
-  PtyManager.sendTmuxKey(tmuxName, key);
-});
-
-ipcMain.handle("tmux:renameSession", (_event, oldName: string, newName: string) => {
-  return PtyManager.renameTmuxSession(oldName, newName);
-});
-
-ipcMain.handle("tmux:getSessionName", (_event, tmuxName: string) => {
-  return PtyManager.getTmuxSessionName(tmuxName);
-});
-
-ipcMain.handle("tmux:getPaneCommand", (_event, tmuxName: string) => {
-  return PtyManager.getTmuxPaneCurrentCommand(tmuxName);
-});
-
-ipcMain.handle("tmux:getProcessInfo", async (_event, tmuxName: string) => {
-  const pid = PtyManager.getTmuxPanePid(tmuxName);
-  return await PtyManager.getProcessInfo(pid);
+ipcMain.handle("pty:getProcessInfo", async (_event, id: number) => {
+  return await PtyManager.getProcessInfo(id);
 });
 
 // Renderer signals that session metadata has been saved — safe to quit
@@ -327,7 +271,7 @@ ipcMain.on("app:quit-ready", () => {
     clearTimeout(forceQuitTimer);
     forceQuitTimer = null;
   }
-  PtyManager.detachAll(); // keep tmux sessions alive
+  PtyManager.destroyAll(); // kill all pty processes
   if (mainWindow) {
     mainWindow.destroy();
   }

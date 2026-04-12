@@ -822,10 +822,19 @@ html, body {
   overflow-y: scroll !important;
 }
 
-/* Hide xterm scrollbar — scrolling handled by tmux copy-mode */
+/* Slim scrollbar for xterm.js native scrollback */
 .terminal-container .xterm-viewport::-webkit-scrollbar {
-  width: 0;
-  display: none;
+  width: 6px;
+}
+.terminal-container .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+.terminal-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* === Sidebar Cluster Headers === */

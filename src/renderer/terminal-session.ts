@@ -27,7 +27,7 @@ class TerminalSession {
       fontSize: this.fontSize,
       fontFamily:
         "'SF Mono', Menlo, Monaco, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', monospace",
-      scrollback: 0,
+      scrollback: 10000,
       theme: {
         background: "#1c1c1c",
         foreground: "#d0d0d0",

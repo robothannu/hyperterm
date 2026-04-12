@@ -20,54 +20,47 @@ interface UsageResult {
   error?: "keychain" | "api" | "parse";
 }
 
-interface PaneInfo {
-  paneId: string;
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  active: boolean;
-}
-
 interface TerminalAPI {
+  // --- Core pty API ---
   createPty(
     cols: number,
     rows: number,
-    cwd?: string,
-    tmuxSession?: string
-  ): Promise<{ id: number; tmuxName: string }>;
+    cwd?: string
+  ): Promise<{ id: number; sessionKey: string }>;
   writePty(id: number, data: string): void;
   resizePty(id: number, cols: number, rows: number): void;
   destroyPty(id: number): void;
   onPtyData(callback: (id: number, data: string) => void): void;
   onPtyExit(callback: (id: number, exitCode: number) => void): void;
   getCwd(id: number): Promise<string>;
-  isTmuxAvailable(): Promise<boolean>;
-  listTmuxSessions(): Promise<string[]>;
+
+  // --- Session persistence ---
   saveSessions(data: string): Promise<boolean>;
   loadSessions(): Promise<string | null>;
-  loadNotes(tmuxName: string): Promise<Note[]>;
-  saveNotes(tmuxName: string, notes: Note[]): Promise<void>;
-  deleteSessionNotes(tmuxName: string): Promise<void>;
+
+  // --- Notes (sessionKey-based, accepts any string key) ---
+  loadNotes(sessionKey: string): Promise<Note[]>;
+  saveNotes(sessionKey: string, notes: Note[]): Promise<void>;
+  deleteSessionNotes(sessionKey: string): Promise<void>;
+
+  // --- App lifecycle ---
   onBeforeQuit(callback: () => void): void;
   quitReady(): void;
+
+  // --- Clipboard ---
   copyToClipboard(text: string): void;
   readFromClipboard(): string;
-  listPanes(tmuxName: string): Promise<PaneInfo[]>;
-  selectPane(tmuxName: string, paneId: string): Promise<void>;
-  splitPane(tmuxName: string, direction: "horizontal" | "vertical"): Promise<void>;
-  closePane(tmuxName: string): Promise<void>;
-  navigatePane(tmuxName: string, direction: "U" | "D" | "L" | "R"): Promise<void>;
-  scrollTmux(tmuxName: string, direction: "up" | "down", lines: number): void;
-  exitCopyMode(tmuxName: string): void;
-  sendTmuxKey(tmuxName: string, key: string): void;
-  renameTmuxSession(oldName: string, newName: string): Promise<string>;
-  getTmuxSessionName(tmuxName: string): Promise<string>;
-  getPaneCommand(tmuxName: string): Promise<string>;
-  getProcessInfo(tmuxName: string): Promise<{ cpu: number; memory: number }>;
+
+  // --- Process info (pty ID based) ---
+  getProcessInfo(id: number): Promise<{ cpu: number; memory: number }>;
+
+  // --- Usage ---
   fetchUsage(): Promise<UsageResult>;
+
+  // --- Help ---
   onHelpGuide(callback: () => void): void;
   onHelpAbout(callback: () => void): void;
+
 }
 
 interface Window {

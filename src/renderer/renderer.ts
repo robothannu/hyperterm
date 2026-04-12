@@ -29,13 +29,9 @@ interface Tab {
 }
 
 // Persistence types
-interface V1Session {
-  label: string;
-  tmuxName: string;
-}
 interface SavedPaneLeaf {
   type: "leaf";
-  tmuxName: string;
+  sessionKey: string;
 }
 interface SavedPaneSplit {
   type: "split";
@@ -64,11 +60,10 @@ interface Note {
 // --- Global State ---
 
 const sessions = new Map<number, TerminalSession>();
-const sessionTmuxNames = new Map<number, string>();
+const sessionKeys = new Map<number, string>();
 const tabMap = new Map<number, Tab>();
 const tabLabels = new Map<number, string>();
 const ptyToTab = new Map<number, number>();
-const commandPollIntervals = new Map<number, ReturnType<typeof setInterval>>();
 const tabClusters = new Map<number, string>();
 let activeTabId: number | null = null;
 let sessionCounter = 0;
@@ -264,8 +259,7 @@ function setFocusedPane(ptyId: number): void {
 // --- Core Functions ---
 
 async function createPaneSession(
-  parentElement: HTMLElement,
-  tmuxSession?: string
+  parentElement: HTMLElement
 ): Promise<PaneLeaf> {
   const paneElement = document.createElement("div");
   paneElement.className = "pane-leaf";
@@ -301,17 +295,12 @@ async function createPaneSession(
   }
 
   let ptyId: number;
-  let tmuxName: string;
+  let sessionKey: string;
 
   try {
-    const result = await window.terminalAPI.createPty(
-      cols,
-      rows,
-      undefined,
-      tmuxSession
-    );
+    const result = await window.terminalAPI.createPty(cols, rows);
     ptyId = result.id;
-    tmuxName = result.tmuxName;
+    sessionKey = result.sessionKey;
   } catch (err) {
     // Clean up DOM and session on failure
     paneElement.remove();
@@ -320,39 +309,10 @@ async function createPaneSession(
   }
 
   sessions.set(ptyId, session);
-  sessionTmuxNames.set(ptyId, tmuxName);
+  sessionKeys.set(ptyId, sessionKey);
 
-  // Set initial pane title to tmux session name (only if user hasn't set a custom name)
-  window.terminalAPI.getTmuxSessionName(tmuxName).then((name) => {
-    if (!paneTitle.hasAttribute("data-custom-name")) {
-      paneTitle.textContent = name;
-    }
-  }).catch(() => {
-    // Keep "..." if getTmuxSessionName fails and no custom name is set
-  });
-
-  // Poll current pane command and update title (unless custom name set)
-  const commandPollInterval = setInterval(async () => {
-    if (paneTitle.hasAttribute("data-custom-name")) {
-      clearInterval(commandPollInterval);
-      commandPollIntervals.delete(ptyId);
-      return;
-    }
-    try {
-      const cmd = await window.terminalAPI.getPaneCommand(tmuxName);
-      // Show command name if not default shell (bash/zsh), otherwise show session name
-      const defaultShells = ["bash", "zsh", "sh", "dash", "fish"];
-      if (cmd && !defaultShells.includes(cmd)) {
-        paneTitle.textContent = cmd;
-      } else {
-        const name = await window.terminalAPI.getTmuxSessionName(tmuxName);
-        paneTitle.textContent = name;
-      }
-    } catch {
-      // ignore polling errors
-    }
-  }, 500);
-  commandPollIntervals.set(ptyId, commandPollInterval);
+  // Set initial pane title to "Terminal"
+  paneTitle.textContent = "Terminal";
 
   // Double-click pane header to rename
   paneTitle.addEventListener("dblclick", (e) => {
@@ -371,19 +331,9 @@ async function createPaneSession(
       const newName = input.value.trim() || current;
       paneTitle.style.display = "";
       input.remove();
-
-      // Sync tmux session name
-      const oldTmux = sessionTmuxNames.get(ptyId);
-      if (oldTmux) {
-        const actualName = await window.terminalAPI.renameTmuxSession(oldTmux, newName);
-        sessionTmuxNames.set(ptyId, actualName);
-        paneTitle.textContent = actualName;
-        paneTitle.setAttribute("data-custom-name", "true");
-        await saveSessionMetadata();
-      } else {
-        paneTitle.textContent = newName;
-        paneTitle.setAttribute("data-custom-name", "true");
-      }
+      paneTitle.textContent = newName;
+      paneTitle.setAttribute("data-custom-name", "true");
+      await saveSessionMetadata();
     };
 
     input.addEventListener("keydown", (ev) => {
@@ -395,18 +345,8 @@ async function createPaneSession(
   });
 
   session.onData((data: string) => {
-    window.terminalAPI.exitCopyMode(tmuxName);
     window.terminalAPI.writePty(ptyId, data);
   });
-
-  // Scroll: capture wheel events before xterm.js and proxy to tmux scrollback
-  termContainer.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const direction = e.deltaY < 0 ? "up" : "down";
-    const lines = Math.max(1, Math.round(Math.abs(e.deltaY) / 25));
-    window.terminalAPI.scrollTmux(tmuxName, direction, lines);
-  }, { capture: true, passive: false });
 
   session.onResize((size: { cols: number; rows: number }) => {
     window.terminalAPI.resizePty(ptyId, size.cols, size.rows);
@@ -426,8 +366,7 @@ async function createPaneSession(
 }
 
 async function createNewTab(
-  label?: string,
-  tmuxSession?: string
+  label?: string
 ): Promise<number | null> {
   const displayLabel = label || `Terminal ${sessionCounter}`;
 
@@ -440,7 +379,7 @@ async function createNewTab(
   tabContainer.style.display = "flex";
 
   try {
-    const leaf = await createPaneSession(tabContainer, tmuxSession);
+    const leaf = await createPaneSession(tabContainer);
     const tabId = leaf.ptyId;
     ptyToTab.set(leaf.ptyId, tabId);
 
@@ -466,9 +405,11 @@ async function createNewTab(
 }
 
 function switchToTab(tabId: number): void {
-  if (activeTabId !== null && activeTabId !== tabId) {
-    const current = tabMap.get(activeTabId);
-    if (current) current.container.style.display = "none";
+  // Hide ALL other tabs to prevent leaking across groups
+  for (const tab of tabMap.values()) {
+    if (tab.id !== tabId) {
+      tab.container.style.display = "none";
+    }
   }
 
   const target = tabMap.get(tabId);
@@ -616,15 +557,10 @@ function closePaneByPtyId(ptyId: number): void {
   }
 
   // Clean up closed pane
-  const interval = commandPollIntervals.get(ptyId);
-  if (interval) {
-    clearInterval(interval);
-    commandPollIntervals.delete(ptyId);
-  }
   window.terminalAPI.destroyPty(ptyId);
   sessions.get(ptyId)?.dispose();
   sessions.delete(ptyId);
-  sessionTmuxNames.delete(ptyId);
+  sessionKeys.delete(ptyId);
   ptyToTab.delete(ptyId);
 
   // Update focus
@@ -650,28 +586,24 @@ function closeTab(tabId: number): void {
   // Delete notes for this tab
   const firstLeaf = getAllLeaves(tab.root)[0];
   if (firstLeaf) {
-    const tmuxName = sessionTmuxNames.get(firstLeaf.ptyId);
-    if (tmuxName) window.terminalAPI.deleteSessionNotes(tmuxName);
+    const sk = sessionKeys.get(firstLeaf.ptyId);
+    if (sk) window.terminalAPI.deleteSessionNotes(sk);
   }
   sessionNotesCache.delete(tabId);
 
   // Destroy all panes
   for (const leaf of getAllLeaves(tab.root)) {
-    const interval = commandPollIntervals.get(leaf.ptyId);
-    if (interval) {
-      clearInterval(interval);
-      commandPollIntervals.delete(leaf.ptyId);
-    }
     window.terminalAPI.destroyPty(leaf.ptyId);
     leaf.session.dispose();
     sessions.delete(leaf.ptyId);
-    sessionTmuxNames.delete(leaf.ptyId);
+    sessionKeys.delete(leaf.ptyId);
     ptyToTab.delete(leaf.ptyId);
   }
 
   tab.container.remove();
   tabMap.delete(tabId);
   tabLabels.delete(tabId);
+  tabClusters.delete(tabId);
   removeSidebarEntry(tabId);
 
   if (activeTabId === tabId) {
@@ -685,7 +617,8 @@ function closeTab(tabId: number): void {
   if (tabMap.size === 0) {
     activeTabId = null;
     tabLabels.clear();
-    sessionTmuxNames.clear();
+    tabClusters.clear();
+    sessionKeys.clear();
     sessionNotesCache.clear();
     if (notesPanelTabId !== null) closeNotesPanel();
     terminalList.innerHTML = "";
@@ -698,7 +631,7 @@ function closeTab(tabId: number): void {
 
 function serializePaneTree(node: PaneNode): SavedPaneNode {
   if (node.type === "leaf") {
-    return { type: "leaf", tmuxName: sessionTmuxNames.get(node.ptyId) || "" };
+    return { type: "leaf", sessionKey: sessionKeys.get(node.ptyId) || "" };
   }
   return {
     type: "split",
@@ -713,7 +646,10 @@ function serializePaneTree(node: PaneNode): SavedPaneNode {
 
 async function saveSessionMetadata(): Promise<void> {
   const tabIds = Array.from(tabMap.keys());
-  if (tabIds.length === 0) return;
+  if (tabIds.length === 0) {
+    await window.terminalAPI.saveSessions(JSON.stringify({ version: 3, tabs: [], activeTabIndex: 0 }));
+    return;
+  }
 
   let activeTabIndex = 0;
   const savedTabs: SavedTab[] = [];
@@ -733,21 +669,13 @@ async function saveSessionMetadata(): Promise<void> {
   await window.terminalAPI.saveSessions(JSON.stringify(state));
 }
 
-function getLeafTmuxNames(node: SavedPaneNode): string[] {
-  if (node.type === "leaf") return [node.tmuxName];
-  return [
-    ...getLeafTmuxNames(node.children[0]),
-    ...getLeafTmuxNames(node.children[1]),
-  ];
-}
-
 async function restorePaneTree(
   node: SavedPaneNode,
   parentElement: HTMLElement,
   tabId: number
 ): Promise<PaneNode> {
   if (node.type === "leaf") {
-    const leaf = await createPaneSession(parentElement, node.tmuxName);
+    const leaf = await createPaneSession(parentElement);
     ptyToTab.set(leaf.ptyId, tabId);
     return leaf;
   }
@@ -778,111 +706,67 @@ async function restorePaneTree(
   return splitNode;
 }
 
-async function restoreFromTmux(): Promise<boolean> {
-  const tmuxAvailable = await window.terminalAPI.isTmuxAvailable();
-  if (!tmuxAvailable) return false;
-
-  const liveSessions = await window.terminalAPI.listTmuxSessions();
-  if (liveSessions.length === 0) return false;
-
-  // Load saved state
+async function restoreFromSaved(): Promise<boolean> {
   let savedState: SavedStateV2 | null = null;
   try {
     const raw = await window.terminalAPI.loadSessions();
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed.version === 2) {
+      if (parsed.version === 2 || parsed.version === 3) {
         savedState = parsed;
-      } else if (parsed.sessions) {
-        // Convert V1 → V3
-        savedState = {
-          version: 3,
-          tabs: parsed.sessions.map((s: V1Session) => ({
-            label: s.label,
-            layout: { type: "leaf", tmuxName: s.tmuxName } as SavedPaneLeaf,
-          })),
-          activeTabIndex: parsed.activeIndex || 0,
-        };
       }
     }
   } catch {
     /* ignore */
   }
 
-  const restoredTmuxNames = new Set<string>();
+  if (!savedState || savedState.tabs.length === 0) return false;
 
-  // Clear sidebar before restoring (否则旧entries会残留)
+  // Clear sidebar before restoring
   terminalList.innerHTML = "";
 
-  if (savedState) {
-    for (const savedTab of savedState.tabs) {
-      const names = getLeafTmuxNames(savedTab.layout);
-      const allAlive = names.every((n) => liveSessions.includes(n));
+  for (const savedTab of savedState.tabs) {
+    sessionCounter++;
+    const tabContainer = document.createElement("div");
+    tabContainer.className = "tab-container";
+    terminalPane.appendChild(tabContainer);
 
-      if (!allAlive) {
-        // Restore surviving sessions as individual tabs
-        for (const name of names) {
-          if (liveSessions.includes(name)) {
-            sessionCounter++;
-            await createNewTab(savedTab.label, name);
-            restoredTmuxNames.add(name);
-          }
-        }
-        continue;
-      }
+    for (const t of tabMap.values()) t.container.style.display = "none";
+    tabContainer.style.display = "flex";
 
-      // Restore full layout
-      sessionCounter++;
-      const tabContainer = document.createElement("div");
-      tabContainer.className = "tab-container";
-      terminalPane.appendChild(tabContainer);
+    const rootNode = await restorePaneTree(
+      savedTab.layout,
+      tabContainer,
+      -1
+    );
 
-      for (const t of tabMap.values()) t.container.style.display = "none";
-      tabContainer.style.display = "flex";
+    const leaves = getAllLeaves(rootNode);
+    if (leaves.length === 0) continue;
+    const tabId = leaves[0].ptyId;
 
-      // Use a temporary tabId (first ptyId will be determined during tree restoration)
-      const rootNode = await restorePaneTree(
-        savedTab.layout,
-        tabContainer,
-        -1
-      );
-
-      const leaves = getAllLeaves(rootNode);
-      if (leaves.length === 0) continue;
-      const tabId = leaves[0].ptyId;
-
-      // Fix up tabId in ptyToTab
-      for (const leaf of leaves) {
-        ptyToTab.set(leaf.ptyId, tabId);
-        restoredTmuxNames.add(sessionTmuxNames.get(leaf.ptyId) || "");
-      }
-
-      const tab: Tab = {
-        id: tabId,
-        root: rootNode,
-        container: tabContainer,
-        focusedPtyId: tabId,
-      };
-
-      tabMap.set(tabId, tab);
-      tabLabels.set(tabId, savedTab.label);
-      if (savedTab.cluster) {
-        tabClusters.set(tabId, savedTab.cluster);
-      }
-      addSidebarEntry(tabId, savedTab.label);
+    // Fix up tabId in ptyToTab
+    for (const leaf of leaves) {
+      ptyToTab.set(leaf.ptyId, tabId);
     }
-  }
 
-  // Restore orphaned live sessions not in saved state
-  for (const name of liveSessions) {
-    if (!restoredTmuxNames.has(name)) {
-      await createNewTab(nextTerminalName(), name);
+    const tab: Tab = {
+      id: tabId,
+      root: rootNode,
+      container: tabContainer,
+      focusedPtyId: tabId,
+    };
+
+    tabMap.set(tabId, tab);
+    tabLabels.set(tabId, savedTab.label);
+    if (savedTab.cluster) {
+      tabClusters.set(tabId, savedTab.cluster);
     }
+    addSidebarEntry(tabId, savedTab.label);
   }
 
   // Switch to previously active tab
   const tabIds = Array.from(tabMap.keys());
-  if (savedState && savedState.activeTabIndex < tabIds.length) {
+  if (savedState.activeTabIndex < tabIds.length) {
     switchToTab(tabIds[savedState.activeTabIndex]);
   } else if (tabIds.length > 0) {
     switchToTab(tabIds[0]);
@@ -905,12 +789,12 @@ const notesCloseBtn = document.getElementById("notes-close")!;
 let notesPanelTabId: number | null = null;
 const sessionNotesCache = new Map<number, Note[]>();
 
-function getTabTmuxName(tabId: number): string | null {
+function getTabSessionKey(tabId: number): string | null {
   const tab = tabMap.get(tabId);
   if (!tab) return null;
   const leaves = getAllLeaves(tab.root);
   if (leaves.length === 0) return null;
-  return sessionTmuxNames.get(leaves[0].ptyId) || null;
+  return sessionKeys.get(leaves[0].ptyId) || null;
 }
 
 function openNotesPanel(tabId: number): void {
@@ -928,10 +812,10 @@ function closeNotesPanel(): void {
 }
 
 async function loadAndRenderNotes(tabId: number): Promise<void> {
-  const tmuxName = getTabTmuxName(tabId);
-  if (!tmuxName) return;
+  const sk = getTabSessionKey(tabId);
+  if (!sk) return;
 
-  const notes: Note[] = await window.terminalAPI.loadNotes(tmuxName);
+  const notes: Note[] = await window.terminalAPI.loadNotes(sk);
   sessionNotesCache.set(tabId, notes);
   renderNotes(notes);
   updateNoteIndicator(tabId, notes.length > 0);
@@ -978,8 +862,8 @@ async function addNote(): Promise<void> {
   const content = notesInput.value.trim();
   if (!content || notesPanelTabId === null) return;
 
-  const tmuxName = getTabTmuxName(notesPanelTabId);
-  if (!tmuxName) return;
+  const sk = getTabSessionKey(notesPanelTabId);
+  if (!sk) return;
 
   const notes = sessionNotesCache.get(notesPanelTabId) || [];
   const maxId = notes.reduce((max, n) => Math.max(max, n.id), 0);
@@ -990,7 +874,7 @@ async function addNote(): Promise<void> {
   };
 
   notes.push(newNote);
-  await window.terminalAPI.saveNotes(tmuxName, notes);
+  await window.terminalAPI.saveNotes(sk, notes);
   sessionNotesCache.set(notesPanelTabId, notes);
   renderNotes(notes);
   updateNoteIndicator(notesPanelTabId, true);
@@ -1001,12 +885,12 @@ async function addNote(): Promise<void> {
 async function deleteNote(noteId: number): Promise<void> {
   if (notesPanelTabId === null) return;
 
-  const tmuxName = getTabTmuxName(notesPanelTabId);
-  if (!tmuxName) return;
+  const sk = getTabSessionKey(notesPanelTabId);
+  if (!sk) return;
 
   let notes = sessionNotesCache.get(notesPanelTabId) || [];
   notes = notes.filter((n) => n.id !== noteId);
-  await window.terminalAPI.saveNotes(tmuxName, notes);
+  await window.terminalAPI.saveNotes(sk, notes);
   sessionNotesCache.set(notesPanelTabId, notes);
   renderNotes(notes);
   updateNoteIndicator(notesPanelTabId, notes.length > 0);
@@ -1033,9 +917,9 @@ let draggedTabId: number | null = null;
 function addSidebarEntry(tabId: number, label: string): void {
   addSidebarEntryDOM(tabId, label);
   // Check for existing notes
-  const tmuxName = getTabTmuxName(tabId);
-  if (tmuxName) {
-    window.terminalAPI.loadNotes(tmuxName).then((notes) => {
+  const sk = getTabSessionKey(tabId);
+  if (sk) {
+    window.terminalAPI.loadNotes(sk).then((notes) => {
       if (notes.length > 0) {
         sessionNotesCache.set(tabId, notes);
         updateNoteIndicator(tabId, true);
@@ -1295,30 +1179,24 @@ document.addEventListener("keydown", (e) => {
     createNewTab(nextTerminalName());
     return;
   }
-  // Cmd+Arrow: navigate between panes
-  if (activeTabId !== null) {
+  // Cmd+Arrow: navigate between panes (internal pane tree focus)
+  if (activeTabId !== null && e.metaKey && !e.shiftKey) {
     const tab = tabMap.get(activeTabId);
     if (tab) {
-      const tmuxName = sessionTmuxNames.get(tab.focusedPtyId);
-      if (tmuxName) {
-        if (e.key === "ArrowLeft" && e.metaKey && !e.shiftKey) {
-          e.preventDefault();
-          window.terminalAPI.navigatePane(tmuxName, "L");
-          return;
+      const leaves = getAllLeaves(tab.root);
+      if (leaves.length > 1) {
+        const currentIndex = leaves.findIndex((l) => l.ptyId === tab.focusedPtyId);
+        let nextIndex = -1;
+
+        if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+          nextIndex = currentIndex > 0 ? currentIndex - 1 : leaves.length - 1;
+        } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+          nextIndex = currentIndex < leaves.length - 1 ? currentIndex + 1 : 0;
         }
-        if (e.key === "ArrowRight" && e.metaKey && !e.shiftKey) {
+
+        if (nextIndex >= 0) {
           e.preventDefault();
-          window.terminalAPI.navigatePane(tmuxName, "R");
-          return;
-        }
-        if (e.key === "ArrowUp" && e.metaKey && !e.shiftKey) {
-          e.preventDefault();
-          window.terminalAPI.navigatePane(tmuxName, "U");
-          return;
-        }
-        if (e.key === "ArrowDown" && e.metaKey && !e.shiftKey) {
-          e.preventDefault();
-          window.terminalAPI.navigatePane(tmuxName, "D");
+          setFocusedPane(leaves[nextIndex].ptyId);
           return;
         }
       }
@@ -1516,7 +1394,7 @@ btnNew.addEventListener("click", () => {
 
 (async () => {
   try {
-    const restored = await restoreFromTmux();
+    const restored = await restoreFromSaved();
     if (!restored) {
       await createNewTab();
     }
