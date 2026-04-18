@@ -1,0 +1,9 @@
+Bell implementation analysis:
+- send_bell() writes \x07 to stderr (not stdout as criterion states)
+- Builder documented rationale: crossterm raw mode captures stdout, stderr is unbuffered
+- Bell fires on BOTH Completed AND Error transitions (criterion #5 only specifies Completed)
+- Extra bell on Error is harmless enhancement, not a violation
+
+send_bell() code:
+  use std::io::Write;
+  let _ = std::io::stderr().write_all(b"\x07");

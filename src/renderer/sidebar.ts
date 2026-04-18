@@ -104,16 +104,14 @@ function addSidebarEntryDOM(tabId: number, label: string): void {
 
   li.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
-    if (target.closest(".terminal-label")) return;
+    if (target.closest(".rename-input")) return;
     switchToTab(tabId);
   });
 
-  labelEl.addEventListener("click", (e) => {
-    if (e.detail === 2) {
-      e.preventDefault();
-      e.stopPropagation();
-      startRename(tabId, li, labelEl);
-    }
+  labelEl.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    startRename(tabId, li, labelEl);
   });
 
   li.querySelector(".btn-notes")!.addEventListener("click", (e) => {

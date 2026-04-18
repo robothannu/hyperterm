@@ -1,0 +1,232 @@
+{
+  "entries": [
+    {
+      "iteration": 1,
+      "sprint": 1,
+      "project_type": "cli",
+      "scores": {
+        "functionality": 5,
+        "usability": 5,
+        "output_format": 5,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 3
+      },
+      "weights": null,
+      "total": 27,
+      "weighted_total": 27,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-08T11:15:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 2,
+      "project_type": "cli",
+      "scores": {
+        "functionality": 4,
+        "usability": 5,
+        "output_format": 5,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 5
+      },
+      "weights": null,
+      "total": 28,
+      "weighted_total": 28,
+      "hard_threshold_violations": [],
+      "verdict": "NEEDS_REVISION",
+      "timestamp": "2026-04-08T12:30:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 3,
+      "project_type": "cli",
+      "scores": {
+        "functionality": 5,
+        "usability": 5,
+        "output_format": 4,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 5
+      },
+      "weights": null,
+      "total": 28,
+      "weighted_total": 28,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-10T14:00:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 1,
+      "project_type": "cli",
+      "scores": {
+        "functionality": 5,
+        "usability": 5,
+        "output_format": 4,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 5
+      },
+      "weights": null,
+      "total": 28,
+      "weighted_total": 28,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-10T15:30:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 2,
+      "project_type": "cli",
+      "scores": {
+        "functionality": 5,
+        "usability": 4,
+        "output_format": 5,
+        "edge_cases": 5,
+        "performance": 5,
+        "regression": 4
+      },
+      "weights": null,
+      "total": 28,
+      "weighted_total": 28,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-10T16:00:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 3,
+      "project_type": "cli",
+      "scores": {
+        "functionality": 5,
+        "usability": 4,
+        "output_format": 5,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 5
+      },
+      "weights": null,
+      "total": 28,
+      "weighted_total": 28,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-10T17:00:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 1,
+      "project_type": "cli",
+      "scores": {
+        "functionality": 5,
+        "usability": 5,
+        "output_format": 4,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 5
+      },
+      "weights": null,
+      "total": 28,
+      "weighted_total": 28,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-10T18:30:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 2,
+      "project_type": "cli",
+      "scores": {
+        "functionality": 5,
+        "usability": 5,
+        "output_format": 4,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 5
+      },
+      "weights": null,
+      "total": 28,
+      "weighted_total": 28,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-10T19:30:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 3,
+      "project_type": "cli",
+      "scores": {
+        "functionality": 5,
+        "usability": 4,
+        "output_format": 5,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 5
+      },
+      "weights": null,
+      "total": 28,
+      "weighted_total": 28,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-10T21:00:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 1,
+      "project_type": "web",
+      "scores": {
+        "functionality": 5,
+        "user_experience": 5,
+        "visual_quality": 5,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 5
+      },
+      "weights": null,
+      "total": 29,
+      "weighted_total": 29,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-12T00:00:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 2,
+      "project_type": "web",
+      "scores": {
+        "functionality": 5,
+        "user_experience": 5,
+        "visual_quality": 5,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 4
+      },
+      "weights": null,
+      "total": 28,
+      "weighted_total": 28,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-12T01:00:00"
+    },
+    {
+      "iteration": 1,
+      "sprint": 3,
+      "project_type": "web",
+      "scores": {
+        "functionality": 5,
+        "user_experience": 5,
+        "visual_quality": 5,
+        "edge_cases": 4,
+        "performance": 5,
+        "regression": 5
+      },
+      "weights": null,
+      "total": 29,
+      "weighted_total": 29,
+      "hard_threshold_violations": [],
+      "verdict": "PASS",
+      "timestamp": "2026-04-12T02:00:00"
+    }
+  ]
+}

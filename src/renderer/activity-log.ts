@@ -7,7 +7,7 @@
 const ACTIVITY_MAX = 20;
 
 interface ActivityEntry {
-  type: "waiting_approval" | "done";
+  type: "waiting_approval" | "done" | "working";
   tabId: number;
   tabLabel: string;
   ts: number;
@@ -48,8 +48,8 @@ function renderActivitySection(): void {
   list.innerHTML = "";
   for (const entry of activityLog) {
     const tabExists = tabMap.has(entry.tabId);
-    const icon = entry.type === "waiting_approval" ? "⚠" : "✓";
-    const colorClass = entry.type === "waiting_approval" ? "activity-warn" : "activity-done";
+    const icon = entry.type === "waiting_approval" ? "⚠" : entry.type === "working" ? "⚙" : "✓";
+    const colorClass = entry.type === "waiting_approval" ? "activity-warn" : entry.type === "working" ? "activity-working" : "activity-done";
 
     const item = document.createElement("div");
     item.className = `activity-item${tabExists ? "" : " activity-stale"}`;

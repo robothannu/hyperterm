@@ -10,6 +10,8 @@ let agentPollTimer: ReturnType<typeof setInterval> | null = null;
 
 // Map of ptyId → the marker element inside the pane header
 const paneAgentMarkers = new Map<number, HTMLElement>();
+// Track previous running state per ptyId for activity logging
+const prevAgentRunning = new Map<number, boolean>();
 
 // ---------------------------------------------------------------------------
 // Marker helpers
@@ -100,11 +102,22 @@ async function pollAgentStatus(): Promise<void> {
   for (const leaf of leaves) {
     try {
       const result = await window.terminalAPI.getAgentStatus(leaf.ptyId);
-      setPaneAgentStatus(leaf, result.isClaudeRunning);
-      if (result.isClaudeRunning) tabHasAgent = true;
+      const isRunning = result.isClaudeRunning;
+      const wasRunning = prevAgentRunning.get(leaf.ptyId) ?? false;
+      prevAgentRunning.set(leaf.ptyId, isRunning);
+      setPaneAgentStatus(leaf, isRunning);
+      if (isRunning) tabHasAgent = true;
+
+      const tabLabel = tabLabels.get(activeTabId) || `Terminal ${activeTabId}`;
+      if (!wasRunning && isRunning) {
+        logActivity({ type: "working", tabId: activeTabId, tabLabel });
+      } else if (wasRunning && !isRunning) {
+        logActivity({ type: "done", tabId: activeTabId, tabLabel });
+      }
     } catch {
       // IPC failed — treat as not running
       setPaneAgentStatus(leaf, false);
+      prevAgentRunning.set(leaf.ptyId, false);
     }
   }
 
@@ -134,4 +147,5 @@ function stopAgentPolling(): void {
 // Clean up markers when a pane is removed
 function cleanupPaneAgentMarker(ptyId: number): void {
   removePaneMarker(ptyId);
+  prevAgentRunning.delete(ptyId);
 }

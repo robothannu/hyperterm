@@ -88,6 +88,9 @@ function applyFontSizeToAll(size: number): void {
 function applyTheme(theme: "dark" | "light"): void {
   document.body.classList.toggle("theme-light", theme === "light");
   document.body.classList.toggle("theme-dark", theme === "dark");
+  for (const session of sessions.values()) {
+    session.setTheme(theme);
+  }
 }
 
 // ---------------------------------------------------------------------------

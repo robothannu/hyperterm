@@ -705,6 +705,10 @@ function createMenu(): void {
 app.whenReady().then(() => {
   loadSettings();
   hookServer = startHookServer();
+  // Auto-install Claude hooks if not yet installed
+  if (!isHookInstalled()) {
+    installClaudeHooks();
+  }
   createWindow();
   createMenu();
 });

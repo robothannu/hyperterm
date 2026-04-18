@@ -1,0 +1,2 @@
+    Checking rpg_monitor v0.1.0 (/Users/davidhan/claude_workspace/terminal_app/rpg_monitor)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s

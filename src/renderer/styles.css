@@ -71,7 +71,7 @@ html, body {
 
 /* === Sidebar === */
 #sidebar {
-  width: 220px;
+  width: 240px;
   min-width: 180px;
   background: #1e1e1e;
   border-right: 1px solid #3a3a3a;
@@ -550,6 +550,7 @@ html, body {
 }
 .activity-warn { color: #ff9500; }
 .activity-done { color: #4cdf8a; }
+.activity-working { color: #808080; }
 
 .activity-label {
   flex: 1;
@@ -1902,5 +1903,42 @@ body.theme-light .modal-dialog {
 }
 
 body.theme-light .settings-label {
+  color: #555555;
+}
+
+body.theme-light #titlebar {
+  background: #e8e8e8;
+  border-bottom-color: #d0d0d0;
+}
+
+body.theme-light #titlebar-title {
+  color: #555555;
+}
+
+body.theme-light #terminal-pane {
+  background: #f0f0f0;
+}
+
+body.theme-light .pane-header {
+  background: #e0e0e0;
+  border-bottom-color: #d0d0d0;
+}
+
+body.theme-light .pane-title {
+  color: #555555;
+}
+
+body.theme-light #statusbar {
+  background: #e8e8e8;
+  border-top-color: #d0d0d0;
+}
+
+body.theme-light .usage-metric,
+body.theme-light .usage-sep,
+body.theme-light .usage-reset {
+  color: #777777;
+}
+
+body.theme-light .claude-status-counter {
   color: #555555;
 }

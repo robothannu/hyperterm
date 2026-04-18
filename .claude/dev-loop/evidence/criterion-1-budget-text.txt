@@ -1,0 +1,7 @@
+budget_status_text() analysis:
+Format: "Budget: $5.00 / $3.25 used (65%)"
+Shows: limit ($5.00), used ($3.25), percentage (65%)
+Missing: remaining budget ($1.75) - criterion explicitly requires "잔여 예산"
+
+When no budget set:
+Format: "Budget: No budget set" -- correct per criterion #7

@@ -1,0 +1,2 @@
+   Compiling rpg_monitor v0.1.0 (/Users/davidhan/claude_workspace/terminal_app/rpg_monitor)
+    Finished `release` profile [optimized] target(s) in 0.88s
