@@ -169,7 +169,8 @@ function startRename(
   input.value = currentName;
 
   labelEl.style.display = "none";
-  li.insertBefore(input, labelEl);
+  const labelRow = labelEl.parentElement ?? li;
+  labelRow.insertBefore(input, labelEl);
   input.focus();
   input.select();
 
