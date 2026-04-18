@@ -1,41 +1,53 @@
 # Work Progress
 
 ## Current Task
-- HyperTerm Claude Code Companion 구현 중 — S5/7 완료, S6 남음
+- 병렬 Claude 워크플로 UX 개선 완료 + packaged .app 빌드 완료
 
 ## Last Session (2026-04-18)
-- **Claude Code Companion 6-sprint 구현 (S0~S5 완료)**:
-  - **S0 - Renderer 모듈 분해** (27/30): renderer.ts 1406줄 → 8개 모듈 분리 (pane-tree, sidebar, notes-panel, keybindings, statusbar, agent-status, init + renderer)
-  - **S1 - Claude 세션 인식** (27/30): `ps` 기반 process tree 탐색으로 claude binary 감지. pane header "● Claude" 마커 + 사이드바 dot. false positive 버그(args.includes) 수정 완료.
-  - **S2 - Project root + Git 상태** (28/30): cwd 상위 탐색으로 `.git` 발견 → project root. `git:status` IPC. 사이드바 `⎇ main ●` 배지. cwd 기반 캐시(재탐색 버그 수정).
-  - **S3 - Changed Files 패널** (27/30): Cmd+Shift+E 토글 패널. `git status --porcelain` 파일 목록. 탭 전환 즉시 갱신 + 5초 폴링.
-  - **S4 - Diff 뷰어** (27/30): diff2html side-by-side 읽기 전용 diff 모달. staged/modified/untracked 3케이스 처리. 5000줄 초과 제한.
-  - **S5 - Claude Code Hook 통합** (26/30): Unix socket `~/Library/Application Support/HyperTerm/agent.sock`. hook.sh(socat) + `~/.claude/settings.json` 자동 설치. 상태 머신(idle→working→waiting_approval→idle). Notification→waiting_approval 버그 수정.
-- `npm run build` 전체 통과. `npx electron .` 정상 기동 확인.
+
+**코드 리뷰 & 개선 (Plan Mode → 8개 항목 구현)**:
+- **A1 — Pane cwd 복원**: 앱 재시작 시 각 pane이 원래 프로젝트 cwd에서 열림. `SavedPaneLeaf.cwd` 필드 추가, `serializePaneTree` async로 변경
+- **A2 — 탭 전환 단축키**: `Cmd+1..9` 탭 점프, `Cmd+Shift+]/[` 순환, `Cmd+Shift+A` 승인 대기 탭 점프
+- **A3 — 상태바 글로벌 카운터**: `⚙3 ⚠1 ✓2` 배지 — 전체 탭 Claude 상태 한눈에
+- **A4 — Done 시각화**: 작업 완료 시 사이드바 dot 초록 glow(8초) + pane `✓ 완료` 마커(5초)
+- **A5 — Activity 히스토리**: 사이드바 "Recent Activity" 섹션, 최근 20개, 클릭 시 탭 점프
+- **B1 — closeTab 누수 수정**: 탭 닫을 때 paneAgentMarkers / hookStateMarkers 정리
+- **B2 — Git 폴링 통합**: git-status + changed-files 공유 캐시(`filesTs`), 탭 병렬 폴링(`Promise.all`)
+- **B3 — 저장 디바운싱**: `saveSessionMetadata` 200ms 디바운스 + quit 시 flush
+
+**버그 수정**:
+- `Usage: --` 버그: Node `https.get` → `curl execFile`로 교체 (Electron 환경 HTTPS 실패 원인)
+- Statusbar UI 재설계: 3px 슬림 바, 색상 계층화, 어두운 배경
+- hook.sh `socat` → macOS 내장 `nc -U`로 교체 (외부 의존성 제거)
+- 토스트 알림 + 사이드바 dot pulse 구현 (입력 대기 / 완료 시)
+- macOS 알림 기본값 ON
+
+**빌드**: `npm run dist` 성공 → `release/HyperTerm-0.1.0-arm64.dmg` (arm64)
 
 ## Next Steps
-- [ ] **HIGH: S6 구현** — 설정 UI 모달(폰트/테마/알림 토글/hook 상태) + 사이드바 최근 프로젝트(MRU 10개)
-- [ ] **HIGH: 실제 Claude Code 연동 검증** — `claude` 실행 후 hook 이벤트 왕복, pane 상태 표시 확인
-- [ ] **MEDIUM: socat 의존 알림** — hook 설치 배너에 `brew install socat` 안내 추가
-- [ ] **MEDIUM: 이중 폴링 통합** — git-status.ts + changed-files-panel.ts 폴링 캐시 공유
-- [ ] **LOW: packaged .app 검증** — `npm run dist` 후 실제 .app 실행 확인 (dev 통과 ≠ 완료)
+- [ ] **HIGH: 실제 Claude Code 연동 검증** — packaged .app에서 `claude` 실행 후 hook 이벤트 왕복, 상태 전환 확인
+- [ ] **MEDIUM: /Applications 배포** — `cp -r release/mac-arm64/HyperTerm.app /Applications/HyperTerm.app`
+- [ ] **LOW: Settings 확장** — auto-switch on approval 토글, sound 알림 옵션
+- [ ] **LOW: Diff 뷰어 prev/next** — 파일 간 연속 review 키보드 네비
+- [ ] **LOW: 세션 시간 추적** — `⚙ 3m 12s` pane 마커, 10분 초과 시 경고
+- [ ] **LOW: 죽은 코드 제거** — `pty-manager.ts`의 `getSessionPid`/`getSessionKey`/`getSessionCurrentCommand`
 
 ## Key Decisions
 - **Companion 방향**: 풀 IDE 아님. 터미널 중심 유지, Claude Code 세션 시각화에 집중.
 - **Process 기반 감지**: data-stream 파싱 금지 (tmux 노이즈 이력). `ps` + binary name 매칭.
-- **Hook 통합**: Claude Code settings.json hooks → Unix socket → 상태 머신. socat 의존.
-- **세션 매핑**: agentStatus=true pane 중 미매핑에 session_id 순차 할당.
-- **diff2html**: vendor/ 복사 방식 (번들러 없음). Monaco/CodeMirror 도입 안 함.
-- **알림 기본 OFF**: `claudeNotifications: false` — false positive 방지.
+- **Hook 통합**: Claude Code settings.json hooks → Unix socket → 상태 머신. `nc -U` (socat 불필요).
+- **Usage API**: Node `https.get` 대신 `curl execFile` — Electron 샌드박스에서 더 안정적.
+- **Git 폴링**: git-status와 changed-files가 공유 캐시(`tabGitCache.files`) 사용. 3초 이내면 IPC 생략.
+- **cwd 복원**: `SavedPaneLeaf.cwd`에 저장, optional이라 구버전 호환.
+- **배포**: Ad-hoc 서명. Apple Developer ID 없으면 notarization 불가.
 
 ## Harness State
-- Phase: building
-- Feature: HyperTerm Claude Code Companion
+- Phase: complete — HyperTerm Claude Code Companion 완료 + 추가 개선 완료
+- Feature: -
 - Branch: 2d_gui
-- Sprint: 5/7 완료 (S6 진행 예정), Iteration: 1
-- Resume: `/harness` (state.json에서 자동 재개됨)
+- Sprint: -, Iteration: -
 
 ## Blockers / Notes
-- `socat` 미설치 시 hook.sh silent fail — 사용자가 직접 `brew install socat` 필요
+- Gatekeeper 경고 시: `xattr -cr HyperTerm.app` 또는 시스템 설정 > 보안에서 허용
 - macOS arm64 전용 빌드 (Intel 미테스트)
-- S6 완료 후 반드시 `npm run dist`로 패키징된 .app 검증 필요
+- Claude Code 연동은 HyperTerm 앱이 실행된 상태에서만 소켓이 생성됨 (`~/Library/Application Support/HyperTerm/agent.sock`)
