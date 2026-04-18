@@ -443,6 +443,15 @@ html, body {
   box-shadow: 0 0 4px rgba(255, 123, 79, 0.6);
 }
 
+.sidebar-agent-dot.dot-pulse {
+  animation: dotPulse 1s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(255, 149, 0, 0.6); background: #ff9500; }
+  50% { box-shadow: 0 0 10px rgba(255, 149, 0, 0.9); background: #ffb340; }
+}
+
 /* === Dead Pane Overlay === */
 .dead-pane-overlay {
   position: absolute;
@@ -1451,6 +1460,18 @@ html, body {
   background: #3d1515;
   color: #e55555;
   border: 1px solid rgba(229, 85, 85, 0.4);
+}
+
+.hook-toast-warn {
+  background: #3a2800;
+  color: #ff9500;
+  border: 1px solid rgba(255, 149, 0, 0.4);
+}
+
+.hook-toast-done {
+  background: #0e2a1a;
+  color: #4cdf8a;
+  border: 1px solid rgba(76, 223, 138, 0.4);
 }
 
 @keyframes hookToastFade {

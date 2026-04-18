@@ -89,6 +89,36 @@ function removeHookMarker(ptyId: number): void {
 }
 
 // ---------------------------------------------------------------------------
+// Toast notification helper
+// ---------------------------------------------------------------------------
+
+function showHookToast(message: string, variant: "warn" | "done"): void {
+  const el = document.createElement("div");
+  el.className = `hook-toast hook-toast-${variant}`;
+  el.textContent = message;
+  document.body.appendChild(el);
+  el.addEventListener("animationend", () => el.remove());
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar agent dot pulse for waiting_approval
+// ---------------------------------------------------------------------------
+
+function updateSidebarDotPulse(tabId: number, pulse: boolean): void {
+  const li = document.querySelector(
+    `#terminal-list [data-id="${tabId}"]`
+  ) as HTMLElement | null;
+  if (!li) return;
+  const dot = li.querySelector(".sidebar-agent-dot") as HTMLElement | null;
+  if (!dot) return;
+  if (pulse) {
+    dot.classList.add("dot-pulse");
+  } else {
+    dot.classList.remove("dot-pulse");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sidebar tab highlight for waiting_approval
 // ---------------------------------------------------------------------------
 
@@ -187,9 +217,21 @@ function handleHookEvent(evt: HookEvent): void {
   applyHookMarker(leaf);
   updateSidebarHookHighlight(tabId);
 
-  // macOS notification when transitioning into waiting_approval
+  const tabLabel = tabLabels.get(tabId) || `Terminal ${tabId}`;
+
   if (prevState !== "waiting_approval" && newState === "waiting_approval") {
+    showHookToast(`⚠ Claude가 입력을 기다립니다 — ${tabLabel}`, "warn");
+    updateSidebarDotPulse(tabId, true);
     window.terminalAPI.notifyApproval();
+  }
+
+  if (prevState !== "idle" && prevState !== "done" && newState === "idle") {
+    showHookToast(`✓ Claude 완료 — ${tabLabel}`, "done");
+    updateSidebarDotPulse(tabId, false);
+  }
+
+  if (prevState === "waiting_approval" && newState !== "waiting_approval") {
+    updateSidebarDotPulse(tabId, false);
   }
 
   // Clean up session mapping when Claude stops

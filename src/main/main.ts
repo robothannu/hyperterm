@@ -45,7 +45,7 @@ interface AppSettings {
   recentProjects?: string[];
 }
 
-let appSettings: AppSettings = { claudeNotifications: false };
+let appSettings: AppSettings = { claudeNotifications: true };
 
 function loadSettings(): void {
   try {
