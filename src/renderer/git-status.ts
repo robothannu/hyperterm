@@ -108,6 +108,14 @@ async function pollGitForTab(tabId: number): Promise<void> {
     return;
   }
 
+  // MRU: register this project root (only when root changes)
+  const prevCached = tabGitCache.get(tabId);
+  if (!prevCached || prevCached.projectRoot !== projectRoot) {
+    if (typeof addMruProject === "function") {
+      addMruProject(projectRoot).catch(() => {/* ignore */});
+    }
+  }
+
   try {
     const status = await window.terminalAPI.gitStatus(projectRoot);
     const info: GitInfo | null = status

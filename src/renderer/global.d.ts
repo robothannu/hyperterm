@@ -30,6 +30,9 @@ interface HookEvent {
 
 interface AppSettings {
   claudeNotifications: boolean;
+  fontSize?: number;
+  theme?: "dark" | "light";
+  recentProjects?: string[];
 }
 
 interface TerminalAPI {

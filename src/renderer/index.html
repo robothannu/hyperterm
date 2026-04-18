@@ -21,7 +21,10 @@
       <aside id="sidebar">
         <div id="sidebar-header">
           <span class="sidebar-title">Terminal Groups</span>
-          <button id="btn-new-terminal" title="New Group">+</button>
+          <div class="sidebar-header-actions">
+            <button id="btn-settings" title="Settings (Cmd+,)">&#9881;</button>
+            <button id="btn-new-terminal" title="New Group">+</button>
+          </div>
         </div>
         <ul id="terminal-list"></ul>
       </aside>
@@ -151,6 +154,63 @@
     </div>
   </div>
 
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-dialog settings-dialog">
+      <div class="modal-title">
+        Settings
+        <button id="settings-close" class="settings-close-btn" title="Close">&times;</button>
+      </div>
+      <div class="settings-content">
+
+        <!-- Font Size -->
+        <div class="settings-row">
+          <label class="settings-label" for="settings-font-size-slider">폰트 크기</label>
+          <div class="settings-control">
+            <input id="settings-font-size-slider" type="range" min="10" max="24" value="14" class="settings-slider" />
+            <span id="settings-font-size-value" class="settings-value-label">14px</span>
+          </div>
+        </div>
+
+        <!-- Theme -->
+        <div class="settings-row">
+          <label class="settings-label" for="settings-theme-toggle">테마</label>
+          <div class="settings-control settings-toggle-row">
+            <span class="settings-toggle-label">Dark</span>
+            <label class="settings-toggle-switch">
+              <input id="settings-theme-toggle" type="checkbox" />
+              <span class="settings-toggle-slider"></span>
+            </label>
+            <span class="settings-toggle-label">Light</span>
+          </div>
+        </div>
+
+        <!-- Claude Notifications -->
+        <div class="settings-row">
+          <label class="settings-label" for="settings-notif-toggle">Claude 알림</label>
+          <div class="settings-control settings-toggle-row">
+            <span class="settings-toggle-label">OFF</span>
+            <label class="settings-toggle-switch">
+              <input id="settings-notif-toggle" type="checkbox" />
+              <span class="settings-toggle-slider"></span>
+            </label>
+            <span class="settings-toggle-label">ON</span>
+          </div>
+        </div>
+
+        <!-- Hook Status -->
+        <div class="settings-row">
+          <label class="settings-label">Hook 상태</label>
+          <div class="settings-control settings-hook-row">
+            <span id="settings-hook-status" class="settings-hook-status">확인 중...</span>
+            <button id="settings-hook-install-btn" class="modal-btn modal-btn-ok settings-hook-install-btn" style="display:none">설치</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- Diff Viewer Modal -->
   <div id="diff-modal" class="diff-modal hidden">
     <div class="diff-modal-dialog">
@@ -200,6 +260,8 @@
   <script src="diff-viewer.js"></script>
   <script src="hook-state.js"></script>
   <script src="hook-install-banner.js"></script>
+  <script src="sidebar-mru.js"></script>
+  <script src="settings-modal.js"></script>
   <script src="init.js"></script>
 </body>
 </html>

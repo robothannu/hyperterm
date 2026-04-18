@@ -138,7 +138,8 @@ function setFocusedPane(ptyId: number): void {
 // --- Core Functions ---
 
 async function createPaneSession(
-  parentElement: HTMLElement
+  parentElement: HTMLElement,
+  cwd?: string
 ): Promise<PaneLeaf> {
   const paneElement = document.createElement("div");
   paneElement.className = "pane-leaf";
@@ -177,7 +178,7 @@ async function createPaneSession(
   let sessionKey: string;
 
   try {
-    const result = await window.terminalAPI.createPty(cols, rows);
+    const result = await window.terminalAPI.createPty(cols, rows, cwd);
     ptyId = result.id;
     sessionKey = result.sessionKey;
   } catch (err) {
@@ -245,7 +246,8 @@ async function createPaneSession(
 }
 
 async function createNewTab(
-  label?: string
+  label?: string,
+  cwd?: string
 ): Promise<number | null> {
   const displayLabel = label || `Terminal ${sessionCounter}`;
 
@@ -258,7 +260,7 @@ async function createNewTab(
   tabContainer.style.display = "flex";
 
   try {
-    const leaf = await createPaneSession(tabContainer);
+    const leaf = await createPaneSession(tabContainer, cwd);
     const tabId = leaf.ptyId;
     ptyToTab.set(leaf.ptyId, tabId);
 

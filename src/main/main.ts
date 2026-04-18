@@ -40,6 +40,9 @@ const settingsFilePath = path.join(app.getPath("userData"), "settings.json");
 
 interface AppSettings {
   claudeNotifications: boolean;
+  fontSize?: number;
+  theme?: "dark" | "light";
+  recentProjects?: string[];
 }
 
 let appSettings: AppSettings = { claudeNotifications: false };

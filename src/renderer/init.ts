@@ -29,6 +29,10 @@ usageRefreshInterval = setInterval(() => {
     initHookState();
     // Show hook install banner if needed (Sprint 5)
     initHookInstallBanner();
+    // Init Sidebar MRU (Sprint 6)
+    initSidebarMru();
+    // Init Settings Modal (Sprint 6)
+    initSettingsModal();
   } catch (err) {
     console.error("Init error:", err);
   }
