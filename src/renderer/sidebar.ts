@@ -162,7 +162,8 @@ function startRename(
   li: HTMLLIElement,
   labelEl: HTMLSpanElement
 ): void {
-  const currentName = labelEl.textContent || "";
+  // Use tabLabels map as source of truth (textContent may include injected elements)
+  const currentName = tabLabels.get(tabId) || labelEl.textContent || "";
   const input = document.createElement("input");
   input.type = "text";
   input.className = "rename-input";
@@ -171,10 +172,17 @@ function startRename(
   labelEl.style.display = "none";
   const labelRow = labelEl.parentElement ?? li;
   labelRow.insertBefore(input, labelEl);
-  input.focus();
-  input.select();
 
+  // Delay focus so double-click event chain completes before we steal focus
+  setTimeout(() => {
+    input.focus();
+    input.select();
+  }, 0);
+
+  let committed = false;
   const commit = async () => {
+    if (committed) return;
+    committed = true;
     const newName = input.value.trim() || currentName;
     labelEl.textContent = newName;
     labelEl.style.display = "";
@@ -183,19 +191,21 @@ function startRename(
     await saveSessionMetadata();
   };
 
+  const cancel = () => {
+    if (committed) return;
+    committed = true;
+    labelEl.style.display = "";
+    input.remove();
+  };
+
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      commit();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      labelEl.style.display = "";
-      input.remove();
-    }
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    else if (e.key === "Escape") { e.preventDefault(); cancel(); }
   });
 
   input.addEventListener("blur", commit);
   input.addEventListener("click", (e) => e.stopPropagation());
+  input.addEventListener("mousedown", (e) => e.stopPropagation());
 }
 
 function removeSidebarEntry(tabId: number): void {
