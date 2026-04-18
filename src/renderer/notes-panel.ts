@@ -76,11 +76,6 @@ function renderNotes(notes: Note[]): void {
   }
 }
 
-function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
 
 async function addNote(): Promise<void> {
   const content = notesInput.value.trim();

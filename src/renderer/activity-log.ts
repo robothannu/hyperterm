@@ -15,6 +15,7 @@ interface ActivityEntry {
 
 const activityLog: ActivityEntry[] = [];
 let activitySectionCollapsed = false;
+let activityRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
 function logActivity(entry: Omit<ActivityEntry, "ts">): void {
   activityLog.unshift({ ...entry, ts: Date.now() });
@@ -54,7 +55,7 @@ function renderActivitySection(): void {
     const item = document.createElement("div");
     item.className = `activity-item${tabExists ? "" : " activity-stale"}`;
     item.title = tabExists ? `${entry.tabLabel} 탭으로 이동` : "탭이 닫혔음";
-    item.innerHTML = `<span class="activity-icon ${colorClass}">${icon}</span><span class="activity-label">${escapeActivityHtml(entry.tabLabel)}</span><span class="activity-time">${formatRelativeTime(entry.ts)}</span>`;
+    item.innerHTML = `<span class="activity-icon ${colorClass}">${icon}</span><span class="activity-label">${escapeHtml(entry.tabLabel)}</span><span class="activity-time">${formatRelativeTime(entry.ts)}</span>`;
 
     if (tabExists) {
       item.addEventListener("click", () => switchToTab(entry.tabId));
@@ -63,9 +64,6 @@ function renderActivitySection(): void {
   }
 }
 
-function escapeActivityHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 function createActivitySectionDOM(): void {
   const sidebar = document.getElementById("sidebar");
@@ -98,6 +96,7 @@ function initActivityLog(): void {
     });
   }
   renderActivitySection();
-  // Refresh relative times every 30s
-  setInterval(() => renderActivitySection(), 30000);
+  if (!activityRefreshTimer) {
+    activityRefreshTimer = setInterval(() => renderActivitySection(), 30000);
+  }
 }

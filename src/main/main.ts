@@ -82,7 +82,7 @@ function startHookServer(): net.Server {
     socket.on("data", (data) => {
       buf += data.toString();
       const lines = buf.split("\n");
-      buf = lines.pop()!;
+      buf = lines.pop() ?? "";
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -259,11 +259,15 @@ function createWindow(): void {
 
 // --- IPC Handlers ---
 
+function isValidDimension(cols: number, rows: number): boolean {
+  return Number.isInteger(cols) && Number.isInteger(rows)
+    && cols >= 1 && rows >= 1 && cols <= 10000 && rows <= 10000;
+}
+
 ipcMain.handle(
   "pty:create",
   (_event, cols: number, rows: number, cwd?: string) => {
-    // Validate cols/rows to prevent NaN or out-of-bounds values reaching node-pty
-    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 10000 || rows > 10000) {
+    if (!isValidDimension(cols, rows)) {
       throw new Error(`Invalid dimensions: cols=${cols}, rows=${rows}`);
     }
     const result = PtyManager.createSession(
@@ -286,9 +290,7 @@ ipcMain.on("pty:write", (_event, id: number, data: string) => {
 });
 
 ipcMain.on("pty:resize", (_event, id: number, cols: number, rows: number) => {
-  if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 10000 || rows > 10000) {
-    return;
-  }
+  if (!isValidDimension(cols, rows)) return;
   PtyManager.resizeSession(id, cols, rows);
 });
 

@@ -99,25 +99,26 @@ async function pollAgentStatus(): Promise<void> {
   const leaves = getAllLeaves(tab.root);
   let tabHasAgent = false;
 
-  for (const leaf of leaves) {
-    try {
-      const result = await window.terminalAPI.getAgentStatus(leaf.ptyId);
-      const isRunning = result.isClaudeRunning;
-      const wasRunning = prevAgentRunning.get(leaf.ptyId) ?? false;
-      prevAgentRunning.set(leaf.ptyId, isRunning);
-      setPaneAgentStatus(leaf, isRunning);
-      if (isRunning) tabHasAgent = true;
+  const results = await Promise.all(
+    leaves.map((leaf) =>
+      window.terminalAPI.getAgentStatus(leaf.ptyId).catch(() => null)
+    )
+  );
 
-      const tabLabel = tabLabels.get(activeTabId) || `Terminal ${activeTabId}`;
-      if (!wasRunning && isRunning) {
-        logActivity({ type: "working", tabId: activeTabId, tabLabel });
-      } else if (wasRunning && !isRunning) {
-        logActivity({ type: "done", tabId: activeTabId, tabLabel });
-      }
-    } catch {
-      // IPC failed — treat as not running
-      setPaneAgentStatus(leaf, false);
-      prevAgentRunning.set(leaf.ptyId, false);
+  const tabLabel = tabLabels.get(activeTabId) || `Terminal ${activeTabId}`;
+  for (let i = 0; i < leaves.length; i++) {
+    const leaf = leaves[i];
+    const result = results[i];
+    const isRunning = result?.isClaudeRunning ?? false;
+    const wasRunning = prevAgentRunning.get(leaf.ptyId) ?? false;
+    prevAgentRunning.set(leaf.ptyId, isRunning);
+    setPaneAgentStatus(leaf, isRunning);
+    if (isRunning) tabHasAgent = true;
+
+    if (!wasRunning && isRunning) {
+      logActivity({ type: "working", tabId: activeTabId, tabLabel });
+    } else if (wasRunning && !isRunning) {
+      logActivity({ type: "done", tabId: activeTabId, tabLabel });
     }
   }
 

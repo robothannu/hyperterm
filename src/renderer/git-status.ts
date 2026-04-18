@@ -34,14 +34,6 @@ function getGitCacheForTab(tabId: number): GitCacheEntry | undefined {
 // Utility
 // ---------------------------------------------------------------------------
 
-function escapeGitHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 // ---------------------------------------------------------------------------
 // Sidebar git badge
 // ---------------------------------------------------------------------------
@@ -66,7 +58,7 @@ function updateSidebarGitBadge(tabId: number, info: GitInfo | null): void {
     li.appendChild(badge);
   }
 
-  const branchText = escapeGitHtml(info.branch);
+  const branchText = escapeHtml(info.branch);
   const dirtyDot = info.dirty ? '<span class="git-dirty-dot" title="Uncommitted changes">●</span>' : "";
   badge.innerHTML = `<span class="git-branch-icon">⎇</span> ${branchText}${dirtyDot ? " " + dirtyDot : ""}`;
 }

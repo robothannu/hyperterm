@@ -17,6 +17,10 @@ const terminalPane = document.getElementById("terminal-pane")!;
 const terminalList = document.getElementById("terminal-list")!;
 const btnNew = document.getElementById("btn-new-terminal")!;
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function nextTerminalName(): string {
   sessionCounter++;
   return `Terminal ${sessionCounter}`;
