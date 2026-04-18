@@ -1,7 +1,43 @@
 /// <reference path="./global.d.ts" />
 /// <reference path="./pane-types.d.ts" />
 
-// --- Claude Code Hook State Machine ---
+// --- Claude Code Hook State Machine + Global Status Counter ---
+
+// Global counters for statusbar (working / waiting_approval / done-recently)
+let _counterWorking = 0;
+let _counterWaiting = 0;
+let _counterDone = 0; // resets after 10s per item
+
+function updateClaudeStatusCounter(): void {
+  // Recount from live state
+  let w = 0, a = 0;
+  for (const tab of tabMap.values()) {
+    for (const leaf of getAllLeaves(tab.root)) {
+      if (leaf.agentState === "working") w++;
+      else if (leaf.agentState === "waiting_approval") a++;
+    }
+  }
+  _counterWorking = w;
+  _counterWaiting = a;
+  renderStatusCounter();
+}
+
+function renderStatusCounter(): void {
+  const el = document.getElementById("claude-status-counter");
+  if (!el) return;
+  const parts: string[] = [];
+  if (_counterWorking > 0) parts.push(`⚙${_counterWorking}`);
+  if (_counterWaiting > 0) parts.push(`⚠${_counterWaiting}`);
+  if (_counterDone > 0) parts.push(`✓${_counterDone}`);
+  el.textContent = parts.join("  ");
+  el.style.display = parts.length > 0 ? "" : "none";
+}
+
+function bumpDoneCounter(): void {
+  _counterDone++;
+  renderStatusCounter();
+  setTimeout(() => { _counterDone = Math.max(0, _counterDone - 1); renderStatusCounter(); }, 10000);
+}
 // Receives hook events from main process via IPC.
 // Maps session_id → pane, maintains per-pane agentState, updates UI markers.
 
@@ -86,6 +122,42 @@ function removeHookMarker(ptyId: number): void {
     marker.remove();
     hookStateMarkers.delete(ptyId);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Done glow (sidebar dot + pane header marker)
+// ---------------------------------------------------------------------------
+
+function showDoneGlow(tabId: number, leaf: PaneLeaf): void {
+  bumpDoneCounter();
+
+  // Sidebar dot: green glow for 8s
+  const li = document.querySelector(`#terminal-list [data-id="${tabId}"]`) as HTMLElement | null;
+  if (li) {
+    let dot = li.querySelector(".sidebar-agent-dot") as HTMLElement | null;
+    if (!dot) {
+      dot = document.createElement("span");
+      dot.className = "sidebar-agent-dot";
+      const row = li.querySelector(".terminal-entry-row");
+      const labelEl = li.querySelector(".terminal-label");
+      if (labelEl && row) row.insertBefore(dot, labelEl);
+      else if (row) row.prepend(dot);
+    }
+    dot.classList.remove("dot-pulse");
+    dot.classList.add("dot-done");
+    setTimeout(() => { dot!.classList.remove("dot-done"); }, 8000);
+  }
+
+  // Pane header: ✓ 완료 marker for 5s
+  const marker = getOrCreateHookMarker(leaf);
+  marker.className = "hook-state-marker hook-state-done";
+  marker.textContent = "✓ 완료";
+  setTimeout(() => {
+    if (leaf.agentState === "idle") {
+      marker.className = "hook-state-marker hidden";
+      marker.textContent = "";
+    }
+  }, 5000);
 }
 
 // ---------------------------------------------------------------------------
@@ -223,11 +295,20 @@ function handleHookEvent(evt: HookEvent): void {
     showHookToast(`⚠ Claude가 입력을 기다립니다 — ${tabLabel}`, "warn");
     updateSidebarDotPulse(tabId, true);
     window.terminalAPI.notifyApproval();
+    updateClaudeStatusCounter();
+    logActivity({ type: "waiting_approval", tabId, tabLabel });
+  }
+
+  if (prevState !== "working" && newState === "working") {
+    updateClaudeStatusCounter();
   }
 
   if (prevState !== "idle" && prevState !== "done" && newState === "idle") {
     showHookToast(`✓ Claude 완료 — ${tabLabel}`, "done");
     updateSidebarDotPulse(tabId, false);
+    showDoneGlow(tabId, leaf);
+    updateClaudeStatusCounter();
+    logActivity({ type: "done", tabId, tabLabel });
   }
 
   if (prevState === "waiting_approval" && newState !== "waiting_approval") {

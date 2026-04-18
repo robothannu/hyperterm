@@ -452,6 +452,124 @@ html, body {
   50% { box-shadow: 0 0 10px rgba(255, 149, 0, 0.9); background: #ffb340; }
 }
 
+.sidebar-agent-dot.dot-done {
+  background: #4cdf8a;
+  animation: dotDone 8s ease forwards;
+}
+
+@keyframes dotDone {
+  0% { box-shadow: 0 0 8px rgba(76, 223, 138, 0.9); background: #4cdf8a; opacity: 1; }
+  70% { box-shadow: 0 0 4px rgba(76, 223, 138, 0.4); background: #4cdf8a; opacity: 0.7; }
+  100% { box-shadow: none; opacity: 0; }
+}
+
+/* === Statusbar: Claude Status Counter === */
+.claude-status-counter {
+  font-family: "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  color: #888;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  padding: 0 8px;
+}
+.claude-status-counter:hover { color: #bbb; }
+
+.statusbar-spacer {
+  flex: 1;
+}
+
+/* === Hook state: done marker === */
+.hook-state-done {
+  color: #4cdf8a;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(76, 223, 138, 0.12);
+  animation: doneMarkerFade 5s ease forwards;
+}
+
+@keyframes doneMarkerFade {
+  0% { opacity: 1; }
+  60% { opacity: 0.8; }
+  100% { opacity: 0; }
+}
+
+/* === Activity Log Sidebar Section === */
+.sidebar-section {
+  border-top: 1px solid #2e2e2e;
+  margin-top: 4px;
+}
+
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.sidebar-section-header:hover { background: #2a2a2a; }
+
+.sidebar-section-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #555;
+}
+
+.collapse-icon {
+  font-size: 9px;
+  color: #444;
+}
+
+.activity-list {
+  padding: 0 8px 6px;
+}
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #888;
+}
+.activity-item:hover { background: #2a2a2a; color: #bbb; }
+
+.activity-item.activity-stale {
+  opacity: 0.4;
+  cursor: default;
+}
+.activity-item.activity-stale:hover { background: none; }
+
+.activity-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.activity-warn { color: #ff9500; }
+.activity-done { color: #4cdf8a; }
+
+.activity-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-time {
+  font-size: 10px;
+  color: #444;
+  flex-shrink: 0;
+}
+
+.activity-empty {
+  font-size: 11px;
+  color: #444;
+  padding: 4px 4px;
+}
+
 /* === Dead Pane Overlay === */
 .dead-pane-overlay {
   position: absolute;

@@ -33,6 +33,8 @@ usageRefreshInterval = setInterval(() => {
     initSidebarMru();
     // Init Settings Modal (Sprint 6)
     initSettingsModal();
+    // Init Activity Log
+    initActivityLog();
   } catch (err) {
     console.error("Init error:", err);
   }

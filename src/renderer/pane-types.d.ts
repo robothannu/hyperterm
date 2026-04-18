@@ -35,6 +35,7 @@ interface Tab {
 interface SavedPaneLeaf {
   type: "leaf";
   sessionKey: string;
+  cwd?: string;
 }
 interface SavedPaneSplit {
   type: "split";

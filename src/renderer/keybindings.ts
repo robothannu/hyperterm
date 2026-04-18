@@ -61,6 +61,44 @@ document.addEventListener("keydown", (e) => {
     }
   }
 
+  // Cmd+1..9: switch to nth tab
+  if (e.metaKey && !e.shiftKey && !e.ctrlKey && /^[1-9]$/.test(e.key)) {
+    const idx = parseInt(e.key, 10) - 1;
+    const ids = Array.from(tabMap.keys());
+    if (idx < ids.length) {
+      e.preventDefault();
+      switchToTab(ids[idx]);
+    }
+    return;
+  }
+
+  // Cmd+Shift+] / Cmd+Shift+[: next/prev tab
+  if (e.metaKey && e.shiftKey && (e.key === "]" || e.key === "[")) {
+    e.preventDefault();
+    const ids = Array.from(tabMap.keys());
+    if (ids.length < 2) return;
+    const cur = ids.indexOf(activeTabId!);
+    const next = e.key === "]"
+      ? (cur + 1) % ids.length
+      : (cur - 1 + ids.length) % ids.length;
+    switchToTab(ids[next]);
+    return;
+  }
+
+  // Cmd+Shift+A: jump to oldest waiting_approval tab
+  if ((e.key === "a" || e.key === "A") && e.metaKey && e.shiftKey) {
+    e.preventDefault();
+    for (const [tabId, tab] of tabMap.entries()) {
+      const leaves = getAllLeaves(tab.root);
+      if (leaves.some((l) => l.agentState === "waiting_approval")) {
+        switchToTab(tabId);
+        return;
+      }
+    }
+    showHookToast("승인 대기 중인 Claude 없음", "done");
+    return;
+  }
+
   // Cmd+Shift+E: toggle Changed Files panel
   if ((e.key === "e" || e.key === "E") && e.metaKey && e.shiftKey) {
     e.preventDefault();

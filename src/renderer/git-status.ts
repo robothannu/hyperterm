@@ -19,9 +19,16 @@ interface GitCacheEntry {
   cwd: string;
   projectRoot: string | null;
   info: GitInfo | null;
+  files: { path: string; x: string; y: string }[] | null;
+  filesTs: number;
 }
 
 const tabGitCache = new Map<number, GitCacheEntry>();
+
+// Expose cache for changed-files-panel to read (avoids duplicate IPC)
+function getGitCacheForTab(tabId: number): GitCacheEntry | undefined {
+  return tabGitCache.get(tabId);
+}
 
 // ---------------------------------------------------------------------------
 // Utility
@@ -103,7 +110,7 @@ async function pollGitForTab(tabId: number): Promise<void> {
   }
 
   if (!projectRoot) {
-    tabGitCache.set(tabId, { cwd, projectRoot: null, info: null });
+    tabGitCache.set(tabId, { cwd, projectRoot: null, info: null, files: null, filesTs: 0 });
     updateSidebarGitBadge(tabId, null);
     return;
   }
@@ -117,11 +124,14 @@ async function pollGitForTab(tabId: number): Promise<void> {
   }
 
   try {
-    const status = await window.terminalAPI.gitStatus(projectRoot);
+    const [status, files] = await Promise.all([
+      window.terminalAPI.gitStatus(projectRoot),
+      window.terminalAPI.gitFiles(projectRoot).catch(() => null as { path: string; x: string; y: string }[] | null),
+    ]);
     const info: GitInfo | null = status
       ? { branch: status.branch, dirty: status.dirty }
       : null;
-    tabGitCache.set(tabId, { cwd, projectRoot, info });
+    tabGitCache.set(tabId, { cwd, projectRoot, info, files: files ?? null, filesTs: Date.now() });
     updateSidebarGitBadge(tabId, info);
   } catch {
     updateSidebarGitBadge(tabId, null);
@@ -134,9 +144,7 @@ async function pollGitForTab(tabId: number): Promise<void> {
 
 async function pollAllGitStatus(): Promise<void> {
   const tabIds = Array.from(tabMap.keys());
-  for (const tabId of tabIds) {
-    await pollGitForTab(tabId);
-  }
+  await Promise.all(tabIds.map((tabId) => pollGitForTab(tabId)));
 }
 
 // ---------------------------------------------------------------------------

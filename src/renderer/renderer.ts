@@ -439,6 +439,8 @@ function closeTab(tabId: number): void {
 
   // Destroy all panes
   for (const leaf of getAllLeaves(tab.root)) {
+    cleanupPaneAgentMarker(leaf.ptyId);
+    cleanupPaneHookMarker(leaf.ptyId);
     window.terminalAPI.destroyPty(leaf.ptyId);
     leaf.session.dispose();
     sessions.delete(leaf.ptyId);
@@ -476,44 +478,55 @@ function closeTab(tabId: number): void {
 
 // --- Session Persistence ---
 
-function serializePaneTree(node: PaneNode): SavedPaneNode {
+async function serializePaneTree(node: PaneNode): Promise<SavedPaneNode> {
   if (node.type === "leaf") {
-    return { type: "leaf", sessionKey: sessionKeys.get(node.ptyId) || "" };
+    let cwd: string | undefined;
+    try { cwd = await window.terminalAPI.getCwd(node.ptyId); } catch { /* ok */ }
+    return { type: "leaf", sessionKey: sessionKeys.get(node.ptyId) || "", cwd };
   }
-  return {
-    type: "split",
-    direction: node.direction,
-    ratio: node.ratio,
-    children: [
-      serializePaneTree(node.children[0]),
-      serializePaneTree(node.children[1]),
-    ],
-  };
+  const [c0, c1] = await Promise.all([
+    serializePaneTree(node.children[0]),
+    serializePaneTree(node.children[1]),
+  ]);
+  return { type: "split", direction: node.direction, ratio: node.ratio, children: [c0, c1] };
 }
 
+// Pending write for debounce
+let _saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingSave: (() => Promise<void>) | null = null;
+
 async function saveSessionMetadata(): Promise<void> {
-  const tabIds = Array.from(tabMap.keys());
-  if (tabIds.length === 0) {
-    await window.terminalAPI.saveSessions(JSON.stringify({ version: 3, tabs: [], activeTabIndex: 0 }));
-    return;
-  }
+  if (_saveDebounceTimer !== null) clearTimeout(_saveDebounceTimer);
+  _pendingSave = async () => {
+    const tabIds = Array.from(tabMap.keys());
+    if (tabIds.length === 0) {
+      await window.terminalAPI.saveSessions(JSON.stringify({ version: 3, tabs: [], activeTabIndex: 0 }));
+      return;
+    }
+    let activeTabIndex = 0;
+    const savedTabs: SavedTab[] = [];
+    for (let i = 0; i < tabIds.length; i++) {
+      const tabId = tabIds[i];
+      if (tabId === activeTabId) activeTabIndex = i;
+      const tab = tabMap.get(tabId)!;
+      savedTabs.push({
+        label: tabLabels.get(tabId) || `Terminal ${i + 1}`,
+        cluster: tabClusters.get(tabId),
+        layout: await serializePaneTree(tab.root),
+      });
+    }
+    const state: SavedStateV2 = { version: 3, tabs: savedTabs, activeTabIndex };
+    await window.terminalAPI.saveSessions(JSON.stringify(state));
+  };
+  _saveDebounceTimer = setTimeout(async () => {
+    _saveDebounceTimer = null;
+    if (_pendingSave) { await _pendingSave(); _pendingSave = null; }
+  }, 200);
+}
 
-  let activeTabIndex = 0;
-  const savedTabs: SavedTab[] = [];
-
-  for (let i = 0; i < tabIds.length; i++) {
-    const tabId = tabIds[i];
-    if (tabId === activeTabId) activeTabIndex = i;
-    const tab = tabMap.get(tabId)!;
-    savedTabs.push({
-      label: tabLabels.get(tabId) || `Terminal ${i + 1}`,
-      cluster: tabClusters.get(tabId),
-      layout: serializePaneTree(tab.root),
-    });
-  }
-
-  const state: SavedStateV2 = { version: 3, tabs: savedTabs, activeTabIndex };
-  await window.terminalAPI.saveSessions(JSON.stringify(state));
+async function flushSessionMetadata(): Promise<void> {
+  if (_saveDebounceTimer !== null) { clearTimeout(_saveDebounceTimer); _saveDebounceTimer = null; }
+  if (_pendingSave) { await _pendingSave(); _pendingSave = null; }
 }
 
 async function restorePaneTree(
@@ -522,7 +535,7 @@ async function restorePaneTree(
   tabId: number
 ): Promise<PaneNode> {
   if (node.type === "leaf") {
-    const leaf = await createPaneSession(parentElement);
+    const leaf = await createPaneSession(parentElement, node.cwd);
     ptyToTab.set(leaf.ptyId, tabId);
     return leaf;
   }
@@ -698,7 +711,7 @@ resizeObserver.observe(terminalPane);
 let usageRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
 window.terminalAPI.onBeforeQuit(async () => {
-  await saveSessionMetadata();
+  await flushSessionMetadata();
   resizeObserver.disconnect();
   if (usageRefreshInterval !== null) {
     clearInterval(usageRefreshInterval);

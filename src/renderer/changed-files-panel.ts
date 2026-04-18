@@ -133,11 +133,19 @@ async function refreshChangedFilesPanel(): Promise<void> {
     return;
   }
 
-  const cached = tabGitCache.get(activeTabId);
+  const cached = typeof getGitCacheForTab === "function"
+    ? getGitCacheForTab(activeTabId)
+    : tabGitCache.get(activeTabId);
   const projectRoot = cached?.projectRoot ?? null;
 
   if (!projectRoot) {
     renderChangedFiles([]);
+    return;
+  }
+
+  // Use shared cache if fresh (< 3s old), else fetch directly
+  if (cached?.files != null && cached.filesTs && (Date.now() - cached.filesTs) < 3000) {
+    renderChangedFiles(cached.files);
     return;
   }
 
