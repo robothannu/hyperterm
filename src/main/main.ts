@@ -7,7 +7,6 @@ import * as net from "net";
 import * as os from "os";
 
 const execFileAsync = promisify(execFile);
-import * as https from "https";
 import * as PtyManager from "./pty-manager";
 
 interface Note {
@@ -383,38 +382,18 @@ async function getOAuthToken(): Promise<string | null> {
   }
 }
 
-function fetchUsageFromAPI(token: string): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const req = https.get(
+async function fetchUsageFromAPI(token: string): Promise<any> {
+  const { stdout } = await execFileAsync(
+    "curl",
+    [
+      "-s", "-f", "--max-time", "10",
+      "-H", `Authorization: Bearer ${token}`,
+      "-H", "anthropic-beta: oauth-2025-04-20",
       "https://api.anthropic.com/api/oauth/usage",
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "anthropic-beta": "oauth-2025-04-20",
-        },
-      },
-      (res) => {
-        let body = "";
-        res.on("data", (chunk: Buffer) => (body += chunk.toString()));
-        res.on("end", () => {
-          if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(body));
-          } catch {
-            reject(new Error("parse"));
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    req.setTimeout(10000, () => {
-      req.destroy();
-      reject(new Error("timeout"));
-    });
-  });
+    ],
+    { encoding: "utf8", timeout: 12000 }
+  );
+  return JSON.parse(stdout);
 }
 
 ipcMain.handle("usage:fetch", async () => {

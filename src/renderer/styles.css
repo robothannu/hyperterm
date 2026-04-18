@@ -783,57 +783,55 @@ html, body {
 
 /* === Status Bar === */
 #statusbar {
-  height: 24px;
-  min-height: 24px;
-  background: #252525;
-  border-top: 1px solid #3a3a3a;
+  height: 26px;
+  min-height: 26px;
+  background: #1e1e1e;
+  border-top: 1px solid #2e2e2e;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding-right: 12px;
-  gap: 0;
+  padding-right: 14px;
+  gap: 10px;
   cursor: pointer;
   user-select: none;
   -webkit-app-region: no-drag;
 }
 
 .usage-metric {
-  font-size: 14px;
+  font-size: 11px;
   font-family: "SF Mono", "Menlo", monospace;
-  color: #ffffff;
-  font-weight: bold;
-  padding: 0 8px;
-  transition: color 0.2s;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  color: #888;
 }
 
 .usage-label {
-  color: #ffffff;
-  min-width: 24px;
+  color: #555;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .usage-bar-wrap {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
 }
 
 .usage-bar {
-  width: 80px;
-  height: 12px;
-  background: #1c1c1c;
-  border-radius: 6px;
+  width: 52px;
+  height: 3px;
+  background: #333;
+  border-radius: 2px;
   overflow: hidden;
-  border: 2px solid #ffffff;
 }
 
 .usage-bar-fill {
   display: block;
   height: 100%;
-  border-radius: 3px;
-  transition: width 0.3s ease, background 0.3s ease;
+  border-radius: 2px;
+  transition: width 0.4s ease, background 0.4s ease;
 }
 
 .usage-bar-fill.normal {
@@ -841,50 +839,50 @@ html, body {
 }
 
 .usage-bar-fill.warn {
-  background: #f0b000;
+  background: #e0a020;
 }
 
 .usage-bar-fill.critical {
-  background: #ef5555;
+  background: #e05555;
 }
 
 .usage-pct {
-  font-size: 13px;
-  min-width: 28px;
+  font-size: 11px;
+  min-width: 26px;
   text-align: right;
+  color: #aaa;
 }
 
 .usage-reset {
-  font-size: 12px;
-  color: #ffffff;
-  margin-left: 2px;
+  font-size: 10px;
+  color: #484848;
   white-space: nowrap;
 }
 
 .usage-sep {
-  font-size: 14px;
-  color: #3a3a3a;
+  color: #2e2e2e;
+  font-size: 12px;
 }
 
 .statusbar-sep {
   font-size: 11px;
-  color: #3a3a3a;
+  color: #2e2e2e;
 }
 
 .usage-warn {
-  color: #ccaa00;
+  color: #c8921a;
 }
 
 .usage-critical {
-  color: #cc3333;
+  color: #c04040;
 }
 
 #statusbar:hover {
-  background: #2a2a2a;
+  background: #242424;
 }
 
 #statusbar:active {
-  background: #1e1e1e;
+  background: #1a1a1a;
 }
 
 /* xterm.js overrides */
