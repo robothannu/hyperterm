@@ -131,8 +131,9 @@ MESSAGE_ESCAPED=$(echo "$MESSAGE" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g')
 # Build JSON, truncate payload to 4096 bytes
 PAYLOAD_TRIMMED=$(echo "$PAYLOAD" | head -c 4096)
 printf '%s\\n' "{\\"event\\":\\"$EVENT_TYPE\\",\\"session_id\\":\\"$SESSION_ID\\",\\"tool_name\\":\\"$TOOL_NAME\\",\\"message\\":\\"$MESSAGE_ESCAPED\\",\\"payload\\":$PAYLOAD_TRIMMED}" | \\
-  socat - "UNIX-CONNECT:$SOCK" 2>/dev/null || true
+  nc -U "$SOCK" 2>/dev/null || true
 `;
+    // Always overwrite to keep hook.sh up-to-date with the latest template
     fs.writeFileSync(hookScriptPath, script, { mode: 0o755, encoding: "utf8" });
   } catch (err) {
     console.error("[main] Failed to write hook.sh:", err);
