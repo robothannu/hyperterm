@@ -20,6 +20,18 @@ interface UsageResult {
   error?: "keychain" | "api" | "parse";
 }
 
+interface HookEvent {
+  event: string;
+  session_id?: string;
+  tool_name?: string;
+  message?: string;
+  payload?: unknown;
+}
+
+interface AppSettings {
+  claudeNotifications: boolean;
+}
+
 interface TerminalAPI {
   // --- Core pty API ---
   createPty(
@@ -53,6 +65,7 @@ interface TerminalAPI {
 
   // --- Process info (pty ID based) ---
   getProcessInfo(id: number): Promise<{ cpu: number; memory: number }>;
+  getAgentStatus(id: number): Promise<{ isClaudeRunning: boolean; claudePid: number | null }>;
 
   // --- Usage ---
   fetchUsage(): Promise<UsageResult>;
@@ -61,6 +74,31 @@ interface TerminalAPI {
   onHelpGuide(callback: () => void): void;
   onHelpAbout(callback: () => void): void;
 
+  // --- Git ---
+  gitFindRoot(dir: string): Promise<string | null>;
+  gitStatus(projectRoot: string): Promise<{
+    branch: string;
+    dirty: boolean;
+    stagedCount: number;
+    unstagedCount: number;
+    untrackedCount: number;
+  } | null>;
+  gitFiles(projectRoot: string): Promise<{ path: string; x: string; y: string }[]>;
+  gitDiff(
+    projectRoot: string,
+    filePath: string,
+    staged: boolean
+  ): Promise<{ diff: string } | { tooLarge: true; lineCount: number } | { error: string }>;
+
+  // --- Hook / Agent State ---
+  onHookEvent(callback: (evt: HookEvent) => void): void;
+  hookCheckInstalled(): Promise<boolean>;
+  hookInstall(): Promise<boolean>;
+  notifyApproval(): void;
+
+  // --- Settings ---
+  getSettings(): Promise<AppSettings>;
+  saveSettings(settings: Partial<AppSettings>): Promise<boolean>;
 }
 
 interface Window {

@@ -128,12 +128,19 @@ html, body {
 
 .terminal-entry {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
   cursor: pointer;
   border-left: 3px solid transparent;
   transition: background 0.12s, border-color 0.12s;
+}
+
+.terminal-entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 4px 16px;
 }
 
 .terminal-entry:hover {
@@ -371,6 +378,69 @@ html, body {
   flex: 1;
   overflow: hidden;
   padding: 4px;
+}
+
+/* === Agent Status Markers === */
+
+/* Pane header Claude marker */
+.agent-marker {
+  font-size: 10px;
+  font-weight: 600;
+  color: #ff7b4f;
+  background: rgba(255, 123, 79, 0.12);
+  border: 1px solid rgba(255, 123, 79, 0.35);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: auto;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.agent-marker.hidden {
+  display: none;
+}
+
+/* Git badge — shown below tab label */
+.sidebar-git-badge {
+  font-size: 10px;
+  color: #6e6e6e;
+  padding: 0 16px 4px 16px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-entry.active .sidebar-git-badge {
+  color: #888;
+}
+
+.git-branch-icon {
+  font-size: 9px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.git-dirty-dot {
+  color: #e5a550;
+  font-size: 8px;
+  flex-shrink: 0;
+}
+
+/* Sidebar tab dot — shown before tab label */
+.sidebar-agent-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff7b4f;
+  margin-right: 6px;
+  flex-shrink: 0;
+  box-shadow: 0 0 4px rgba(255, 123, 79, 0.6);
 }
 
 /* === Dead Pane Overlay === */
@@ -985,3 +1055,407 @@ html, body {
   text-decoration: underline;
 }
 
+/* === Changed Files Panel === */
+.changed-files-panel {
+  position: fixed;
+  top: 38px; /* below titlebar */
+  right: 0;
+  bottom: 24px; /* above statusbar */
+  width: 280px;
+  background: #1e1e1e;
+  border-left: 1px solid #3a3a3a;
+  display: flex;
+  flex-direction: column;
+  z-index: 500;
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+  user-select: none;
+}
+
+.changed-files-panel.hidden {
+  display: none;
+}
+
+.changed-files-panel.open {
+  transform: translateX(0);
+}
+
+.changed-files-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #3a3a3a;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.changed-files-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #808080;
+}
+
+.changed-files-close-btn {
+  background: none;
+  border: none;
+  color: #808080;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  border-radius: 3px;
+  -webkit-app-region: no-drag;
+}
+
+.changed-files-close-btn:hover {
+  background: #3a3a3a;
+  color: #e5e5e5;
+}
+
+.changed-files-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.changed-files-list::-webkit-scrollbar {
+  width: 4px;
+}
+.changed-files-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.changed-files-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
+.changed-files-empty {
+  text-align: center;
+  color: #555;
+  font-size: 13px;
+  padding: 24px 16px;
+}
+
+.changed-file-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  margin: 0 4px;
+  transition: background 0.1s;
+  min-width: 0;
+}
+
+.changed-file-item:hover {
+  background: #2a2a2a;
+}
+
+.changed-file-badge {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: "SF Mono", "Menlo", monospace;
+  border: 1px solid;
+  border-radius: 3px;
+  padding: 0 3px;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.changed-file-dir {
+  font-size: 11px;
+  color: #555;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.changed-file-name {
+  font-size: 12px;
+  color: #c8c8c8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+/* === Diff Viewer Modal === */
+.diff-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 24px 24px;
+  overflow: hidden;
+}
+
+.diff-modal.hidden {
+  display: none;
+}
+
+.diff-modal-dialog {
+  background: #1e1e2e;
+  border: 1px solid #3a3a4a;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 1200px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.diff-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #252535;
+  border-bottom: 1px solid #3a3a4a;
+  flex-shrink: 0;
+  min-height: 42px;
+}
+
+.diff-modal-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #c8c8d8;
+  font-family: "SF Mono", "Fira Code", monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  margin-right: 12px;
+}
+
+.diff-modal-close-btn {
+  background: transparent;
+  border: none;
+  color: #808090;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.diff-modal-close-btn:hover {
+  background: #3a3a4a;
+  color: #e0e0f0;
+}
+
+.diff-modal-content {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+  background: #1a1a2a;
+}
+
+/* diff2html overrides for dark theme */
+.diff-modal-content .d2h-wrapper {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 12px;
+}
+
+.diff-modal-content .d2h-file-header {
+  background: #252535;
+  border-color: #3a3a4a;
+}
+
+.diff-modal-content .d2h-code-linenumber,
+.diff-modal-content .d2h-code-side-linenumber {
+  background: #252535;
+  border-color: #3a3a4a;
+  color: #606070;
+}
+
+.diff-modal-content .d2h-code-line,
+.diff-modal-content .d2h-code-side-line {
+  background: #1a1a2a;
+}
+
+.diff-modal-content .d2h-del {
+  background: #3d1515;
+}
+
+.diff-modal-content .d2h-ins {
+  background: #0d2d0d;
+}
+
+.diff-modal-content .d2h-change {
+  background: #2d2510;
+}
+
+.diff-modal-content .d2h-del .d2h-code-line-ctn del,
+.diff-modal-content .d2h-del del {
+  background: #6b2020;
+}
+
+.diff-modal-content .d2h-ins .d2h-code-line-ctn ins,
+.diff-modal-content .d2h-ins ins {
+  background: #1a5e1a;
+  text-decoration: none;
+}
+
+/* Status messages */
+.diff-loading,
+.diff-empty,
+.diff-too-large,
+.diff-error {
+  padding: 32px 24px;
+  text-align: center;
+  font-size: 13px;
+  color: #808090;
+}
+
+.diff-too-large {
+  color: #ff9500;
+}
+
+.diff-error {
+  color: #e55555;
+}
+
+
+/* ===== Sprint 5: Hook State Markers ===== */
+
+/* Pane header hook state marker */
+.hook-state-marker {
+  font-size: 11px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.hook-state-marker.hidden {
+  display: none;
+}
+
+.hook-state-working {
+  color: #4a9eff;
+  display: inline-flex;
+}
+
+.hook-state-approval {
+  color: #ff9500;
+  background: rgba(255, 149, 0, 0.15);
+  border: 1px solid rgba(255, 149, 0, 0.4);
+  display: inline-flex;
+}
+
+/* Sidebar tab orange highlight for waiting_approval */
+#terminal-list li.sidebar-tab-approval .terminal-label {
+  color: #ff9500 !important;
+}
+
+#terminal-list li.sidebar-tab-approval {
+  background: rgba(255, 149, 0, 0.08);
+  border-left: 2px solid #ff9500;
+}
+
+/* Hook Install Banner */
+.hook-install-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(74, 158, 255, 0.1);
+  border-bottom: 1px solid rgba(74, 158, 255, 0.3);
+  font-size: 12px;
+  color: #c8ccd4;
+  flex-shrink: 0;
+}
+
+.hook-banner-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.hook-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.hook-banner-btn {
+  padding: 3px 10px;
+  background: #4a9eff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.hook-banner-btn:hover {
+  background: #3a8eef;
+}
+
+.hook-banner-btn:disabled {
+  background: #555;
+  cursor: not-allowed;
+}
+
+.hook-banner-dismiss {
+  background: none;
+  border: none;
+  color: #808090;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+
+.hook-banner-dismiss:hover {
+  color: #c8ccd4;
+}
+
+/* Toast notifications */
+.hook-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  z-index: 9999;
+  pointer-events: none;
+  animation: hookToastFade 3s ease forwards;
+}
+
+.hook-toast-ok {
+  background: #1a4a2e;
+  color: #4caf7a;
+  border: 1px solid rgba(76, 175, 122, 0.4);
+}
+
+.hook-toast-error {
+  background: #3d1515;
+  color: #e55555;
+  border: 1px solid rgba(229, 85, 85, 0.4);
+}
+
+@keyframes hookToastFade {
+  0% { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}

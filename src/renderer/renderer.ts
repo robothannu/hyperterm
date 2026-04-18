@@ -1,61 +1,6 @@
 /// <reference path="./global.d.ts" />
+/// <reference path="./pane-types.d.ts" />
 /// <reference path="./terminal-session.ts" />
-
-// --- Pane Layout Types ---
-
-interface PaneLeaf {
-  type: "leaf";
-  ptyId: number;
-  session: TerminalSession;
-  element: HTMLElement;
-}
-
-interface PaneSplit {
-  type: "split";
-  direction: "horizontal" | "vertical";
-  ratio: number;
-  children: [PaneNode, PaneNode];
-  element: HTMLElement;
-  divider: HTMLElement;
-}
-
-type PaneNode = PaneLeaf | PaneSplit;
-
-interface Tab {
-  id: number;
-  root: PaneNode;
-  container: HTMLElement;
-  focusedPtyId: number;
-}
-
-// Persistence types
-interface SavedPaneLeaf {
-  type: "leaf";
-  sessionKey: string;
-}
-interface SavedPaneSplit {
-  type: "split";
-  direction: "horizontal" | "vertical";
-  ratio: number;
-  children: [SavedPaneNode, SavedPaneNode];
-}
-type SavedPaneNode = SavedPaneLeaf | SavedPaneSplit;
-interface SavedTab {
-  label: string;
-  cluster?: string;
-  layout: SavedPaneNode;
-}
-interface SavedStateV2 {
-  version: 3;
-  tabs: SavedTab[];
-  activeTabIndex: number;
-}
-
-interface Note {
-  id: number;
-  content: string;
-  createdAt: string;
-}
 
 // --- Global State ---
 
@@ -171,72 +116,6 @@ aboutClose.addEventListener("click", closeAbout);
 aboutModal.addEventListener("click", (e) => {
   if (e.target === aboutModal) closeAbout();
 });
-
-// --- Pane Tree Helpers ---
-
-function findLeaf(node: PaneNode, ptyId: number): PaneLeaf | null {
-  if (node.type === "leaf") return node.ptyId === ptyId ? node : null;
-  return findLeaf(node.children[0], ptyId) || findLeaf(node.children[1], ptyId);
-}
-
-function findLeafParent(
-  node: PaneNode,
-  ptyId: number
-): { parent: PaneSplit; index: 0 | 1 } | null {
-  if (node.type === "leaf") return null;
-  for (let i = 0; i < 2; i++) {
-    const child = node.children[i as 0 | 1];
-    if (child.type === "leaf" && child.ptyId === ptyId) {
-      return { parent: node, index: i as 0 | 1 };
-    }
-    const found = findLeafParent(child, ptyId);
-    if (found) return found;
-  }
-  return null;
-}
-
-function findSplitParent(
-  root: PaneNode,
-  target: PaneSplit
-): { parent: PaneSplit; index: 0 | 1 } | null {
-  if (root.type === "leaf") return null;
-  for (let i = 0; i < 2; i++) {
-    if (root.children[i] === target) {
-      return { parent: root, index: i as 0 | 1 };
-    }
-    if (root.children[i].type === "split") {
-      const found = findSplitParent(root.children[i], target);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-function getAllLeaves(node: PaneNode): PaneLeaf[] {
-  if (node.type === "leaf") return [node];
-  return [...getAllLeaves(node.children[0]), ...getAllLeaves(node.children[1])];
-}
-
-function resizeAllPanes(node: PaneNode): void {
-  if (node.type === "leaf") {
-    node.session.fit();
-    window.terminalAPI.resizePty(
-      node.ptyId,
-      node.session.getCols(),
-      node.session.getRows()
-    );
-    return;
-  }
-  resizeAllPanes(node.children[0]);
-  resizeAllPanes(node.children[1]);
-}
-
-function applyRatio(split: PaneSplit): void {
-  const c1 = split.children[0].element;
-  const c2 = split.children[1].element;
-  c1.style.flex = `${split.ratio} 1 0px`;
-  c2.style.flex = `${1 - split.ratio} 1 0px`;
-}
 
 // --- Pane Focus ---
 
@@ -362,7 +241,7 @@ async function createPaneSession(
     }
   });
 
-  return { type: "leaf", ptyId, session, element: paneElement };
+  return { type: "leaf", ptyId, session, element: paneElement, agentStatus: false, agentState: "idle" };
 }
 
 async function createNewTab(
@@ -424,7 +303,10 @@ function switchToTab(tabId: number): void {
   }
 
   updateSidebarActive(tabId);
-
+  // Refresh Changed Files panel for the newly active tab
+  if (typeof refreshChangedFilesPanel === "function") {
+    refreshChangedFilesPanel();
+  }
 }
 
 async function splitFocusedPane(
@@ -484,46 +366,6 @@ async function splitFocusedPane(
   await saveSessionMetadata();
 }
 
-function setupDividerDrag(splitNode: PaneSplit): void {
-  splitNode.divider.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const isHoriz = splitNode.direction === "horizontal";
-    const cursorStyle = isHoriz ? "col-resize" : "row-resize";
-    document.body.style.cursor = cursorStyle;
-    document.body.style.userSelect = "none";
-
-    // Overlay prevents terminal panes from capturing mouse events during resize
-    const overlay = document.createElement("div");
-    overlay.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;cursor:${cursorStyle}`;
-    document.body.appendChild(overlay);
-
-    const onMove = (e: MouseEvent) => {
-      const rect = splitNode.element.getBoundingClientRect();
-      let ratio = isHoriz
-        ? (e.clientX - rect.left) / rect.width
-        : (e.clientY - rect.top) / rect.height;
-      ratio = Math.max(0.1, Math.min(0.9, ratio));
-      splitNode.ratio = ratio;
-      applyRatio(splitNode);
-      resizeAllPanes(splitNode);
-    };
-
-    const onUp = () => {
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      overlay.remove();
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      saveSessionMetadata();
-    };
-
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  });
-}
-
 function closePaneByPtyId(ptyId: number): void {
   const tabId = ptyToTab.get(ptyId);
   if (tabId === undefined) return;
@@ -562,6 +404,8 @@ function closePaneByPtyId(ptyId: number): void {
   sessions.delete(ptyId);
   sessionKeys.delete(ptyId);
   ptyToTab.delete(ptyId);
+  cleanupPaneAgentMarker(ptyId);
+  cleanupPaneHookMarker(ptyId);
 
   // Update focus
   const leaves = getAllLeaves(tab.root);
@@ -605,6 +449,7 @@ function closeTab(tabId: number): void {
   tabLabels.delete(tabId);
   tabClusters.delete(tabId);
   removeSidebarEntry(tabId);
+  cleanupGitBadge(tabId);
 
   if (activeTabId === tabId) {
     activeTabId = null;
@@ -775,349 +620,6 @@ async function restoreFromSaved(): Promise<boolean> {
   return tabMap.size > 0;
 }
 
-// --- Notes Panel ---
-
-const notesPanel = document.getElementById("notes-panel")!;
-const notesTitle = document.getElementById("notes-title")!;
-const notesList = document.getElementById("notes-list")!;
-const notesInput = document.getElementById(
-  "notes-input"
-) as HTMLTextAreaElement;
-const notesAddBtn = document.getElementById("notes-add")!;
-const notesCloseBtn = document.getElementById("notes-close")!;
-
-let notesPanelTabId: number | null = null;
-const sessionNotesCache = new Map<number, Note[]>();
-
-function getTabSessionKey(tabId: number): string | null {
-  const tab = tabMap.get(tabId);
-  if (!tab) return null;
-  const leaves = getAllLeaves(tab.root);
-  if (leaves.length === 0) return null;
-  return sessionKeys.get(leaves[0].ptyId) || null;
-}
-
-function openNotesPanel(tabId: number): void {
-  notesPanelTabId = tabId;
-  const label = tabLabels.get(tabId) || "Terminal";
-  notesTitle.textContent = `Notes \u2014 ${label}`;
-  notesPanel.classList.remove("hidden");
-  notesInput.value = "";
-  loadAndRenderNotes(tabId);
-}
-
-function closeNotesPanel(): void {
-  notesPanel.classList.add("hidden");
-  notesPanelTabId = null;
-}
-
-async function loadAndRenderNotes(tabId: number): Promise<void> {
-  const sk = getTabSessionKey(tabId);
-  if (!sk) return;
-
-  const notes: Note[] = await window.terminalAPI.loadNotes(sk);
-  sessionNotesCache.set(tabId, notes);
-  renderNotes(notes);
-  updateNoteIndicator(tabId, notes.length > 0);
-}
-
-function renderNotes(notes: Note[]): void {
-  if (notes.length === 0) {
-    notesList.innerHTML = '<div class="notes-empty">No notes yet</div>';
-    return;
-  }
-
-  notesList.innerHTML = "";
-  for (let i = notes.length - 1; i >= 0; i--) {
-    const note = notes[i];
-    const item = document.createElement("div");
-    item.className = "note-item";
-
-    const date = new Date(note.createdAt);
-    const timeStr = date.toLocaleString();
-
-    item.innerHTML = `
-      <div class="note-content">${escapeHtml(note.content)}</div>
-      <div class="note-footer">
-        <span class="note-time">${escapeHtml(timeStr)}</span>
-        <button class="note-delete" data-id="${note.id}">Delete</button>
-      </div>
-    `;
-
-    item.querySelector(".note-delete")!.addEventListener("click", () => {
-      deleteNote(note.id);
-    });
-
-    notesList.appendChild(item);
-  }
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-async function addNote(): Promise<void> {
-  const content = notesInput.value.trim();
-  if (!content || notesPanelTabId === null) return;
-
-  const sk = getTabSessionKey(notesPanelTabId);
-  if (!sk) return;
-
-  const notes = sessionNotesCache.get(notesPanelTabId) || [];
-  const maxId = notes.reduce((max, n) => Math.max(max, n.id), 0);
-  const newNote: Note = {
-    id: maxId + 1,
-    content,
-    createdAt: new Date().toISOString(),
-  };
-
-  notes.push(newNote);
-  await window.terminalAPI.saveNotes(sk, notes);
-  sessionNotesCache.set(notesPanelTabId, notes);
-  renderNotes(notes);
-  updateNoteIndicator(notesPanelTabId, true);
-  notesInput.value = "";
-  notesInput.focus();
-}
-
-async function deleteNote(noteId: number): Promise<void> {
-  if (notesPanelTabId === null) return;
-
-  const sk = getTabSessionKey(notesPanelTabId);
-  if (!sk) return;
-
-  let notes = sessionNotesCache.get(notesPanelTabId) || [];
-  notes = notes.filter((n) => n.id !== noteId);
-  await window.terminalAPI.saveNotes(sk, notes);
-  sessionNotesCache.set(notesPanelTabId, notes);
-  renderNotes(notes);
-  updateNoteIndicator(notesPanelTabId, notes.length > 0);
-}
-
-function updateNoteIndicator(tabId: number, hasNotes: boolean): void {
-  const li = terminalList.querySelector(`[data-id="${tabId}"]`);
-  const btn = li?.querySelector(".btn-notes");
-  if (btn) btn.classList.toggle("has-notes", hasNotes);
-}
-
-notesCloseBtn.addEventListener("click", closeNotesPanel);
-notesAddBtn.addEventListener("click", addNote);
-notesInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    addNote();
-  }
-});
-
-// --- Sidebar Management ---
-let draggedTabId: number | null = null;
-
-function addSidebarEntry(tabId: number, label: string): void {
-  addSidebarEntryDOM(tabId, label);
-  // Check for existing notes
-  const sk = getTabSessionKey(tabId);
-  if (sk) {
-    window.terminalAPI.loadNotes(sk).then((notes) => {
-      if (notes.length > 0) {
-        sessionNotesCache.set(tabId, notes);
-        updateNoteIndicator(tabId, true);
-      }
-    });
-  }
-}
-
-function reorderTabs(fromTabId: number, toTabId: number): void {
-  const fromLi = terminalList.querySelector(`[data-id="${fromTabId}"]`);
-  const toLi = terminalList.querySelector(`[data-id="${toTabId}"]`);
-  if (!fromLi || !toLi || fromLi === toLi) return;
-
-  // Get current order of sidebar entries
-  const entries = Array.from(terminalList.querySelectorAll(".terminal-entry")) as HTMLLIElement[];
-  const fromIndex = entries.findIndex(el => el.dataset.id === String(fromTabId));
-  const toIndex = entries.findIndex(el => el.dataset.id === String(toTabId));
-  if (fromIndex === -1 || toIndex === -1) return;
-
-  // Reorder in DOM
-  if (fromIndex < toIndex) {
-    toLi.parentNode?.insertBefore(fromLi, toLi.nextSibling);
-  } else {
-    toLi.parentNode?.insertBefore(fromLi, toLi);
-  }
-
-  // Update active indicator if needed
-  if (activeTabId !== null) {
-    updateSidebarActive(activeTabId);
-  }
-
-  saveSessionMetadata();
-}
-
-function renderSidebar(): void {
-  terminalList.innerHTML = "";
-
-  // Get tabs in DOM order
-  const entries = Array.from(terminalList.querySelectorAll(".terminal-entry"));
-  const orderedTabIds = entries.map(el => Number(el.getAttribute("data-id"))).filter(id => !isNaN(id));
-
-  // Group tabs by cluster
-  const clusters = new Map<string, number[]>();
-  const noCluster: number[] = [];
-
-  for (const tabId of orderedTabIds) {
-    const cluster = tabClusters.get(tabId);
-    if (cluster) {
-      if (!clusters.has(cluster)) clusters.set(cluster, []);
-      clusters.get(cluster)!.push(tabId);
-    } else {
-      noCluster.push(tabId);
-    }
-  }
-
-  // Render no-cluster tabs first
-  for (const tabId of noCluster) {
-    const label = tabLabels.get(tabId) || `Terminal ${tabId}`;
-    addSidebarEntryDOM(tabId, label);
-  }
-
-  // Render clusters
-  for (const [clusterName, tabIds] of clusters) {
-    const header = document.createElement("li");
-    header.className = "sidebar-cluster-header";
-    header.textContent = clusterName;
-    terminalList.appendChild(header);
-
-    for (const tabId of tabIds) {
-      const label = tabLabels.get(tabId) || `Terminal ${tabId}`;
-      addSidebarEntryDOM(tabId, label);
-    }
-  }
-}
-
-function addSidebarEntryDOM(tabId: number, label: string): void {
-  const li = document.createElement("li");
-  li.dataset.id = String(tabId);
-  li.className = "terminal-entry";
-  li.draggable = true;
-  li.innerHTML = `
-    <span class="terminal-label">${escapeHtml(label)}</span>
-    <div class="terminal-entry-actions">
-      <button class="btn-notes" title="Notes">&#9998;</button>
-      <button class="btn-close" title="Close terminal">&times;</button>
-    </div>
-  `;
-
-  const labelEl = li.querySelector(".terminal-label") as HTMLSpanElement;
-
-  li.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
-    if (target.closest(".terminal-label")) return;
-    switchToTab(tabId);
-  });
-
-  labelEl.addEventListener("click", (e) => {
-    if (e.detail === 2) {
-      e.preventDefault();
-      e.stopPropagation();
-      startRename(tabId, li, labelEl);
-    }
-  });
-
-  li.querySelector(".btn-notes")!.addEventListener("click", (e) => {
-    e.stopPropagation();
-    openNotesPanel(tabId);
-  });
-
-  li.querySelector(".btn-close")!.addEventListener("click", (e) => {
-    e.stopPropagation();
-    closeTab(tabId);
-  });
-
-  li.addEventListener("dragstart", (e) => {
-    draggedTabId = tabId;
-    li.style.opacity = "0.5";
-    e.dataTransfer?.setData("text/plain", String(tabId));
-  });
-
-  li.addEventListener("dragend", () => {
-    li.style.opacity = "1";
-    draggedTabId = null;
-  });
-
-  li.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    if (draggedTabId === null || draggedTabId === tabId) return;
-    li.style.borderTop = "2px solid #007aff";
-  });
-
-  li.addEventListener("dragleave", () => {
-    li.style.borderTop = "";
-  });
-
-  li.addEventListener("drop", (e) => {
-    e.preventDefault();
-    li.style.borderTop = "";
-    if (draggedTabId === null || draggedTabId === tabId) return;
-    reorderTabs(draggedTabId, tabId);
-  });
-
-  terminalList.appendChild(li);
-}
-
-function startRename(
-  tabId: number,
-  li: HTMLLIElement,
-  labelEl: HTMLSpanElement
-): void {
-  const currentName = labelEl.textContent || "";
-  const input = document.createElement("input");
-  input.type = "text";
-  input.className = "rename-input";
-  input.value = currentName;
-
-  labelEl.style.display = "none";
-  li.insertBefore(input, labelEl);
-  input.focus();
-  input.select();
-
-  const commit = async () => {
-    const newName = input.value.trim() || currentName;
-    labelEl.textContent = newName;
-    labelEl.style.display = "";
-    input.remove();
-    tabLabels.set(tabId, newName);
-    await saveSessionMetadata();
-  };
-
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      commit();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      labelEl.style.display = "";
-      input.remove();
-    }
-  });
-
-  input.addEventListener("blur", commit);
-  input.addEventListener("click", (e) => e.stopPropagation());
-}
-
-function removeSidebarEntry(tabId: number): void {
-  terminalList.querySelector(`[data-id="${tabId}"]`)?.remove();
-}
-
-function updateSidebarActive(tabId: number): void {
-  terminalList.querySelectorAll(".terminal-entry").forEach((el) => {
-    el.classList.toggle(
-      "active",
-      (el as HTMLElement).dataset.id === String(tabId)
-    );
-  });
-}
-
 // --- Context Menu ---
 
 const contextMenu = document.getElementById("terminal-context-menu")!;
@@ -1143,84 +645,6 @@ terminalPane.addEventListener("contextmenu", (e) => {
 
 document.addEventListener("mousedown", (e) => {
   if (!contextMenu.contains(e.target as Node)) hideContextMenu();
-});
-
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    hideContextMenu();
-  }
-  // Cmd+Plus: increase font size
-  if ((e.key === "+" || e.key === "=") && e.metaKey && !e.shiftKey) {
-    e.preventDefault();
-    for (const session of sessions.values()) {
-      session.increaseFontSize();
-    }
-    return;
-  }
-  // Cmd+Minus: decrease font size
-  if (e.key === "-" && e.metaKey) {
-    e.preventDefault();
-    for (const session of sessions.values()) {
-      session.decreaseFontSize();
-    }
-    return;
-  }
-  // Cmd+0: reset font size
-  if (e.key === "0" && e.metaKey) {
-    e.preventDefault();
-    for (const session of sessions.values()) {
-      session.setFontSize(12);
-    }
-    return;
-  }
-  // Cmd+N: new terminal
-  if (e.key === "n" && e.metaKey && !e.shiftKey && !e.ctrlKey) {
-    e.preventDefault();
-    createNewTab(nextTerminalName());
-    return;
-  }
-  // Cmd+Arrow: navigate between panes (internal pane tree focus)
-  if (activeTabId !== null && e.metaKey && !e.shiftKey) {
-    const tab = tabMap.get(activeTabId);
-    if (tab) {
-      const leaves = getAllLeaves(tab.root);
-      if (leaves.length > 1) {
-        const currentIndex = leaves.findIndex((l) => l.ptyId === tab.focusedPtyId);
-        let nextIndex = -1;
-
-        if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-          nextIndex = currentIndex > 0 ? currentIndex - 1 : leaves.length - 1;
-        } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-          nextIndex = currentIndex < leaves.length - 1 ? currentIndex + 1 : 0;
-        }
-
-        if (nextIndex >= 0) {
-          e.preventDefault();
-          setFocusedPane(leaves[nextIndex].ptyId);
-          return;
-        }
-      }
-    }
-  }
-
-  // Cmd+Shift+G: set cluster/project name for current tab
-  if (e.key === "g" && e.metaKey && e.shiftKey) {
-    e.preventDefault();
-    if (activeTabId === null) return;
-    const currentTabId = activeTabId;
-    const currentCluster = tabClusters.get(currentTabId) || "";
-    showClusterDialog(currentCluster).then(name => {
-      if (name === null) return;
-      if (name === "") {
-        tabClusters.delete(currentTabId);
-      } else {
-        tabClusters.set(currentTabId, name);
-      }
-      saveSessionMetadata();
-      renderSidebar();
-    });
-    return;
-  }
 });
 
 contextMenu.addEventListener("click", async (e) => {
@@ -1278,103 +702,9 @@ window.terminalAPI.onBeforeQuit(async () => {
     clearInterval(usageRefreshInterval);
     usageRefreshInterval = null;
   }
+  stopAgentPolling();
   window.terminalAPI.quitReady();
 });
-
-// --- Usage Status Bar ---
-
-const statusBarEl = document.getElementById("statusbar")!;
-const usage5h = document.getElementById("usage-5h")!;
-const usage7d = document.getElementById("usage-7d")!;
-const usageSeps = statusBarEl.querySelectorAll(".usage-sep");
-let usageLoading = false;
-
-function getUsageColorClass(utilization: number): string {
-  if (utilization >= 95) return "critical";
-  if (utilization >= 80) return "warn";
-  return "normal";
-}
-
-function formatResetTime(resetsAt: string | null): string {
-  if (!resetsAt) return "";
-  const date = new Date(resetsAt);
-  const now = new Date();
-  const diffMs = date.getTime() - now.getTime();
-  if (diffMs <= 0) return "reset imminent";
-  const diffD = Math.floor(diffMs / 86400000);
-  const diffH = Math.floor((diffMs % 86400000) / 3600000);
-  const diffM = Math.floor((diffMs % 3600000) / 60000);
-  if (diffD > 0) return `${diffD}d ${diffH}h`;
-  if (diffH > 0) return `${diffH}h ${diffM}m`;
-  return `${diffM}m`;
-}
-
-function updateUsageMetric(
-  el: HTMLElement,
-  label: string,
-  metric: { utilization: number; resets_at: string | null } | undefined
-): void {
-  if (!metric || metric.utilization == null) {
-    el.innerHTML = `<span class="usage-label">${label}</span><span class="usage-bar-wrap"><span class="usage-bar"><span class="usage-bar-fill normal" style="width:0%"></span></span><span class="usage-pct">--</span></span><span class="usage-reset"></span>`;
-    el.title = "";
-    el.className = "usage-metric";
-    return;
-  }
-  const pct = Math.round(metric.utilization);
-  const colorClass = getUsageColorClass(metric.utilization);
-  const pctClass = colorClass === 'critical' ? 'usage-critical' : colorClass === 'warn' ? 'usage-warn' : '';
-  const resetText = formatResetTime(metric.resets_at);
-  el.innerHTML = `<span class="usage-label">${label}</span><span class="usage-bar-wrap"><span class="usage-bar"><span class="usage-bar-fill ${colorClass}" style="width:${pct}%"></span></span><span class="usage-pct ${pctClass}">${pct}%</span></span><span class="usage-reset">${resetText}</span>`;
-  el.title = "";
-  el.className = "usage-metric";
-}
-
-async function refreshUsage(): Promise<void> {
-  if (usageLoading) return;
-  usageLoading = true;
-
-  try {
-    const result = await window.terminalAPI.fetchUsage();
-
-    if (result.error) {
-      const msg =
-        result.error === "keychain" ? "not logged in" : "--";
-      usage5h.textContent = `Usage: ${msg}`;
-      usage5h.className = "usage-metric";
-      usage5h.title = "";
-      usage7d.textContent = "";
-      usage7d.className = "usage-metric";
-      usage7d.title = "";
-      // Hide separators when showing error
-      usageSeps.forEach((sep) => {
-        (sep as HTMLElement).style.display = "none";
-      });
-      return;
-    }
-
-    if (result.data) {
-      // Show separators
-      usageSeps.forEach((sep) => {
-        (sep as HTMLElement).style.display = "";
-      });
-      updateUsageMetric(usage5h, "5h", result.data.five_hour);
-      updateUsageMetric(usage7d, "7d", result.data.seven_day);
-    }
-  } catch (err) {
-    console.error("[renderer] Usage refresh failed:", err);
-  } finally {
-    usageLoading = false;
-  }
-}
-
-statusBarEl.addEventListener("click", () => {
-  refreshUsage();
-});
-
-// Auto-refresh every 5 minutes
-usageRefreshInterval = setInterval(() => {
-  refreshUsage();
-}, 5 * 60 * 1000);
 
 // --- Help Menu IPC ---
 
@@ -1386,21 +716,10 @@ window.terminalAPI.onHelpAbout(() => {
   showAbout();
 });
 
-// --- Init ---
+// --- Init button ---
+// NOTE: app startup (restoreFromSaved, refreshUsage) is called from init.js
+// which loads last so all module functions are available.
 
 btnNew.addEventListener("click", () => {
   createNewTab(nextTerminalName());
 });
-
-(async () => {
-  try {
-    const restored = await restoreFromSaved();
-    if (!restored) {
-      await createNewTab();
-    }
-    // Load usage data
-    refreshUsage();
-  } catch (err) {
-    console.error("Init error:", err);
-  }
-})();

@@ -220,6 +220,94 @@ export async function getSessionCurrentCommand(id: number): Promise<string> {
 }
 
 /**
+ * Check if a `claude` process is running in the process tree rooted at the
+ * session's shell PID. Uses `pgrep -P` to walk one level of children, then
+ * checks each child's command name for "claude".
+ *
+ * Returns `{ isClaudeRunning, claudePid }`.
+ */
+export async function getAgentStatus(
+  id: number
+): Promise<{ isClaudeRunning: boolean; claudePid: number | null }> {
+  const session = sessions.get(id);
+  if (!session) return { isClaudeRunning: false, claudePid: null };
+
+  try {
+    // Recursively search the process tree for a process named 'claude'
+    const found = await findClaudeInTree(session.childPid, 3);
+    if (found !== null) {
+      return { isClaudeRunning: true, claudePid: found };
+    }
+    return { isClaudeRunning: false, claudePid: null };
+  } catch {
+    return { isClaudeRunning: false, claudePid: null };
+  }
+}
+
+/**
+ * Recursively search process tree (BFS up to `depth` levels) for a process
+ * whose comm contains "claude".
+ */
+async function findClaudeInTree(
+  pid: number,
+  depth: number
+): Promise<number | null> {
+  if (depth <= 0) return null;
+
+  let childPids: number[] = [];
+  try {
+    const { stdout } = await execFileAsync("pgrep", ["-P", String(pid)], {
+      encoding: "utf8",
+      timeout: 2000,
+    });
+    childPids = stdout
+      .trim()
+      .split("\n")
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => !isNaN(n) && n > 0);
+  } catch {
+    // No children or pgrep failed
+    return null;
+  }
+
+  if (childPids.length === 0) return null;
+
+  // Check each child's command line (args includes full path, safer than comm)
+  for (const childPid of childPids) {
+    try {
+      const { stdout } = await execFileAsync(
+        "ps",
+        ["-o", "args=", "-p", String(childPid)],
+        { encoding: "utf8", timeout: 2000 }
+      );
+      const args = stdout.trim();
+      // Binary-name based matching to avoid false positives (e.g. claude.conf)
+      const parts = args.split(/\s+/);
+      const binary = path.basename(parts[0]);
+      const isClaudeBinary = binary === "claude";
+      const isClaudeNode =
+        binary === "node" &&
+        parts.length > 1 &&
+        (parts[1].includes("/claude/") ||
+          path.basename(parts[1]).startsWith("claude"));
+      if (isClaudeBinary || isClaudeNode) {
+        return childPid;
+      }
+    } catch {
+      // process may have already exited
+    }
+  }
+
+  // Recurse into children
+  for (const childPid of childPids) {
+    const result = await findClaudeInTree(childPid, depth - 1);
+    if (result !== null) return result;
+  }
+
+  return null;
+}
+
+/**
  * Query CPU and memory usage for a session's shell process.
  * Returns `{ cpu, memory }` percentages, or zeros on error.
  */

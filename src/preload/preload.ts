@@ -17,6 +17,18 @@ interface UsageResult {
   error?: "keychain" | "api" | "parse";
 }
 
+interface HookEvent {
+  event: string;
+  session_id?: string;
+  tool_name?: string;
+  message?: string;
+  payload?: unknown;
+}
+
+interface AppSettings {
+  claudeNotifications: boolean;
+}
+
 export interface TerminalAPI {
   createPty(
     cols: number,
@@ -39,9 +51,36 @@ export interface TerminalAPI {
   copyToClipboard(text: string): void;
   readFromClipboard(): string;
   getProcessInfo(id: number): Promise<{ cpu: number; memory: number }>;
+  getAgentStatus(id: number): Promise<{ isClaudeRunning: boolean; claudePid: number | null }>;
   fetchUsage(): Promise<UsageResult>;
   onHelpGuide(callback: () => void): void;
   onHelpAbout(callback: () => void): void;
+
+  // --- Git ---
+  gitFindRoot(dir: string): Promise<string | null>;
+  gitStatus(projectRoot: string): Promise<{
+    branch: string;
+    dirty: boolean;
+    stagedCount: number;
+    unstagedCount: number;
+    untrackedCount: number;
+  } | null>;
+  gitFiles(projectRoot: string): Promise<{ path: string; x: string; y: string }[]>;
+  gitDiff(
+    projectRoot: string,
+    filePath: string,
+    staged: boolean
+  ): Promise<{ diff: string } | { tooLarge: true; lineCount: number } | { error: string }>;
+
+  // --- Hook / Agent State ---
+  onHookEvent(callback: (evt: HookEvent) => void): void;
+  hookCheckInstalled(): Promise<boolean>;
+  hookInstall(): Promise<boolean>;
+  notifyApproval(): void;
+
+  // --- Settings ---
+  getSettings(): Promise<AppSettings>;
+  saveSettings(settings: Partial<AppSettings>): Promise<boolean>;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -103,6 +142,11 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   getProcessInfo: (id: number): Promise<{ cpu: number; memory: number }> => {
     return ipcRenderer.invoke("pty:getProcessInfo", id);
   },
+  getAgentStatus: (
+    id: number
+  ): Promise<{ isClaudeRunning: boolean; claudePid: number | null }> => {
+    return ipcRenderer.invoke("pty:getAgentStatus", id);
+  },
   fetchUsage: (): Promise<UsageResult> => {
     return ipcRenderer.invoke("usage:fetch");
   },
@@ -113,5 +157,50 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   onHelpAbout: (callback: () => void): void => {
     ipcRenderer.removeAllListeners("help:show-about");
     ipcRenderer.on("help:show-about", () => callback());
+  },
+  gitFindRoot: (dir: string): Promise<string | null> => {
+    return ipcRenderer.invoke("git:findRoot", dir);
+  },
+  gitStatus: (projectRoot: string): Promise<{
+    branch: string;
+    dirty: boolean;
+    stagedCount: number;
+    unstagedCount: number;
+    untrackedCount: number;
+  } | null> => {
+    return ipcRenderer.invoke("git:status", projectRoot);
+  },
+  gitFiles: (projectRoot: string): Promise<{ path: string; x: string; y: string }[]> => {
+    return ipcRenderer.invoke("git:files", projectRoot);
+  },
+  gitDiff: (
+    projectRoot: string,
+    filePath: string,
+    staged: boolean
+  ): Promise<{ diff: string } | { tooLarge: true; lineCount: number } | { error: string }> => {
+    return ipcRenderer.invoke("git:diff", projectRoot, filePath, staged);
+  },
+
+  // --- Hook / Agent State ---
+  onHookEvent: (callback: (evt: HookEvent) => void): void => {
+    ipcRenderer.removeAllListeners("hook:event");
+    ipcRenderer.on("hook:event", (_event, evt) => callback(evt));
+  },
+  hookCheckInstalled: (): Promise<boolean> => {
+    return ipcRenderer.invoke("hook:checkInstalled");
+  },
+  hookInstall: (): Promise<boolean> => {
+    return ipcRenderer.invoke("hook:install");
+  },
+  notifyApproval: (): void => {
+    ipcRenderer.send("hook:notify-approval");
+  },
+
+  // --- Settings ---
+  getSettings: (): Promise<AppSettings> => {
+    return ipcRenderer.invoke("settings:get");
+  },
+  saveSettings: (settings: Partial<AppSettings>): Promise<boolean> => {
+    return ipcRenderer.invoke("settings:save", settings);
   },
 } satisfies TerminalAPI);

@@ -8,6 +8,7 @@
   />
   <title>HyperTerm</title>
   <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="../../vendor/diff2html.min.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -32,6 +33,15 @@
       <span id="usage-7d" class="usage-metric" title=""></span>
     </div>
   </div>
+  <!-- Changed Files Panel -->
+  <div id="changed-files-panel" class="changed-files-panel hidden">
+    <div class="changed-files-header">
+      <span class="changed-files-title">Changed Files</span>
+      <button id="close-changed-files" class="changed-files-close-btn">&times;</button>
+    </div>
+    <div id="changed-files-list" class="changed-files-list"></div>
+  </div>
+
   <!-- Notes Panel -->
   <div id="notes-panel" class="notes-panel hidden">
     <div class="notes-header">
@@ -141,6 +151,17 @@
     </div>
   </div>
 
+  <!-- Diff Viewer Modal -->
+  <div id="diff-modal" class="diff-modal hidden">
+    <div class="diff-modal-dialog">
+      <div class="diff-modal-header">
+        <span id="diff-modal-title" class="diff-modal-title"></span>
+        <button id="diff-modal-close" class="diff-modal-close-btn">&#x2715;</button>
+      </div>
+      <div id="diff-modal-content" class="diff-modal-content"></div>
+    </div>
+  </div>
+
   <!-- Context Menu -->
   <div id="terminal-context-menu" class="context-menu hidden">
     <div class="context-menu-item" data-action="split-horizontal">↔ 좌우 분할</div>
@@ -149,11 +170,36 @@
     <div class="context-menu-item context-menu-danger" data-action="close-pane">✕ Pane 닫기</div>
   </div>
 
+  <script src="../../vendor/diff2html.min.js"></script>
   <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="../../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
   <script src="../../node_modules/@xterm/addon-serialize/lib/addon-serialize.js"></script>
   <script src="terminal-session.js"></script>
+  <!-- renderer modules: load order matters
+       1. renderer.js   — global state + core functions (no init IIFE)
+       2. pane-tree.js  — pane tree helpers (uses nothing from other modules)
+       3. notes-panel.js — note panel (uses tabMap, tabLabels, sessionKeys, etc. from renderer.js)
+       4. sidebar.js    — sidebar (uses openNotesPanel from notes-panel.js)
+       5. statusbar.js  — status bar (standalone)
+       6. keybindings.js — keyboard shortcuts (uses all of the above)
+       7. agent-status.js — Claude agent polling
+       8. git-status.js — git branch/dirty polling
+       9. changed-files-panel.js — Changed Files slide panel
+      10. init.js       — app startup IIFE (last, so all functions are defined)
+  -->
   <script src="renderer.js"></script>
+  <script src="pane-tree.js"></script>
+  <script src="notes-panel.js"></script>
+  <script src="sidebar.js"></script>
+  <script src="statusbar.js"></script>
+  <script src="keybindings.js"></script>
+  <script src="agent-status.js"></script>
+  <script src="git-status.js"></script>
+  <script src="changed-files-panel.js"></script>
+  <script src="diff-viewer.js"></script>
+  <script src="hook-state.js"></script>
+  <script src="hook-install-banner.js"></script>
+  <script src="init.js"></script>
 </body>
 </html>
