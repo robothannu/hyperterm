@@ -109,7 +109,7 @@ function renderChangedFiles(
 
     // Sprint 4: open diff viewer on file click
     item.addEventListener("click", () => {
-      const cached = activeTabId !== null ? tabGitCache.get(activeTabId) : null;
+      const cached = activeTabId !== null ? getGitCacheForTab(activeTabId) : null;
       const projectRoot = cached?.projectRoot ?? null;
       if (!projectRoot) {
         console.warn("[changed-files] no projectRoot — cannot open diff viewer");
@@ -133,9 +133,7 @@ async function refreshChangedFilesPanel(): Promise<void> {
     return;
   }
 
-  const cached = typeof getGitCacheForTab === "function"
-    ? getGitCacheForTab(activeTabId)
-    : tabGitCache.get(activeTabId);
+  const cached = getGitCacheForTab(activeTabId);
   const projectRoot = cached?.projectRoot ?? null;
 
   if (!projectRoot) {

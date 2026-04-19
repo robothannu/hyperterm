@@ -113,3 +113,13 @@ interface Window {
 declare function teardownKeybindings(): void;
 declare function teardownSidebarDelegation(): void;
 declare function stopGitPolling(): void;
+
+// Toast helper defined in renderer.ts, available to all modules loaded after it
+declare function showToast(message: string, variant?: "error" | "warn" | "ok" | "done"): void;
+
+// Cross-module function: changed-files-panel.ts exports this for renderer.ts to call
+declare function refreshChangedFilesPanel(): Promise<void>;
+
+// Cross-module function: git-status.ts exports this for changed-files-panel.ts to call
+// Returns the GitCacheEntry for the given tabId, or undefined if not cached
+declare function getGitCacheForTab(tabId: number): { cwd: string; projectRoot: string | null; info: { branch: string; dirty: boolean } | null; files: { path: string; x: string; y: string }[] | null; filesTs: number } | undefined;

@@ -72,12 +72,32 @@ html, body {
 /* === Sidebar === */
 #sidebar {
   width: 240px;
-  min-width: 180px;
+  min-width: 150px;
+  max-width: 500px;
   background: #1e1e1e;
   border-right: 1px solid #3a3a3a;
   display: flex;
   flex-direction: column;
   user-select: none;
+  position: relative;
+  flex-shrink: 0;
+}
+
+#sidebar-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 10;
+  transition: background 0.15s;
+}
+
+#sidebar-resize-handle:hover,
+#sidebar-resize-handle.dragging {
+  background: #505050;
 }
 
 #sidebar-header {
@@ -155,9 +175,11 @@ html, body {
 .terminal-label {
   font-size: 13px;
   color: #b3b3b3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
 }
 
 .terminal-entry.active .terminal-label {
@@ -476,6 +498,15 @@ html, body {
 
 .statusbar-spacer {
   flex: 1;
+}
+
+/* Agent IPC failure indicator in statusbar */
+.agent-ipc-error {
+  font-size: 11px;
+  color: #e55555;
+  padding: 0 8px;
+  cursor: default;
+  opacity: 0.85;
 }
 
 /* === Hook state: done marker === */

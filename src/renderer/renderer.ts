@@ -21,6 +21,15 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Toast notification (uses .hook-toast CSS class family defined in styles.css)
+function showToast(message: string, variant: "error" | "warn" | "ok" | "done" = "error"): void {
+  const el = document.createElement("div");
+  el.className = `hook-toast hook-toast-${variant}`;
+  el.textContent = message;
+  document.body.appendChild(el);
+  el.addEventListener("animationend", () => el.remove());
+}
+
 function nextTerminalName(): string {
   sessionCounter++;
   return `Terminal ${sessionCounter}`;
@@ -283,8 +292,25 @@ async function createNewTab(
     await saveSessionMetadata();
     return tabId;
   } catch (err: unknown) {
-    console.error("[renderer] Failed to create tab:", err instanceof Error ? err.message : String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[renderer] Failed to create tab:", msg);
+    // Remove the partially-created container so no phantom entry appears in the DOM
     tabContainer.remove();
+    // Ensure state maps have no leftover entries for this failed tab
+    // (tabMap, tabLabels, tabClusters, ptyToTab are not yet set at this point,
+    //  but guard cleanups in case future refactors move things around)
+    // Restore visibility of previously active tab
+    if (activeTabId !== null) {
+      const prevTab = tabMap.get(activeTabId);
+      if (prevTab) prevTab.container.style.display = "flex";
+    } else if (tabMap.size > 0) {
+      // Re-show last tab
+      const lastTabId = Array.from(tabMap.keys()).pop()!;
+      const lastTab = tabMap.get(lastTabId)!;
+      lastTab.container.style.display = "flex";
+    }
+    // Notify user
+    showToast(`터미널 생성 실패: ${msg}`, "error");
     return null;
   }
 }
@@ -310,9 +336,7 @@ function switchToTab(tabId: number): void {
 
   updateSidebarActive(tabId);
   // Refresh Changed Files panel for the newly active tab
-  if (typeof refreshChangedFilesPanel === "function") {
-    refreshChangedFilesPanel();
-  }
+  refreshChangedFilesPanel();
 }
 
 async function splitFocusedPane(
@@ -339,8 +363,18 @@ async function splitFocusedPane(
   divider.className = `pane-divider ${direction}`;
   splitElement.appendChild(divider);
 
-  // Create new pane
-  const newLeaf = await createPaneSession(splitElement);
+  // Create new pane — if this fails, restore the original leaf in the DOM
+  let newLeaf: PaneLeaf;
+  try {
+    newLeaf = await createPaneSession(splitElement);
+  } catch (err) {
+    // Undo the DOM manipulation: put leaf back where splitElement is
+    splitElement.replaceWith(leaf.element);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[renderer] Failed to split pane:", msg);
+    showToast(`Pane 분할 실패: ${msg}`, "error");
+    return;
+  }
   ptyToTab.set(newLeaf.ptyId, tab.id);
 
   // Build split node
@@ -433,11 +467,13 @@ function closeTab(tabId: number): void {
   // Close notes panel if open for this tab
   if (notesPanelTabId === tabId) closeNotesPanel();
 
-  // Delete notes for this tab
+  // Delete notes for this tab (fire-and-forget — catch to prevent unhandled rejection)
   const firstLeaf = getAllLeaves(tab.root)[0];
   if (firstLeaf) {
     const sk = sessionKeys.get(firstLeaf.ptyId);
-    if (sk) window.terminalAPI.deleteSessionNotes(sk);
+    if (sk) window.terminalAPI.deleteSessionNotes(sk).catch((e) => {
+      console.warn("[renderer] deleteSessionNotes failed (ignored):", e);
+    });
   }
   sessionNotesCache.delete(tabId);
 
@@ -729,14 +765,10 @@ function _teardownAll(): void {
   console.log("[renderer] git polling stopped");
 
   // Teardown global keydown handler (keybindings.ts)
-  if (typeof teardownKeybindings === "function") {
-    teardownKeybindings();
-  }
+  teardownKeybindings();
 
   // Teardown sidebar delegation (sidebar.ts)
-  if (typeof teardownSidebarDelegation === "function") {
-    teardownSidebarDelegation();
-  }
+  teardownSidebarDelegation();
 }
 
 // Reload / window close (Cmd+R, window unload)
