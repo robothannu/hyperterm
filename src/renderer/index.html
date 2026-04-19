@@ -258,17 +258,19 @@
   <!-- renderer modules: load order matters
        1. renderer.js   — global state + core functions (no init IIFE)
        2. pane-tree.js  — pane tree helpers (uses nothing from other modules)
-       3. notes-panel.js — note panel (uses tabMap, tabLabels, sessionKeys, etc. from renderer.js)
-       4. sidebar.js    — sidebar (uses openNotesPanel from notes-panel.js)
-       5. statusbar.js  — status bar (standalone)
-       6. keybindings.js — keyboard shortcuts (uses all of the above)
-       7. agent-status.js — Claude agent polling
-       8. git-status.js — git branch/dirty polling
-       9. changed-files-panel.js — Changed Files slide panel
-      10. init.js       — app startup IIFE (last, so all functions are defined)
+       3. toolbar-row.js — layout preset toolbar (uses pane-tree + renderer globals)
+       4. notes-panel.js — note panel (uses tabMap, tabLabels, sessionKeys, etc. from renderer.js)
+       5. sidebar.js    — sidebar (uses openNotesPanel from notes-panel.js)
+       6. statusbar.js  — status bar (standalone)
+       7. keybindings.js — keyboard shortcuts (uses all of the above)
+       8. agent-status.js — Claude agent polling
+       9. git-status.js — git branch/dirty polling
+      10. changed-files-panel.js — Changed Files slide panel
+      11. init.js       — app startup IIFE (last, so all functions are defined)
   -->
   <script src="renderer.js"></script>
   <script src="pane-tree.js"></script>
+  <script src="toolbar-row.js"></script>
   <script src="notes-panel.js"></script>
   <script src="sidebar.js"></script>
   <script src="statusbar.js"></script>

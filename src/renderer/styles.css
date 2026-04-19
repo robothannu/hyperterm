@@ -2288,3 +2288,58 @@ body.theme-light .claude-status-counter {
 .sidebar-agent-dot.hidden {
   display: none;
 }
+
+/* === Sprint 3: Toolbar Row & Layout Presets === */
+
+#toolbar-row {
+  height: 36px;
+  min-height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: linear-gradient(180deg, #0c0d12, var(--bg-0));
+  border-bottom: 1px solid var(--line);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+/* Segmented control container */
+.layouts {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+}
+
+/* Individual layout preset button */
+.layout-btn {
+  width: 26px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--fg-2);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+}
+
+.layout-btn:hover {
+  background: var(--glass-strong);
+  color: var(--fg-0);
+}
+
+.layout-btn.active {
+  background: rgba(124, 140, 255, 0.15);
+  color: var(--fg-0);
+  box-shadow: 0 0 0 1px rgba(124, 140, 255, 0.3) inset;
+}

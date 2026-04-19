@@ -11,6 +11,8 @@ usageRefreshInterval = setInterval(() => {
 
 (async () => {
   try {
+    // Init toolbar row (layout preset buttons) — before restore so toolbar is present
+    initToolbarRow();
     const restored = await restoreFromSaved();
     if (!restored) {
       await createNewTab();
@@ -33,8 +35,6 @@ usageRefreshInterval = setInterval(() => {
     initSidebarMru();
     // Init Settings Modal (Sprint 6)
     initSettingsModal();
-    // Init Activity Log
-    initActivityLog();
     // Init Sidebar Resize
     initSidebarResize();
   } catch (err) {

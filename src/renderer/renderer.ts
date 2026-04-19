@@ -490,6 +490,8 @@ function switchToTab(tabId: number): void {
   updateSidebarActive(tabId);
   // Update titlebar group name
   updateTitlebarGroupName(tabId);
+  // Sync toolbar preset highlight to the newly active tab
+  if (typeof syncToolbarToTab === "function") syncToolbarToTab(tabId);
   // Refresh Changed Files panel for the newly active tab
   refreshChangedFilesPanel();
   // On-demand git poll for newly active tab (updates badge within one cycle)
@@ -755,6 +757,7 @@ async function saveSessionMetadata(): Promise<void> {
         label: tabLabels.get(tabId) || `Terminal ${i + 1}`,
         cluster: tabClusters.get(tabId),
         layout: await serializePaneTree(tab.root),
+        layoutPreset: typeof getTabLayoutPreset === "function" ? getTabLayoutPreset(tabId) : undefined,
       });
     }
     const state: SavedStateV2 = { version: 3, tabs: savedTabs, activeTabIndex };
@@ -862,6 +865,9 @@ async function restoreFromSaved(): Promise<boolean> {
     tabLabels.set(tabId, savedTab.label);
     if (savedTab.cluster) {
       tabClusters.set(tabId, savedTab.cluster);
+    }
+    if (savedTab.layoutPreset && typeof setTabLayoutPreset === "function") {
+      setTabLayoutPreset(tabId, savedTab.layoutPreset);
     }
     addSidebarEntry(tabId, savedTab.label);
   }

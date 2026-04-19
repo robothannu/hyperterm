@@ -135,6 +135,12 @@ declare var activeSessionSettings: { fontSize: number; theme: "dark" | "light" }
 // Toast helper defined in renderer.ts, available to all modules loaded after it
 declare function showToast(message: string, variant?: "error" | "warn" | "ok" | "done"): void;
 
+// Toolbar row: layout preset functions (toolbar-row.ts)
+declare function initToolbarRow(): void;
+declare function syncToolbarToTab(tabId: number): void;
+declare function getTabLayoutPreset(tabId: number): string | undefined;
+declare function setTabLayoutPreset(tabId: number, presetName: string): void;
+
 // Cross-module function: changed-files-panel.ts exports this for renderer.ts to call
 declare function refreshChangedFilesPanel(): Promise<void>;
 
