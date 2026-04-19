@@ -1,1 +1,12 @@
-{"current_phase":"complete","iteration":1,"current_sprint":6,"total_sprints":7,"feature_request":"HyperTerm Claude Code Companion","project_type":"web","max_iterations":5,"history":[{"sprint":0,"score":27,"verdict":"PASS"},{"sprint":1,"score":27,"verdict":"PASS"},{"sprint":2,"score":28,"verdict":"PASS"},{"sprint":3,"score":27,"verdict":"PASS"},{"sprint":4,"score":27,"verdict":"PASS"},{"sprint":5,"score":26,"verdict":"PASS"},{"sprint":6,"score":27,"verdict":"PASS"}]}
+{
+  "current_phase": "building",
+  "iteration": 1,
+  "current_sprint": 3,
+  "total_sprints": 3,
+  "feature_request": "코드 리뷰 이슈 전체 수정: 이벤트 리스너 누수, race condition, 에러 처리 누락, polling 최적화, UX 개선",
+  "project_type": "web",
+  "scale": "large",
+  "feature_branch": "feature/code-review-fixes",
+  "max_iterations": 5,
+  "history": [{"sprint": 1, "score": 28, "verdict": "PASS"}, {"sprint": 2, "score": 27, "verdict": "PASS"}]
+}

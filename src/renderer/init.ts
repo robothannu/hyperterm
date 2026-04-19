@@ -35,6 +35,8 @@ usageRefreshInterval = setInterval(() => {
     initSettingsModal();
     // Init Activity Log
     initActivityLog();
+    // Init Sidebar Resize
+    initSidebarResize();
   } catch (err) {
     console.error("Init error:", err);
   }
