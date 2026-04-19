@@ -119,22 +119,29 @@ function updateSidebarAgentMarker(tabId: number, hasAgent: boolean): void {
   ) as HTMLElement | null;
   if (!li) return;
 
+  // Update the card-dot-status visual indicator
+  const dotStatus = li.querySelector(".card-dot-status") as HTMLElement | null;
+  if (dotStatus) {
+    if (hasAgent) {
+      dotStatus.setAttribute("data-state", "running");
+    } else {
+      // Only clear if not in waiting state (hook-state manages that)
+      const currentState = dotStatus.getAttribute("data-state");
+      if (currentState === "running") {
+        dotStatus.setAttribute("data-state", "idle");
+      }
+    }
+    applySidebarDotState(dotStatus);
+  }
+
+  // Legacy sidebar-agent-dot: keep a hidden marker for backward compat
   let dot = li.querySelector(".sidebar-agent-dot") as HTMLElement | null;
   if (hasAgent) {
     if (!dot) {
       dot = document.createElement("span");
-      dot.className = "sidebar-agent-dot";
+      dot.className = "sidebar-agent-dot hidden";
       dot.title = "Claude is running";
-      // Insert before the label element (inside .terminal-entry-row)
-      const row = li.querySelector(".terminal-entry-row");
-      const labelEl = li.querySelector(".terminal-label");
-      if (labelEl && row) {
-        row.insertBefore(dot, labelEl);
-      } else if (row) {
-        row.prepend(dot);
-      } else {
-        li.prepend(dot);
-      }
+      li.appendChild(dot);
     }
   } else {
     dot?.remove();
@@ -183,11 +190,6 @@ async function pollAgentStatus(): Promise<void> {
     setPaneAgentStatus(leaf, isRunning);
     if (isRunning) tabHasAgent = true;
 
-    if (!wasRunning && isRunning) {
-      logActivity({ type: "working", tabId: activeTabId, tabLabel });
-    } else if (wasRunning && !isRunning) {
-      logActivity({ type: "done", tabId: activeTabId, tabLabel });
-    }
   }
 
   updateSidebarAgentMarker(activeTabId, tabHasAgent);

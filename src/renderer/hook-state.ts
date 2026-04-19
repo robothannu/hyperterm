@@ -106,7 +106,7 @@ function applyHookMarker(leaf: PaneLeaf): void {
       break;
     case "waiting_approval":
       marker.className = "hook-state-marker hook-state-approval";
-      marker.textContent = "⚠ 승인 필요";
+      marker.textContent = "⚠ Waiting";
       marker.title = "Claude is waiting for approval";
       break;
     case "idle":
@@ -131,27 +131,29 @@ function removeHookMarker(ptyId: number): void {
 function showDoneGlow(tabId: number, leaf: PaneLeaf): void {
   bumpDoneCounter();
 
-  // Sidebar dot: green glow for 8s
+  // Sidebar card dot: done state for 8s
+  if (typeof setSidebarDotState === "function") {
+    setSidebarDotState(tabId, "done");
+    setTimeout(() => {
+      setSidebarDotState(tabId, "idle");
+    }, 8000);
+  }
+
+  // Legacy sidebar-agent-dot fallback
   const li = document.querySelector(`#terminal-list [data-id="${tabId}"]`) as HTMLElement | null;
   if (li) {
-    let dot = li.querySelector(".sidebar-agent-dot") as HTMLElement | null;
-    if (!dot) {
-      dot = document.createElement("span");
-      dot.className = "sidebar-agent-dot";
-      const row = li.querySelector(".terminal-entry-row");
-      const labelEl = li.querySelector(".terminal-label");
-      if (labelEl && row) row.insertBefore(dot, labelEl);
-      else if (row) row.prepend(dot);
+    const dot = li.querySelector(".sidebar-agent-dot") as HTMLElement | null;
+    if (dot) {
+      dot.classList.remove("dot-pulse");
+      dot.classList.add("dot-done");
+      setTimeout(() => { dot.classList.remove("dot-done"); }, 8000);
     }
-    dot.classList.remove("dot-pulse");
-    dot.classList.add("dot-done");
-    setTimeout(() => { dot!.classList.remove("dot-done"); }, 8000);
   }
 
   // Pane header: ✓ 완료 marker for 5s
   const marker = getOrCreateHookMarker(leaf);
   marker.className = "hook-state-marker hook-state-done";
-  marker.textContent = "✓ 완료";
+  marker.textContent = "✓ Done";
   setTimeout(() => {
     if (leaf.agentState === "idle") {
       marker.className = "hook-state-marker hidden";
@@ -173,10 +175,47 @@ function showHookToast(message: string, variant: "warn" | "done"): void {
 }
 
 // ---------------------------------------------------------------------------
+// Tab notification badge (alarm format next to group name)
+// ---------------------------------------------------------------------------
+
+function setTabNotifBadge(tabId: number, state: "approval" | "working" | "done" | "clear"): void {
+  const li = document.querySelector(`#terminal-list [data-id="${tabId}"]`) as HTMLElement | null;
+  if (!li) return;
+  const badge = li.querySelector(".tab-notif") as HTMLElement | null;
+  if (!badge) return;
+
+  badge.className = "tab-notif";
+  switch (state) {
+    case "approval":
+      badge.textContent = "⚠ Waiting";
+      badge.classList.add("notif-approval");
+      break;
+    case "working":
+      badge.textContent = "⚙ Running";
+      badge.classList.add("notif-working");
+      break;
+    case "done":
+      badge.textContent = "✓ Done";
+      badge.classList.add("notif-done");
+      break;
+    case "clear":
+      badge.classList.add("hidden");
+      badge.textContent = "";
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sidebar agent dot pulse for waiting_approval
 // ---------------------------------------------------------------------------
 
 function updateSidebarDotPulse(tabId: number, pulse: boolean): void {
+  // Update card-dot-status (new rich card)
+  if (typeof setSidebarDotState === "function") {
+    setSidebarDotState(tabId, pulse ? "waiting" : "idle");
+  }
+
+  // Legacy sidebar-agent-dot fallback
   const li = document.querySelector(
     `#terminal-list [data-id="${tabId}"]`
   ) as HTMLElement | null;
@@ -298,23 +337,24 @@ function handleHookEvent(evt: HookEvent): void {
   const tabLabel = tabLabels.get(tabId) || `Terminal ${tabId}`;
 
   if (prevState !== "waiting_approval" && newState === "waiting_approval") {
-    showHookToast(`⚠ Claude가 입력을 기다립니다 — ${tabLabel}`, "warn");
+    showHookToast(`⚠ Waiting for input — ${tabLabel}`, "warn");
     updateSidebarDotPulse(tabId, true);
+    setTabNotifBadge(tabId, "approval");
     window.terminalAPI.notifyApproval();
     updateClaudeStatusCounter();
-    logActivity({ type: "waiting_approval", tabId, tabLabel });
   }
 
   if (prevState !== "working" && newState === "working") {
+    setTabNotifBadge(tabId, "working");
     updateClaudeStatusCounter();
   }
 
   if (prevState !== "idle" && prevState !== "done" && newState === "idle") {
-    showHookToast(`✓ Claude 완료 — ${tabLabel}`, "done");
+    showHookToast(`✓ Done — ${tabLabel}`, "done");
     updateSidebarDotPulse(tabId, false);
-    showDoneGlow(tabId, leaf);
+    setTabNotifBadge(tabId, "done");
+    setTimeout(() => setTabNotifBadge(tabId, "clear"), 5000);
     updateClaudeStatusCounter();
-    logActivity({ type: "done", tabId, tabLabel });
   }
 
   if (prevState === "waiting_approval" && newState !== "waiting_approval") {
