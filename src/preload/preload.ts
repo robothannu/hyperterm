@@ -17,55 +17,86 @@ interface UsageResult {
   error?: "keychain" | "api" | "parse";
 }
 
+interface HookEvent {
+  event: string;
+  session_id?: string;
+  tool_name?: string;
+  message?: string;
+  payload?: unknown;
+}
+
+interface AppSettings {
+  claudeNotifications: boolean;
+  fontSize?: number;
+  theme?: "dark" | "light";
+  recentProjects?: string[];
+}
+
 export interface TerminalAPI {
   createPty(
     cols: number,
     rows: number,
-    cwd?: string,
-    tmuxSession?: string
-  ): Promise<{ id: number; tmuxName: string }>;
+    cwd?: string
+  ): Promise<{ id: number; sessionKey: string }>;
   writePty(id: number, data: string): void;
   resizePty(id: number, cols: number, rows: number): void;
   destroyPty(id: number): void;
   onPtyData(callback: (id: number, data: string) => void): void;
   onPtyExit(callback: (id: number, exitCode: number) => void): void;
   getCwd(id: number): Promise<string>;
-  isTmuxAvailable(): Promise<boolean>;
-  listTmuxSessions(): Promise<string[]>;
   saveSessions(data: string): Promise<boolean>;
   loadSessions(): Promise<string | null>;
-  loadNotes(tmuxName: string): Promise<Note[]>;
-  saveNotes(tmuxName: string, notes: Note[]): Promise<void>;
-  deleteSessionNotes(tmuxName: string): Promise<void>;
+  loadNotes(sessionKey: string): Promise<Note[]>;
+  saveNotes(sessionKey: string, notes: Note[]): Promise<void>;
+  deleteSessionNotes(sessionKey: string): Promise<void>;
   onBeforeQuit(callback: () => void): void;
   quitReady(): void;
   copyToClipboard(text: string): void;
   readFromClipboard(): string;
-  listPanes(tmuxName: string): Promise<PaneInfo[]>;
-  selectPane(tmuxName: string, paneId: string): Promise<void>;
-  splitPane(tmuxName: string, direction: "horizontal" | "vertical"): Promise<void>;
-  closePane(tmuxName: string): Promise<void>;
-  navigatePane(tmuxName: string, direction: "U" | "D" | "L" | "R"): Promise<void>;
-  scrollTmux(tmuxName: string, direction: "up" | "down", lines: number): void;
-  exitCopyMode(tmuxName: string): void;
-  sendTmuxKey(tmuxName: string, key: string): void;
-  renameTmuxSession(oldName: string, newName: string): Promise<string>;
-  getTmuxSessionName(tmuxName: string): Promise<string>;
-  getPaneCommand(tmuxName: string): Promise<string>;
-  getProcessInfo(tmuxName: string): Promise<{ cpu: number; memory: number }>;
+  getProcessInfo(id: number): Promise<{ cpu: number; memory: number }>;
+  getAgentStatus(id: number): Promise<{ isClaudeRunning: boolean; claudePid: number | null }>;
   fetchUsage(): Promise<UsageResult>;
   onHelpGuide(callback: () => void): void;
   onHelpAbout(callback: () => void): void;
+
+  // --- Git ---
+  gitFindRoot(dir: string): Promise<string | null>;
+  gitStatus(projectRoot: string): Promise<{
+    branch: string;
+    dirty: boolean;
+    stagedCount: number;
+    unstagedCount: number;
+    untrackedCount: number;
+    aheadCount: number;
+  } | null>;
+  gitFiles(projectRoot: string): Promise<{ path: string; x: string; y: string }[]>;
+  gitDiff(
+    projectRoot: string,
+    filePath: string,
+    staged: boolean
+  ): Promise<{ diff: string } | { tooLarge: true; lineCount: number } | { error: string }>;
+
+  // --- Hook / Agent State ---
+  onHookEvent(callback: (evt: HookEvent) => void): void;
+  hookCheckInstalled(): Promise<boolean>;
+  hookInstall(): Promise<boolean>;
+  notifyApproval(): void;
+
+  // --- Settings ---
+  getSettings(): Promise<AppSettings>;
+  saveSettings(settings: Partial<AppSettings>): Promise<boolean>;
+
+  // --- Path existence ---
+  checkPathExists(dirPath: string): Promise<boolean>;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
   createPty: (
     cols: number,
     rows: number,
-    cwd?: string,
-    tmuxSession?: string
-  ): Promise<{ id: number; tmuxName: string }> => {
-    return ipcRenderer.invoke("pty:create", cols, rows, cwd, tmuxSession);
+    cwd?: string
+  ): Promise<{ id: number; sessionKey: string }> => {
+    return ipcRenderer.invoke("pty:create", cols, rows, cwd);
   },
   writePty: (id: number, data: string): void => {
     ipcRenderer.send("pty:write", id, data);
@@ -87,26 +118,20 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   getCwd: (id: number): Promise<string> => {
     return ipcRenderer.invoke("pty:getCwd", id);
   },
-  isTmuxAvailable: (): Promise<boolean> => {
-    return ipcRenderer.invoke("tmux:check");
-  },
-  listTmuxSessions: (): Promise<string[]> => {
-    return ipcRenderer.invoke("tmux:list");
-  },
   saveSessions: (data: string): Promise<boolean> => {
     return ipcRenderer.invoke("session:save", data);
   },
   loadSessions: (): Promise<string | null> => {
     return ipcRenderer.invoke("session:load");
   },
-  loadNotes: (tmuxName: string): Promise<Note[]> => {
-    return ipcRenderer.invoke("notes:load", tmuxName);
+  loadNotes: (sessionKey: string): Promise<Note[]> => {
+    return ipcRenderer.invoke("notes:load", sessionKey);
   },
-  saveNotes: (tmuxName: string, notes: Note[]): Promise<void> => {
-    return ipcRenderer.invoke("notes:save", tmuxName, notes);
+  saveNotes: (sessionKey: string, notes: Note[]): Promise<void> => {
+    return ipcRenderer.invoke("notes:save", sessionKey, notes);
   },
-  deleteSessionNotes: (tmuxName: string): Promise<void> => {
-    return ipcRenderer.invoke("notes:deleteSession", tmuxName);
+  deleteSessionNotes: (sessionKey: string): Promise<void> => {
+    return ipcRenderer.invoke("notes:deleteSession", sessionKey);
   },
   onBeforeQuit: (callback: () => void): void => {
     ipcRenderer.removeAllListeners("app:before-quit");
@@ -121,41 +146,13 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   readFromClipboard: (): string => {
     return clipboard.readText();
   },
-  listPanes: (tmuxName: string): Promise<PaneInfo[]> => {
-    return ipcRenderer.invoke("tmux:listPanes", tmuxName);
+  getProcessInfo: (id: number): Promise<{ cpu: number; memory: number }> => {
+    return ipcRenderer.invoke("pty:getProcessInfo", id);
   },
-  selectPane: (tmuxName: string, paneId: string): Promise<void> => {
-    return ipcRenderer.invoke("tmux:selectPane", tmuxName, paneId);
-  },
-  splitPane: (tmuxName: string, direction: "horizontal" | "vertical"): Promise<void> => {
-    return ipcRenderer.invoke("tmux:splitPane", tmuxName, direction);
-  },
-  closePane: (tmuxName: string): Promise<void> => {
-    return ipcRenderer.invoke("tmux:closePane", tmuxName);
-  },
-  navigatePane: (tmuxName: string, direction: "U" | "D" | "L" | "R"): Promise<void> => {
-    return ipcRenderer.invoke("tmux:navigatePane", tmuxName, direction);
-  },
-  scrollTmux: (tmuxName: string, direction: "up" | "down", lines: number): void => {
-    ipcRenderer.send("tmux:scroll", tmuxName, direction, lines);
-  },
-  exitCopyMode: (tmuxName: string): void => {
-    ipcRenderer.send("tmux:exitCopyMode", tmuxName);
-  },
-  sendTmuxKey: (tmuxName: string, key: string): void => {
-    ipcRenderer.send("tmux:sendKey", tmuxName, key);
-  },
-  renameTmuxSession: (oldName: string, newName: string): Promise<string> => {
-    return ipcRenderer.invoke("tmux:renameSession", oldName, newName);
-  },
-  getTmuxSessionName: (tmuxName: string): Promise<string> => {
-    return ipcRenderer.invoke("tmux:getSessionName", tmuxName);
-  },
-  getPaneCommand: (tmuxName: string): Promise<string> => {
-    return ipcRenderer.invoke("tmux:getPaneCommand", tmuxName);
-  },
-  getProcessInfo: (tmuxName: string): Promise<{ cpu: number; memory: number }> => {
-    return ipcRenderer.invoke("tmux:getProcessInfo", tmuxName);
+  getAgentStatus: (
+    id: number
+  ): Promise<{ isClaudeRunning: boolean; claudePid: number | null }> => {
+    return ipcRenderer.invoke("pty:getAgentStatus", id);
   },
   fetchUsage: (): Promise<UsageResult> => {
     return ipcRenderer.invoke("usage:fetch");
@@ -167,5 +164,56 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   onHelpAbout: (callback: () => void): void => {
     ipcRenderer.removeAllListeners("help:show-about");
     ipcRenderer.on("help:show-about", () => callback());
+  },
+  gitFindRoot: (dir: string): Promise<string | null> => {
+    return ipcRenderer.invoke("git:findRoot", dir);
+  },
+  gitStatus: (projectRoot: string): Promise<{
+    branch: string;
+    dirty: boolean;
+    stagedCount: number;
+    unstagedCount: number;
+    untrackedCount: number;
+    aheadCount: number;
+  } | null> => {
+    return ipcRenderer.invoke("git:status", projectRoot);
+  },
+  gitFiles: (projectRoot: string): Promise<{ path: string; x: string; y: string }[]> => {
+    return ipcRenderer.invoke("git:files", projectRoot);
+  },
+  gitDiff: (
+    projectRoot: string,
+    filePath: string,
+    staged: boolean
+  ): Promise<{ diff: string } | { tooLarge: true; lineCount: number } | { error: string }> => {
+    return ipcRenderer.invoke("git:diff", projectRoot, filePath, staged);
+  },
+
+  // --- Hook / Agent State ---
+  onHookEvent: (callback: (evt: HookEvent) => void): void => {
+    ipcRenderer.removeAllListeners("hook:event");
+    ipcRenderer.on("hook:event", (_event, evt) => callback(evt));
+  },
+  hookCheckInstalled: (): Promise<boolean> => {
+    return ipcRenderer.invoke("hook:checkInstalled");
+  },
+  hookInstall: (): Promise<boolean> => {
+    return ipcRenderer.invoke("hook:install");
+  },
+  notifyApproval: (): void => {
+    ipcRenderer.send("hook:notify-approval");
+  },
+
+  // --- Settings ---
+  getSettings: (): Promise<AppSettings> => {
+    return ipcRenderer.invoke("settings:get");
+  },
+  saveSettings: (settings: Partial<AppSettings>): Promise<boolean> => {
+    return ipcRenderer.invoke("settings:save", settings);
+  },
+
+  // --- Path existence ---
+  checkPathExists: (dirPath: string): Promise<boolean> => {
+    return ipcRenderer.invoke("path:checkExists", dirPath);
   },
 } satisfies TerminalAPI);

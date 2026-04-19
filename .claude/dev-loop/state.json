@@ -1,0 +1,20 @@
+{
+  "current_phase": "complete",
+  "iteration": 1,
+  "current_sprint": 1,
+  "total_sprints": 1,
+  "feature_request": "1) \ubd99\uc5ec\ub123\uae30 \ub450 \ubc88 \ub418\ub294 \ubc84\uadf8 \uc218\uc815 2) \ud130\ubbf8\ub110 \ud3f0\ud2b8\ub97c macOS \uae30\ubcf8 Terminal \ud3f0\ud2b8(SF Mono)\ub85c \ubcc0\uacbd",
+  "complexity": "simple",
+  "project_type": "web",
+  "max_iterations": 5,
+  "scoring_weights": null,
+  "history": [
+    {
+      "iteration": 1,
+      "sprint": 1,
+      "phase": "building",
+      "result": "complete",
+      "ts": "2026-03-28T23:06:25.123691"
+    }
+  ]
+}

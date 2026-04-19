@@ -1,81 +1,42 @@
 /// <reference path="./global.d.ts" />
+/// <reference path="./pane-types.d.ts" />
 /// <reference path="./terminal-session.ts" />
-
-// --- Pane Layout Types ---
-
-interface PaneLeaf {
-  type: "leaf";
-  ptyId: number;
-  session: TerminalSession;
-  element: HTMLElement;
-}
-
-interface PaneSplit {
-  type: "split";
-  direction: "horizontal" | "vertical";
-  ratio: number;
-  children: [PaneNode, PaneNode];
-  element: HTMLElement;
-  divider: HTMLElement;
-}
-
-type PaneNode = PaneLeaf | PaneSplit;
-
-interface Tab {
-  id: number;
-  root: PaneNode;
-  container: HTMLElement;
-  focusedPtyId: number;
-}
-
-// Persistence types
-interface V1Session {
-  label: string;
-  tmuxName: string;
-}
-interface SavedPaneLeaf {
-  type: "leaf";
-  tmuxName: string;
-}
-interface SavedPaneSplit {
-  type: "split";
-  direction: "horizontal" | "vertical";
-  ratio: number;
-  children: [SavedPaneNode, SavedPaneNode];
-}
-type SavedPaneNode = SavedPaneLeaf | SavedPaneSplit;
-interface SavedTab {
-  label: string;
-  cluster?: string;
-  layout: SavedPaneNode;
-}
-interface SavedStateV2 {
-  version: 3;
-  tabs: SavedTab[];
-  activeTabIndex: number;
-}
-
-interface Note {
-  id: number;
-  content: string;
-  createdAt: string;
-}
 
 // --- Global State ---
 
 const sessions = new Map<number, TerminalSession>();
-const sessionTmuxNames = new Map<number, string>();
+const sessionKeys = new Map<number, string>();
 const tabMap = new Map<number, Tab>();
 const tabLabels = new Map<number, string>();
 const ptyToTab = new Map<number, number>();
-const commandPollIntervals = new Map<number, ReturnType<typeof setInterval>>();
 const tabClusters = new Map<number, string>();
 let activeTabId: number | null = null;
 let sessionCounter = 0;
 
+// Current active settings — updated by settings-modal.ts when user changes values.
+// Used by createPaneSession to apply font/theme to newly created terminals.
+// eslint-disable-next-line no-var
+var activeSessionSettings: { fontSize: number; theme: "dark" | "light" } = {
+  fontSize: 14,
+  theme: "dark",
+};
+
 const terminalPane = document.getElementById("terminal-pane")!;
 const terminalList = document.getElementById("terminal-list")!;
 const btnNew = document.getElementById("btn-new-terminal")!;
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Toast notification (uses .hook-toast CSS class family defined in styles.css)
+function showToast(message: string, variant: "error" | "warn" | "ok" | "done" = "error"): void {
+  const el = document.createElement("div");
+  el.className = `hook-toast hook-toast-${variant}`;
+  el.textContent = message;
+  document.body.appendChild(el);
+  el.addEventListener("animationend", () => el.remove());
+}
 
 function nextTerminalName(): string {
   sessionCounter++;
@@ -177,72 +138,6 @@ aboutModal.addEventListener("click", (e) => {
   if (e.target === aboutModal) closeAbout();
 });
 
-// --- Pane Tree Helpers ---
-
-function findLeaf(node: PaneNode, ptyId: number): PaneLeaf | null {
-  if (node.type === "leaf") return node.ptyId === ptyId ? node : null;
-  return findLeaf(node.children[0], ptyId) || findLeaf(node.children[1], ptyId);
-}
-
-function findLeafParent(
-  node: PaneNode,
-  ptyId: number
-): { parent: PaneSplit; index: 0 | 1 } | null {
-  if (node.type === "leaf") return null;
-  for (let i = 0; i < 2; i++) {
-    const child = node.children[i as 0 | 1];
-    if (child.type === "leaf" && child.ptyId === ptyId) {
-      return { parent: node, index: i as 0 | 1 };
-    }
-    const found = findLeafParent(child, ptyId);
-    if (found) return found;
-  }
-  return null;
-}
-
-function findSplitParent(
-  root: PaneNode,
-  target: PaneSplit
-): { parent: PaneSplit; index: 0 | 1 } | null {
-  if (root.type === "leaf") return null;
-  for (let i = 0; i < 2; i++) {
-    if (root.children[i] === target) {
-      return { parent: root, index: i as 0 | 1 };
-    }
-    if (root.children[i].type === "split") {
-      const found = findSplitParent(root.children[i], target);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-function getAllLeaves(node: PaneNode): PaneLeaf[] {
-  if (node.type === "leaf") return [node];
-  return [...getAllLeaves(node.children[0]), ...getAllLeaves(node.children[1])];
-}
-
-function resizeAllPanes(node: PaneNode): void {
-  if (node.type === "leaf") {
-    node.session.fit();
-    window.terminalAPI.resizePty(
-      node.ptyId,
-      node.session.getCols(),
-      node.session.getRows()
-    );
-    return;
-  }
-  resizeAllPanes(node.children[0]);
-  resizeAllPanes(node.children[1]);
-}
-
-function applyRatio(split: PaneSplit): void {
-  const c1 = split.children[0].element;
-  const c2 = split.children[1].element;
-  c1.style.flex = `${split.ratio} 1 0px`;
-  c2.style.flex = `${1 - split.ratio} 1 0px`;
-}
-
 // --- Pane Focus ---
 
 function setFocusedPane(ptyId: number): void {
@@ -263,23 +158,90 @@ function setFocusedPane(ptyId: number): void {
 
 // --- Core Functions ---
 
+// Helper: shorten home dir to ~
+function shortenCwd(cwd: string): string {
+  const home = cwd.startsWith("/Users/") || cwd.startsWith("/home/")
+    ? cwd.replace(/^\/(?:Users|home)\/[^/]+/, "~")
+    : cwd;
+  return home || "~";
+}
+
+// Helper: shorten branch name for pane header (max 26 chars)
+function shortBranchName(b: string): string {
+  return b.length > 26 ? b.slice(0, 24) + "…" : b;
+}
+
 async function createPaneSession(
   parentElement: HTMLElement,
-  tmuxSession?: string
+  cwd?: string
 ): Promise<PaneLeaf> {
   const paneElement = document.createElement("div");
   paneElement.className = "pane-leaf";
   parentElement.appendChild(paneElement);
 
-  // Pane header showing session name
+  // Rich pane header: status-dot · cwd · branch · title | mini buttons
   const paneHeader = document.createElement("div");
   paneHeader.className = "pane-header";
   paneElement.appendChild(paneHeader);
 
+  // Status dot
+  const headerDot = document.createElement("span");
+  headerDot.className = "ph-dot";
+  paneHeader.appendChild(headerDot);
+
+  // CWD
+  const cwdEl = document.createElement("span");
+  cwdEl.className = "ph-cwd";
+  cwdEl.textContent = cwd ? shortenCwd(cwd) : "~";
+  paneHeader.appendChild(cwdEl);
+
+  // Branch (hidden until git info available)
+  const branchSep = document.createElement("span");
+  branchSep.className = "ph-sep";
+  branchSep.textContent = "·";
+  branchSep.style.display = "none";
+  paneHeader.appendChild(branchSep);
+
+  const branchEl = document.createElement("span");
+  branchEl.className = "ph-branch";
+  branchEl.style.display = "none";
+  paneHeader.appendChild(branchEl);
+
+  // Title separator
+  const titleSep = document.createElement("span");
+  titleSep.className = "ph-sep";
+  titleSep.textContent = "·";
+  paneHeader.appendChild(titleSep);
+
+  // Pane title (dblclick to rename)
   const paneTitle = document.createElement("span");
   paneTitle.className = "pane-title";
   paneTitle.textContent = "...";
   paneHeader.appendChild(paneTitle);
+
+  // Right mini buttons
+  const miniRight = document.createElement("div");
+  miniRight.className = "ph-right";
+
+  const btnClear = document.createElement("button");
+  btnClear.className = "ph-mini";
+  btnClear.title = "Clear";
+  btnClear.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M3 5h10M6 5V3h4v2M5 5l0.7 9h4.6L11 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+  const btnSplit = document.createElement("button");
+  btnSplit.className = "ph-mini";
+  btnSplit.title = "Split";
+  btnSplit.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="1.5" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="1.5" x2="8" y2="14.5" stroke="currentColor" stroke-width="1.2"/></svg>`;
+
+  const btnClose = document.createElement("button");
+  btnClose.className = "ph-mini";
+  btnClose.title = "Close";
+  btnClose.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+
+  miniRight.appendChild(btnClear);
+  miniRight.appendChild(btnSplit);
+  miniRight.appendChild(btnClose);
+  paneHeader.appendChild(miniRight);
 
   const termContainer = document.createElement("div");
   termContainer.className = "terminal-container";
@@ -291,6 +253,9 @@ async function createPaneSession(
   let rows: number;
   try {
     session.open();
+    // Apply current font size and theme from active settings
+    session.setFontSize(activeSessionSettings.fontSize);
+    session.setTheme(activeSessionSettings.theme);
     cols = session.getCols();
     rows = session.getRows();
   } catch (err) {
@@ -301,17 +266,12 @@ async function createPaneSession(
   }
 
   let ptyId: number;
-  let tmuxName: string;
+  let sessionKey: string;
 
   try {
-    const result = await window.terminalAPI.createPty(
-      cols,
-      rows,
-      undefined,
-      tmuxSession
-    );
+    const result = await window.terminalAPI.createPty(cols, rows, cwd);
     ptyId = result.id;
-    tmuxName = result.tmuxName;
+    sessionKey = result.sessionKey;
   } catch (err) {
     // Clean up DOM and session on failure
     paneElement.remove();
@@ -320,41 +280,28 @@ async function createPaneSession(
   }
 
   sessions.set(ptyId, session);
-  sessionTmuxNames.set(ptyId, tmuxName);
+  sessionKeys.set(ptyId, sessionKey);
 
-  // Set initial pane title to tmux session name (only if user hasn't set a custom name)
-  window.terminalAPI.getTmuxSessionName(tmuxName).then((name) => {
-    if (!paneTitle.hasAttribute("data-custom-name")) {
-      paneTitle.textContent = name;
-    }
-  }).catch(() => {
-    // Keep "..." if getTmuxSessionName fails and no custom name is set
+  // Set initial pane title
+  paneTitle.textContent = "Terminal";
+
+  // Wire mini buttons
+  btnClear.addEventListener("click", (e) => {
+    e.stopPropagation();
+    session.write("\x0c"); // Ctrl+L
   });
 
-  // Poll current pane command and update title (unless custom name set)
-  const commandPollInterval = setInterval(async () => {
-    if (paneTitle.hasAttribute("data-custom-name")) {
-      clearInterval(commandPollInterval);
-      commandPollIntervals.delete(ptyId);
-      return;
-    }
-    try {
-      const cmd = await window.terminalAPI.getPaneCommand(tmuxName);
-      // Show command name if not default shell (bash/zsh), otherwise show session name
-      const defaultShells = ["bash", "zsh", "sh", "dash", "fish"];
-      if (cmd && !defaultShells.includes(cmd)) {
-        paneTitle.textContent = cmd;
-      } else {
-        const name = await window.terminalAPI.getTmuxSessionName(tmuxName);
-        paneTitle.textContent = name;
-      }
-    } catch {
-      // ignore polling errors
-    }
-  }, 500);
-  commandPollIntervals.set(ptyId, commandPollInterval);
+  btnSplit.addEventListener("click", (e) => {
+    e.stopPropagation();
+    splitFocusedPane("horizontal");
+  });
 
-  // Double-click pane header to rename
+  btnClose.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closePaneByPtyId(ptyId);
+  });
+
+  // Double-click pane title to rename
   paneTitle.addEventListener("dblclick", (e) => {
     e.stopPropagation();
     const current = paneTitle.textContent || "";
@@ -371,19 +318,9 @@ async function createPaneSession(
       const newName = input.value.trim() || current;
       paneTitle.style.display = "";
       input.remove();
-
-      // Sync tmux session name
-      const oldTmux = sessionTmuxNames.get(ptyId);
-      if (oldTmux) {
-        const actualName = await window.terminalAPI.renameTmuxSession(oldTmux, newName);
-        sessionTmuxNames.set(ptyId, actualName);
-        paneTitle.textContent = actualName;
-        paneTitle.setAttribute("data-custom-name", "true");
-        await saveSessionMetadata();
-      } else {
-        paneTitle.textContent = newName;
-        paneTitle.setAttribute("data-custom-name", "true");
-      }
+      paneTitle.textContent = newName;
+      paneTitle.setAttribute("data-custom-name", "true");
+      await saveSessionMetadata();
     };
 
     input.addEventListener("keydown", (ev) => {
@@ -394,19 +331,43 @@ async function createPaneSession(
     input.addEventListener("click", (ev) => ev.stopPropagation());
   });
 
+  // Periodic CWD update for pane header
+  let cwdPollTimer: ReturnType<typeof setInterval> | null = null;
+  function startCwdPoll(): void {
+    if (cwdPollTimer !== null) return;
+    cwdPollTimer = setInterval(async () => {
+      try {
+        const newCwd = await window.terminalAPI.getCwd(ptyId);
+        if (newCwd) cwdEl.textContent = shortenCwd(newCwd);
+        // Update branch from git cache if available
+        const tabId = ptyToTab.get(ptyId);
+        if (tabId !== undefined && typeof getGitCacheForTab === "function") {
+          const cache = getGitCacheForTab(tabId);
+          if (cache?.info?.branch) {
+            branchEl.textContent = "⎇ " + shortBranchName(cache.info.branch);
+            branchEl.style.display = "";
+            branchSep.style.display = "";
+          } else {
+            branchEl.style.display = "none";
+            branchSep.style.display = "none";
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }, 3000);
+  }
+
+  function stopCwdPoll(): void {
+    if (cwdPollTimer !== null) {
+      clearInterval(cwdPollTimer);
+      cwdPollTimer = null;
+    }
+  }
+
   session.onData((data: string) => {
-    window.terminalAPI.exitCopyMode(tmuxName);
     window.terminalAPI.writePty(ptyId, data);
   });
-
-  // Scroll: capture wheel events before xterm.js and proxy to tmux scrollback
-  termContainer.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const direction = e.deltaY < 0 ? "up" : "down";
-    const lines = Math.max(1, Math.round(Math.abs(e.deltaY) / 25));
-    window.terminalAPI.scrollTmux(tmuxName, direction, lines);
-  }, { capture: true, passive: false });
 
   session.onResize((size: { cols: number; rows: number }) => {
     window.terminalAPI.resizePty(ptyId, size.cols, size.rows);
@@ -420,14 +381,24 @@ async function createPaneSession(
     if (tab && tab.focusedPtyId !== ptyId) {
       setFocusedPane(ptyId);
     }
+    // Update CWD immediately on focus
+    window.terminalAPI.getCwd(ptyId).then((newCwd) => {
+      if (newCwd) cwdEl.textContent = shortenCwd(newCwd);
+    }).catch(() => {/* ignore */});
   });
 
-  return { type: "leaf", ptyId, session, element: paneElement };
+  // Start CWD polling after pty is ready
+  startCwdPoll();
+
+  // Register cleanup for CWD poll (called from closePaneByPtyId path)
+  paneElement.addEventListener("pane-destroy", () => stopCwdPoll(), { once: true });
+
+  return { type: "leaf", ptyId, session, element: paneElement, agentStatus: false, agentState: "idle" };
 }
 
 async function createNewTab(
   label?: string,
-  tmuxSession?: string
+  cwd?: string
 ): Promise<number | null> {
   const displayLabel = label || `Terminal ${sessionCounter}`;
 
@@ -440,7 +411,7 @@ async function createNewTab(
   tabContainer.style.display = "flex";
 
   try {
-    const leaf = await createPaneSession(tabContainer, tmuxSession);
+    const leaf = await createPaneSession(tabContainer, cwd);
     const tabId = leaf.ptyId;
     ptyToTab.set(leaf.ptyId, tabId);
 
@@ -459,16 +430,50 @@ async function createNewTab(
     await saveSessionMetadata();
     return tabId;
   } catch (err: unknown) {
-    console.error("[renderer] Failed to create tab:", err instanceof Error ? err.message : String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[renderer] Failed to create tab:", msg);
+    // Remove the partially-created container so no phantom entry appears in the DOM
     tabContainer.remove();
+    // Ensure state maps have no leftover entries for this failed tab
+    // (tabMap, tabLabels, tabClusters, ptyToTab are not yet set at this point,
+    //  but guard cleanups in case future refactors move things around)
+    // Restore visibility of previously active tab
+    if (activeTabId !== null) {
+      const prevTab = tabMap.get(activeTabId);
+      if (prevTab) prevTab.container.style.display = "flex";
+    } else if (tabMap.size > 0) {
+      // Re-show last tab
+      const lastTabId = Array.from(tabMap.keys()).pop()!;
+      const lastTab = tabMap.get(lastTabId)!;
+      lastTab.container.style.display = "flex";
+    }
+    // Notify user
+    showToast(`터미널 생성 실패: ${msg}`, "error");
     return null;
   }
 }
 
+// --- Titlebar: group name + branch ---
+const tbGroupNameEl = document.getElementById("tb-group-name");
+const tbBranchNameEl = document.getElementById("tb-branch-name");
+
+function updateTitlebarGroupName(tabId: number): void {
+  if (!tbGroupNameEl) return;
+  const label = tabLabels.get(tabId) || `Terminal ${tabId}`;
+  tbGroupNameEl.textContent = label;
+}
+
+function updateTitlebarBranch(branch: string | null): void {
+  if (!tbBranchNameEl) return;
+  tbBranchNameEl.textContent = branch || "—";
+}
+
 function switchToTab(tabId: number): void {
-  if (activeTabId !== null && activeTabId !== tabId) {
-    const current = tabMap.get(activeTabId);
-    if (current) current.container.style.display = "none";
+  // Hide ALL other tabs to prevent leaking across groups
+  for (const tab of tabMap.values()) {
+    if (tab.id !== tabId) {
+      tab.container.style.display = "none";
+    }
   }
 
   const target = tabMap.get(tabId);
@@ -483,7 +488,41 @@ function switchToTab(tabId: number): void {
   }
 
   updateSidebarActive(tabId);
+  // Update titlebar group name
+  updateTitlebarGroupName(tabId);
+  // Sync toolbar preset highlight to the newly active tab
+  if (typeof syncToolbarToTab === "function") syncToolbarToTab(tabId);
+  // Refresh Changed Files panel for the newly active tab
+  refreshChangedFilesPanel();
+  // On-demand git poll for newly active tab (updates badge within one cycle)
+  pollGitOnTabSwitch(tabId);
+  // Immediately apply cached git branch to pane headers (SHOULD FIX from Sprint 1)
+  updatePaneHeadersFromGitCache(tabId);
+}
 
+// Update branch info in pane headers using tabGitCache (synchronous read)
+function updatePaneHeadersFromGitCache(tabId: number): void {
+  if (typeof getGitCacheForTab !== "function") return;
+  const tab = tabMap.get(tabId);
+  if (!tab) return;
+  const cache = getGitCacheForTab(tabId);
+  const branch = cache?.info?.branch ?? null;
+  const branchText = branch ? "⎇ " + shortBranchName(branch) : null;
+
+  const leaves = getAllLeaves(tab.root);
+  for (const leaf of leaves) {
+    const branchEl = leaf.element.querySelector(".ph-branch") as HTMLElement | null;
+    const branchSep = leaf.element.querySelectorAll(".ph-sep")[0] as HTMLElement | null;
+    if (!branchEl) continue;
+    if (branchText) {
+      branchEl.textContent = branchText;
+      branchEl.style.display = "";
+      if (branchSep) branchSep.style.display = "";
+    } else {
+      branchEl.style.display = "none";
+      if (branchSep) branchSep.style.display = "none";
+    }
+  }
 }
 
 async function splitFocusedPane(
@@ -510,8 +549,18 @@ async function splitFocusedPane(
   divider.className = `pane-divider ${direction}`;
   splitElement.appendChild(divider);
 
-  // Create new pane
-  const newLeaf = await createPaneSession(splitElement);
+  // Create new pane — if this fails, restore the original leaf in the DOM
+  let newLeaf: PaneLeaf;
+  try {
+    newLeaf = await createPaneSession(splitElement);
+  } catch (err) {
+    // Undo the DOM manipulation: put leaf back where splitElement is
+    splitElement.replaceWith(leaf.element);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[renderer] Failed to split pane:", msg);
+    showToast(`Pane 분할 실패: ${msg}`, "error");
+    return;
+  }
   ptyToTab.set(newLeaf.ptyId, tab.id);
 
   // Build split node
@@ -535,52 +584,17 @@ async function splitFocusedPane(
 
   setupDividerDrag(splitNode);
 
+  // Update sidebar count pill
+  if (typeof updateSidebarCountPill === "function") {
+    updateSidebarCountPill(tab.id);
+  }
+
   requestAnimationFrame(() => {
     resizeAllPanes(tab.root);
     setFocusedPane(newLeaf.ptyId);
   });
 
   await saveSessionMetadata();
-}
-
-function setupDividerDrag(splitNode: PaneSplit): void {
-  splitNode.divider.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const isHoriz = splitNode.direction === "horizontal";
-    const cursorStyle = isHoriz ? "col-resize" : "row-resize";
-    document.body.style.cursor = cursorStyle;
-    document.body.style.userSelect = "none";
-
-    // Overlay prevents terminal panes from capturing mouse events during resize
-    const overlay = document.createElement("div");
-    overlay.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;cursor:${cursorStyle}`;
-    document.body.appendChild(overlay);
-
-    const onMove = (e: MouseEvent) => {
-      const rect = splitNode.element.getBoundingClientRect();
-      let ratio = isHoriz
-        ? (e.clientX - rect.left) / rect.width
-        : (e.clientY - rect.top) / rect.height;
-      ratio = Math.max(0.1, Math.min(0.9, ratio));
-      splitNode.ratio = ratio;
-      applyRatio(splitNode);
-      resizeAllPanes(splitNode);
-    };
-
-    const onUp = () => {
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      overlay.remove();
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      saveSessionMetadata();
-    };
-
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  });
 }
 
 function closePaneByPtyId(ptyId: number): void {
@@ -600,6 +614,9 @@ function closePaneByPtyId(ptyId: number): void {
   const parentInfo = findLeafParent(tab.root, ptyId);
   if (!parentInfo) return;
 
+  // Capture the leaf element before tree mutation for pane-destroy event
+  const closingLeaf = findLeaf(tab.root, ptyId);
+
   const siblingIndex = parentInfo.index === 0 ? 1 : 0;
   const sibling = parentInfo.parent.children[siblingIndex];
 
@@ -615,17 +632,22 @@ function closePaneByPtyId(ptyId: number): void {
     tab.root = sibling;
   }
 
-  // Clean up closed pane
-  const interval = commandPollIntervals.get(ptyId);
-  if (interval) {
-    clearInterval(interval);
-    commandPollIntervals.delete(ptyId);
+  // Clean up closed pane — dispatch pane-destroy to stop CWD poll
+  if (closingLeaf) {
+    closingLeaf.element.dispatchEvent(new Event("pane-destroy", { bubbles: false }));
   }
   window.terminalAPI.destroyPty(ptyId);
   sessions.get(ptyId)?.dispose();
   sessions.delete(ptyId);
-  sessionTmuxNames.delete(ptyId);
+  sessionKeys.delete(ptyId);
   ptyToTab.delete(ptyId);
+  cleanupPaneAgentMarker(ptyId);
+  cleanupPaneHookMarker(ptyId);
+
+  // Update sidebar count pill
+  if (typeof updateSidebarCountPill === "function") {
+    updateSidebarCountPill(tabId);
+  }
 
   // Update focus
   const leaves = getAllLeaves(tab.root);
@@ -647,32 +669,35 @@ function closeTab(tabId: number): void {
   // Close notes panel if open for this tab
   if (notesPanelTabId === tabId) closeNotesPanel();
 
-  // Delete notes for this tab
+  // Delete notes for this tab (fire-and-forget — catch to prevent unhandled rejection)
   const firstLeaf = getAllLeaves(tab.root)[0];
   if (firstLeaf) {
-    const tmuxName = sessionTmuxNames.get(firstLeaf.ptyId);
-    if (tmuxName) window.terminalAPI.deleteSessionNotes(tmuxName);
+    const sk = sessionKeys.get(firstLeaf.ptyId);
+    if (sk) window.terminalAPI.deleteSessionNotes(sk).catch((e) => {
+      console.warn("[renderer] deleteSessionNotes failed (ignored):", e);
+    });
   }
   sessionNotesCache.delete(tabId);
 
   // Destroy all panes
   for (const leaf of getAllLeaves(tab.root)) {
-    const interval = commandPollIntervals.get(leaf.ptyId);
-    if (interval) {
-      clearInterval(interval);
-      commandPollIntervals.delete(leaf.ptyId);
-    }
+    // Stop CWD poll before cleanup
+    leaf.element.dispatchEvent(new Event("pane-destroy", { bubbles: false }));
+    cleanupPaneAgentMarker(leaf.ptyId);
+    cleanupPaneHookMarker(leaf.ptyId);
     window.terminalAPI.destroyPty(leaf.ptyId);
     leaf.session.dispose();
     sessions.delete(leaf.ptyId);
-    sessionTmuxNames.delete(leaf.ptyId);
+    sessionKeys.delete(leaf.ptyId);
     ptyToTab.delete(leaf.ptyId);
   }
 
   tab.container.remove();
   tabMap.delete(tabId);
   tabLabels.delete(tabId);
+  tabClusters.delete(tabId);
   removeSidebarEntry(tabId);
+  cleanupGitBadge(tabId);
 
   if (activeTabId === tabId) {
     activeTabId = null;
@@ -685,7 +710,8 @@ function closeTab(tabId: number): void {
   if (tabMap.size === 0) {
     activeTabId = null;
     tabLabels.clear();
-    sessionTmuxNames.clear();
+    tabClusters.clear();
+    sessionKeys.clear();
     sessionNotesCache.clear();
     if (notesPanelTabId !== null) closeNotesPanel();
     terminalList.innerHTML = "";
@@ -696,49 +722,56 @@ function closeTab(tabId: number): void {
 
 // --- Session Persistence ---
 
-function serializePaneTree(node: PaneNode): SavedPaneNode {
+async function serializePaneTree(node: PaneNode): Promise<SavedPaneNode> {
   if (node.type === "leaf") {
-    return { type: "leaf", tmuxName: sessionTmuxNames.get(node.ptyId) || "" };
+    let cwd: string | undefined;
+    try { cwd = await window.terminalAPI.getCwd(node.ptyId); } catch { /* ok */ }
+    return { type: "leaf", sessionKey: sessionKeys.get(node.ptyId) || "", cwd };
   }
-  return {
-    type: "split",
-    direction: node.direction,
-    ratio: node.ratio,
-    children: [
-      serializePaneTree(node.children[0]),
-      serializePaneTree(node.children[1]),
-    ],
-  };
+  const [c0, c1] = await Promise.all([
+    serializePaneTree(node.children[0]),
+    serializePaneTree(node.children[1]),
+  ]);
+  return { type: "split", direction: node.direction, ratio: node.ratio, children: [c0, c1] };
 }
+
+// Pending write for debounce
+let _saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingSave: (() => Promise<void>) | null = null;
 
 async function saveSessionMetadata(): Promise<void> {
-  const tabIds = Array.from(tabMap.keys());
-  if (tabIds.length === 0) return;
-
-  let activeTabIndex = 0;
-  const savedTabs: SavedTab[] = [];
-
-  for (let i = 0; i < tabIds.length; i++) {
-    const tabId = tabIds[i];
-    if (tabId === activeTabId) activeTabIndex = i;
-    const tab = tabMap.get(tabId)!;
-    savedTabs.push({
-      label: tabLabels.get(tabId) || `Terminal ${i + 1}`,
-      cluster: tabClusters.get(tabId),
-      layout: serializePaneTree(tab.root),
-    });
-  }
-
-  const state: SavedStateV2 = { version: 3, tabs: savedTabs, activeTabIndex };
-  await window.terminalAPI.saveSessions(JSON.stringify(state));
+  if (_saveDebounceTimer !== null) clearTimeout(_saveDebounceTimer);
+  _pendingSave = async () => {
+    const tabIds = Array.from(tabMap.keys());
+    if (tabIds.length === 0) {
+      await window.terminalAPI.saveSessions(JSON.stringify({ version: 3, tabs: [], activeTabIndex: 0 }));
+      return;
+    }
+    let activeTabIndex = 0;
+    const savedTabs: SavedTab[] = [];
+    for (let i = 0; i < tabIds.length; i++) {
+      const tabId = tabIds[i];
+      if (tabId === activeTabId) activeTabIndex = i;
+      const tab = tabMap.get(tabId)!;
+      savedTabs.push({
+        label: tabLabels.get(tabId) || `Terminal ${i + 1}`,
+        cluster: tabClusters.get(tabId),
+        layout: await serializePaneTree(tab.root),
+        layoutPreset: typeof getTabLayoutPreset === "function" ? getTabLayoutPreset(tabId) : undefined,
+      });
+    }
+    const state: SavedStateV2 = { version: 3, tabs: savedTabs, activeTabIndex };
+    await window.terminalAPI.saveSessions(JSON.stringify(state));
+  };
+  _saveDebounceTimer = setTimeout(async () => {
+    _saveDebounceTimer = null;
+    if (_pendingSave) { await _pendingSave(); _pendingSave = null; }
+  }, 200);
 }
 
-function getLeafTmuxNames(node: SavedPaneNode): string[] {
-  if (node.type === "leaf") return [node.tmuxName];
-  return [
-    ...getLeafTmuxNames(node.children[0]),
-    ...getLeafTmuxNames(node.children[1]),
-  ];
+async function flushSessionMetadata(): Promise<void> {
+  if (_saveDebounceTimer !== null) { clearTimeout(_saveDebounceTimer); _saveDebounceTimer = null; }
+  if (_pendingSave) { await _pendingSave(); _pendingSave = null; }
 }
 
 async function restorePaneTree(
@@ -747,7 +780,7 @@ async function restorePaneTree(
   tabId: number
 ): Promise<PaneNode> {
   if (node.type === "leaf") {
-    const leaf = await createPaneSession(parentElement, node.tmuxName);
+    const leaf = await createPaneSession(parentElement, node.cwd);
     ptyToTab.set(leaf.ptyId, tabId);
     return leaf;
   }
@@ -778,460 +811,76 @@ async function restorePaneTree(
   return splitNode;
 }
 
-async function restoreFromTmux(): Promise<boolean> {
-  const tmuxAvailable = await window.terminalAPI.isTmuxAvailable();
-  if (!tmuxAvailable) return false;
-
-  const liveSessions = await window.terminalAPI.listTmuxSessions();
-  if (liveSessions.length === 0) return false;
-
-  // Load saved state
+async function restoreFromSaved(): Promise<boolean> {
   let savedState: SavedStateV2 | null = null;
   try {
     const raw = await window.terminalAPI.loadSessions();
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed.version === 2) {
+      if (parsed.version === 2 || parsed.version === 3) {
         savedState = parsed;
-      } else if (parsed.sessions) {
-        // Convert V1 → V3
-        savedState = {
-          version: 3,
-          tabs: parsed.sessions.map((s: V1Session) => ({
-            label: s.label,
-            layout: { type: "leaf", tmuxName: s.tmuxName } as SavedPaneLeaf,
-          })),
-          activeTabIndex: parsed.activeIndex || 0,
-        };
       }
     }
   } catch {
     /* ignore */
   }
 
-  const restoredTmuxNames = new Set<string>();
+  if (!savedState || savedState.tabs.length === 0) return false;
 
-  // Clear sidebar before restoring (否则旧entries会残留)
+  // Clear sidebar before restoring
   terminalList.innerHTML = "";
 
-  if (savedState) {
-    for (const savedTab of savedState.tabs) {
-      const names = getLeafTmuxNames(savedTab.layout);
-      const allAlive = names.every((n) => liveSessions.includes(n));
+  for (const savedTab of savedState.tabs) {
+    sessionCounter++;
+    const tabContainer = document.createElement("div");
+    tabContainer.className = "tab-container";
+    terminalPane.appendChild(tabContainer);
 
-      if (!allAlive) {
-        // Restore surviving sessions as individual tabs
-        for (const name of names) {
-          if (liveSessions.includes(name)) {
-            sessionCounter++;
-            await createNewTab(savedTab.label, name);
-            restoredTmuxNames.add(name);
-          }
-        }
-        continue;
-      }
+    for (const t of tabMap.values()) t.container.style.display = "none";
+    tabContainer.style.display = "flex";
 
-      // Restore full layout
-      sessionCounter++;
-      const tabContainer = document.createElement("div");
-      tabContainer.className = "tab-container";
-      terminalPane.appendChild(tabContainer);
+    const rootNode = await restorePaneTree(
+      savedTab.layout,
+      tabContainer,
+      -1
+    );
 
-      for (const t of tabMap.values()) t.container.style.display = "none";
-      tabContainer.style.display = "flex";
+    const leaves = getAllLeaves(rootNode);
+    if (leaves.length === 0) continue;
+    const tabId = leaves[0].ptyId;
 
-      // Use a temporary tabId (first ptyId will be determined during tree restoration)
-      const rootNode = await restorePaneTree(
-        savedTab.layout,
-        tabContainer,
-        -1
-      );
-
-      const leaves = getAllLeaves(rootNode);
-      if (leaves.length === 0) continue;
-      const tabId = leaves[0].ptyId;
-
-      // Fix up tabId in ptyToTab
-      for (const leaf of leaves) {
-        ptyToTab.set(leaf.ptyId, tabId);
-        restoredTmuxNames.add(sessionTmuxNames.get(leaf.ptyId) || "");
-      }
-
-      const tab: Tab = {
-        id: tabId,
-        root: rootNode,
-        container: tabContainer,
-        focusedPtyId: tabId,
-      };
-
-      tabMap.set(tabId, tab);
-      tabLabels.set(tabId, savedTab.label);
-      if (savedTab.cluster) {
-        tabClusters.set(tabId, savedTab.cluster);
-      }
-      addSidebarEntry(tabId, savedTab.label);
+    // Fix up tabId in ptyToTab
+    for (const leaf of leaves) {
+      ptyToTab.set(leaf.ptyId, tabId);
     }
-  }
 
-  // Restore orphaned live sessions not in saved state
-  for (const name of liveSessions) {
-    if (!restoredTmuxNames.has(name)) {
-      await createNewTab(nextTerminalName(), name);
+    const tab: Tab = {
+      id: tabId,
+      root: rootNode,
+      container: tabContainer,
+      focusedPtyId: tabId,
+    };
+
+    tabMap.set(tabId, tab);
+    tabLabels.set(tabId, savedTab.label);
+    if (savedTab.cluster) {
+      tabClusters.set(tabId, savedTab.cluster);
     }
+    if (savedTab.layoutPreset && typeof setTabLayoutPreset === "function") {
+      setTabLayoutPreset(tabId, savedTab.layoutPreset);
+    }
+    addSidebarEntry(tabId, savedTab.label);
   }
 
   // Switch to previously active tab
   const tabIds = Array.from(tabMap.keys());
-  if (savedState && savedState.activeTabIndex < tabIds.length) {
+  if (savedState.activeTabIndex < tabIds.length) {
     switchToTab(tabIds[savedState.activeTabIndex]);
   } else if (tabIds.length > 0) {
     switchToTab(tabIds[0]);
   }
 
   return tabMap.size > 0;
-}
-
-// --- Notes Panel ---
-
-const notesPanel = document.getElementById("notes-panel")!;
-const notesTitle = document.getElementById("notes-title")!;
-const notesList = document.getElementById("notes-list")!;
-const notesInput = document.getElementById(
-  "notes-input"
-) as HTMLTextAreaElement;
-const notesAddBtn = document.getElementById("notes-add")!;
-const notesCloseBtn = document.getElementById("notes-close")!;
-
-let notesPanelTabId: number | null = null;
-const sessionNotesCache = new Map<number, Note[]>();
-
-function getTabTmuxName(tabId: number): string | null {
-  const tab = tabMap.get(tabId);
-  if (!tab) return null;
-  const leaves = getAllLeaves(tab.root);
-  if (leaves.length === 0) return null;
-  return sessionTmuxNames.get(leaves[0].ptyId) || null;
-}
-
-function openNotesPanel(tabId: number): void {
-  notesPanelTabId = tabId;
-  const label = tabLabels.get(tabId) || "Terminal";
-  notesTitle.textContent = `Notes \u2014 ${label}`;
-  notesPanel.classList.remove("hidden");
-  notesInput.value = "";
-  loadAndRenderNotes(tabId);
-}
-
-function closeNotesPanel(): void {
-  notesPanel.classList.add("hidden");
-  notesPanelTabId = null;
-}
-
-async function loadAndRenderNotes(tabId: number): Promise<void> {
-  const tmuxName = getTabTmuxName(tabId);
-  if (!tmuxName) return;
-
-  const notes: Note[] = await window.terminalAPI.loadNotes(tmuxName);
-  sessionNotesCache.set(tabId, notes);
-  renderNotes(notes);
-  updateNoteIndicator(tabId, notes.length > 0);
-}
-
-function renderNotes(notes: Note[]): void {
-  if (notes.length === 0) {
-    notesList.innerHTML = '<div class="notes-empty">No notes yet</div>';
-    return;
-  }
-
-  notesList.innerHTML = "";
-  for (let i = notes.length - 1; i >= 0; i--) {
-    const note = notes[i];
-    const item = document.createElement("div");
-    item.className = "note-item";
-
-    const date = new Date(note.createdAt);
-    const timeStr = date.toLocaleString();
-
-    item.innerHTML = `
-      <div class="note-content">${escapeHtml(note.content)}</div>
-      <div class="note-footer">
-        <span class="note-time">${escapeHtml(timeStr)}</span>
-        <button class="note-delete" data-id="${note.id}">Delete</button>
-      </div>
-    `;
-
-    item.querySelector(".note-delete")!.addEventListener("click", () => {
-      deleteNote(note.id);
-    });
-
-    notesList.appendChild(item);
-  }
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-async function addNote(): Promise<void> {
-  const content = notesInput.value.trim();
-  if (!content || notesPanelTabId === null) return;
-
-  const tmuxName = getTabTmuxName(notesPanelTabId);
-  if (!tmuxName) return;
-
-  const notes = sessionNotesCache.get(notesPanelTabId) || [];
-  const maxId = notes.reduce((max, n) => Math.max(max, n.id), 0);
-  const newNote: Note = {
-    id: maxId + 1,
-    content,
-    createdAt: new Date().toISOString(),
-  };
-
-  notes.push(newNote);
-  await window.terminalAPI.saveNotes(tmuxName, notes);
-  sessionNotesCache.set(notesPanelTabId, notes);
-  renderNotes(notes);
-  updateNoteIndicator(notesPanelTabId, true);
-  notesInput.value = "";
-  notesInput.focus();
-}
-
-async function deleteNote(noteId: number): Promise<void> {
-  if (notesPanelTabId === null) return;
-
-  const tmuxName = getTabTmuxName(notesPanelTabId);
-  if (!tmuxName) return;
-
-  let notes = sessionNotesCache.get(notesPanelTabId) || [];
-  notes = notes.filter((n) => n.id !== noteId);
-  await window.terminalAPI.saveNotes(tmuxName, notes);
-  sessionNotesCache.set(notesPanelTabId, notes);
-  renderNotes(notes);
-  updateNoteIndicator(notesPanelTabId, notes.length > 0);
-}
-
-function updateNoteIndicator(tabId: number, hasNotes: boolean): void {
-  const li = terminalList.querySelector(`[data-id="${tabId}"]`);
-  const btn = li?.querySelector(".btn-notes");
-  if (btn) btn.classList.toggle("has-notes", hasNotes);
-}
-
-notesCloseBtn.addEventListener("click", closeNotesPanel);
-notesAddBtn.addEventListener("click", addNote);
-notesInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    addNote();
-  }
-});
-
-// --- Sidebar Management ---
-let draggedTabId: number | null = null;
-
-function addSidebarEntry(tabId: number, label: string): void {
-  addSidebarEntryDOM(tabId, label);
-  // Check for existing notes
-  const tmuxName = getTabTmuxName(tabId);
-  if (tmuxName) {
-    window.terminalAPI.loadNotes(tmuxName).then((notes) => {
-      if (notes.length > 0) {
-        sessionNotesCache.set(tabId, notes);
-        updateNoteIndicator(tabId, true);
-      }
-    });
-  }
-}
-
-function reorderTabs(fromTabId: number, toTabId: number): void {
-  const fromLi = terminalList.querySelector(`[data-id="${fromTabId}"]`);
-  const toLi = terminalList.querySelector(`[data-id="${toTabId}"]`);
-  if (!fromLi || !toLi || fromLi === toLi) return;
-
-  // Get current order of sidebar entries
-  const entries = Array.from(terminalList.querySelectorAll(".terminal-entry")) as HTMLLIElement[];
-  const fromIndex = entries.findIndex(el => el.dataset.id === String(fromTabId));
-  const toIndex = entries.findIndex(el => el.dataset.id === String(toTabId));
-  if (fromIndex === -1 || toIndex === -1) return;
-
-  // Reorder in DOM
-  if (fromIndex < toIndex) {
-    toLi.parentNode?.insertBefore(fromLi, toLi.nextSibling);
-  } else {
-    toLi.parentNode?.insertBefore(fromLi, toLi);
-  }
-
-  // Update active indicator if needed
-  if (activeTabId !== null) {
-    updateSidebarActive(activeTabId);
-  }
-
-  saveSessionMetadata();
-}
-
-function renderSidebar(): void {
-  terminalList.innerHTML = "";
-
-  // Get tabs in DOM order
-  const entries = Array.from(terminalList.querySelectorAll(".terminal-entry"));
-  const orderedTabIds = entries.map(el => Number(el.getAttribute("data-id"))).filter(id => !isNaN(id));
-
-  // Group tabs by cluster
-  const clusters = new Map<string, number[]>();
-  const noCluster: number[] = [];
-
-  for (const tabId of orderedTabIds) {
-    const cluster = tabClusters.get(tabId);
-    if (cluster) {
-      if (!clusters.has(cluster)) clusters.set(cluster, []);
-      clusters.get(cluster)!.push(tabId);
-    } else {
-      noCluster.push(tabId);
-    }
-  }
-
-  // Render no-cluster tabs first
-  for (const tabId of noCluster) {
-    const label = tabLabels.get(tabId) || `Terminal ${tabId}`;
-    addSidebarEntryDOM(tabId, label);
-  }
-
-  // Render clusters
-  for (const [clusterName, tabIds] of clusters) {
-    const header = document.createElement("li");
-    header.className = "sidebar-cluster-header";
-    header.textContent = clusterName;
-    terminalList.appendChild(header);
-
-    for (const tabId of tabIds) {
-      const label = tabLabels.get(tabId) || `Terminal ${tabId}`;
-      addSidebarEntryDOM(tabId, label);
-    }
-  }
-}
-
-function addSidebarEntryDOM(tabId: number, label: string): void {
-  const li = document.createElement("li");
-  li.dataset.id = String(tabId);
-  li.className = "terminal-entry";
-  li.draggable = true;
-  li.innerHTML = `
-    <span class="terminal-label">${escapeHtml(label)}</span>
-    <div class="terminal-entry-actions">
-      <button class="btn-notes" title="Notes">&#9998;</button>
-      <button class="btn-close" title="Close terminal">&times;</button>
-    </div>
-  `;
-
-  const labelEl = li.querySelector(".terminal-label") as HTMLSpanElement;
-
-  li.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
-    if (target.closest(".terminal-label")) return;
-    switchToTab(tabId);
-  });
-
-  labelEl.addEventListener("click", (e) => {
-    if (e.detail === 2) {
-      e.preventDefault();
-      e.stopPropagation();
-      startRename(tabId, li, labelEl);
-    }
-  });
-
-  li.querySelector(".btn-notes")!.addEventListener("click", (e) => {
-    e.stopPropagation();
-    openNotesPanel(tabId);
-  });
-
-  li.querySelector(".btn-close")!.addEventListener("click", (e) => {
-    e.stopPropagation();
-    closeTab(tabId);
-  });
-
-  li.addEventListener("dragstart", (e) => {
-    draggedTabId = tabId;
-    li.style.opacity = "0.5";
-    e.dataTransfer?.setData("text/plain", String(tabId));
-  });
-
-  li.addEventListener("dragend", () => {
-    li.style.opacity = "1";
-    draggedTabId = null;
-  });
-
-  li.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    if (draggedTabId === null || draggedTabId === tabId) return;
-    li.style.borderTop = "2px solid #007aff";
-  });
-
-  li.addEventListener("dragleave", () => {
-    li.style.borderTop = "";
-  });
-
-  li.addEventListener("drop", (e) => {
-    e.preventDefault();
-    li.style.borderTop = "";
-    if (draggedTabId === null || draggedTabId === tabId) return;
-    reorderTabs(draggedTabId, tabId);
-  });
-
-  terminalList.appendChild(li);
-}
-
-function startRename(
-  tabId: number,
-  li: HTMLLIElement,
-  labelEl: HTMLSpanElement
-): void {
-  const currentName = labelEl.textContent || "";
-  const input = document.createElement("input");
-  input.type = "text";
-  input.className = "rename-input";
-  input.value = currentName;
-
-  labelEl.style.display = "none";
-  li.insertBefore(input, labelEl);
-  input.focus();
-  input.select();
-
-  const commit = async () => {
-    const newName = input.value.trim() || currentName;
-    labelEl.textContent = newName;
-    labelEl.style.display = "";
-    input.remove();
-    tabLabels.set(tabId, newName);
-    await saveSessionMetadata();
-  };
-
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      commit();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      labelEl.style.display = "";
-      input.remove();
-    }
-  });
-
-  input.addEventListener("blur", commit);
-  input.addEventListener("click", (e) => e.stopPropagation());
-}
-
-function removeSidebarEntry(tabId: number): void {
-  terminalList.querySelector(`[data-id="${tabId}"]`)?.remove();
-}
-
-function updateSidebarActive(tabId: number): void {
-  terminalList.querySelectorAll(".terminal-entry").forEach((el) => {
-    el.classList.toggle(
-      "active",
-      (el as HTMLElement).dataset.id === String(tabId)
-    );
-  });
 }
 
 // --- Context Menu ---
@@ -1259,90 +908,6 @@ terminalPane.addEventListener("contextmenu", (e) => {
 
 document.addEventListener("mousedown", (e) => {
   if (!contextMenu.contains(e.target as Node)) hideContextMenu();
-});
-
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    hideContextMenu();
-  }
-  // Cmd+Plus: increase font size
-  if ((e.key === "+" || e.key === "=") && e.metaKey && !e.shiftKey) {
-    e.preventDefault();
-    for (const session of sessions.values()) {
-      session.increaseFontSize();
-    }
-    return;
-  }
-  // Cmd+Minus: decrease font size
-  if (e.key === "-" && e.metaKey) {
-    e.preventDefault();
-    for (const session of sessions.values()) {
-      session.decreaseFontSize();
-    }
-    return;
-  }
-  // Cmd+0: reset font size
-  if (e.key === "0" && e.metaKey) {
-    e.preventDefault();
-    for (const session of sessions.values()) {
-      session.setFontSize(12);
-    }
-    return;
-  }
-  // Cmd+N: new terminal
-  if (e.key === "n" && e.metaKey && !e.shiftKey && !e.ctrlKey) {
-    e.preventDefault();
-    createNewTab(nextTerminalName());
-    return;
-  }
-  // Cmd+Arrow: navigate between panes
-  if (activeTabId !== null) {
-    const tab = tabMap.get(activeTabId);
-    if (tab) {
-      const tmuxName = sessionTmuxNames.get(tab.focusedPtyId);
-      if (tmuxName) {
-        if (e.key === "ArrowLeft" && e.metaKey && !e.shiftKey) {
-          e.preventDefault();
-          window.terminalAPI.navigatePane(tmuxName, "L");
-          return;
-        }
-        if (e.key === "ArrowRight" && e.metaKey && !e.shiftKey) {
-          e.preventDefault();
-          window.terminalAPI.navigatePane(tmuxName, "R");
-          return;
-        }
-        if (e.key === "ArrowUp" && e.metaKey && !e.shiftKey) {
-          e.preventDefault();
-          window.terminalAPI.navigatePane(tmuxName, "U");
-          return;
-        }
-        if (e.key === "ArrowDown" && e.metaKey && !e.shiftKey) {
-          e.preventDefault();
-          window.terminalAPI.navigatePane(tmuxName, "D");
-          return;
-        }
-      }
-    }
-  }
-
-  // Cmd+Shift+G: set cluster/project name for current tab
-  if (e.key === "g" && e.metaKey && e.shiftKey) {
-    e.preventDefault();
-    if (activeTabId === null) return;
-    const currentTabId = activeTabId;
-    const currentCluster = tabClusters.get(currentTabId) || "";
-    showClusterDialog(currentCluster).then(name => {
-      if (name === null) return;
-      if (name === "") {
-        tabClusters.delete(currentTabId);
-      } else {
-        tabClusters.set(currentTabId, name);
-      }
-      saveSessionMetadata();
-      renderSidebar();
-    });
-    return;
-  }
 });
 
 contextMenu.addEventListener("click", async (e) => {
@@ -1389,114 +954,46 @@ const resizeObserver = new ResizeObserver(() => {
 });
 resizeObserver.observe(terminalPane);
 
+// --- Lifecycle Teardown ---
+
+function _teardownAll(): void {
+  resizeObserver.disconnect();
+  console.log("[renderer] ResizeObserver disconnected");
+
+  if (usageRefreshInterval !== null) {
+    clearInterval(usageRefreshInterval);
+    usageRefreshInterval = null;
+    console.log("[renderer] usageRefreshInterval cleared");
+  }
+
+  stopAgentPolling();
+  console.log("[renderer] agent polling stopped");
+
+  stopGitPolling();
+  console.log("[renderer] git polling stopped");
+
+  // Teardown global keydown handler (keybindings.ts)
+  teardownKeybindings();
+
+  // Teardown sidebar delegation (sidebar.ts)
+  teardownSidebarDelegation();
+}
+
+// Reload / window close (Cmd+R, window unload)
+window.addEventListener("beforeunload", () => {
+  _teardownAll();
+});
+
 // --- Save on Close ---
 
 let usageRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
 window.terminalAPI.onBeforeQuit(async () => {
-  await saveSessionMetadata();
-  resizeObserver.disconnect();
-  if (usageRefreshInterval !== null) {
-    clearInterval(usageRefreshInterval);
-    usageRefreshInterval = null;
-  }
+  await flushSessionMetadata();
+  _teardownAll();
+  console.log("[renderer] quitReady");
   window.terminalAPI.quitReady();
 });
-
-// --- Usage Status Bar ---
-
-const statusBarEl = document.getElementById("statusbar")!;
-const usage5h = document.getElementById("usage-5h")!;
-const usage7d = document.getElementById("usage-7d")!;
-const usageSeps = statusBarEl.querySelectorAll(".usage-sep");
-let usageLoading = false;
-
-function getUsageColorClass(utilization: number): string {
-  if (utilization >= 95) return "critical";
-  if (utilization >= 80) return "warn";
-  return "normal";
-}
-
-function formatResetTime(resetsAt: string | null): string {
-  if (!resetsAt) return "";
-  const date = new Date(resetsAt);
-  const now = new Date();
-  const diffMs = date.getTime() - now.getTime();
-  if (diffMs <= 0) return "reset imminent";
-  const diffD = Math.floor(diffMs / 86400000);
-  const diffH = Math.floor((diffMs % 86400000) / 3600000);
-  const diffM = Math.floor((diffMs % 3600000) / 60000);
-  if (diffD > 0) return `${diffD}d ${diffH}h`;
-  if (diffH > 0) return `${diffH}h ${diffM}m`;
-  return `${diffM}m`;
-}
-
-function updateUsageMetric(
-  el: HTMLElement,
-  label: string,
-  metric: { utilization: number; resets_at: string | null } | undefined
-): void {
-  if (!metric || metric.utilization == null) {
-    el.innerHTML = `<span class="usage-label">${label}</span><span class="usage-bar-wrap"><span class="usage-bar"><span class="usage-bar-fill normal" style="width:0%"></span></span><span class="usage-pct">--</span></span><span class="usage-reset"></span>`;
-    el.title = "";
-    el.className = "usage-metric";
-    return;
-  }
-  const pct = Math.round(metric.utilization);
-  const colorClass = getUsageColorClass(metric.utilization);
-  const pctClass = colorClass === 'critical' ? 'usage-critical' : colorClass === 'warn' ? 'usage-warn' : '';
-  const resetText = formatResetTime(metric.resets_at);
-  el.innerHTML = `<span class="usage-label">${label}</span><span class="usage-bar-wrap"><span class="usage-bar"><span class="usage-bar-fill ${colorClass}" style="width:${pct}%"></span></span><span class="usage-pct ${pctClass}">${pct}%</span></span><span class="usage-reset">${resetText}</span>`;
-  el.title = "";
-  el.className = "usage-metric";
-}
-
-async function refreshUsage(): Promise<void> {
-  if (usageLoading) return;
-  usageLoading = true;
-
-  try {
-    const result = await window.terminalAPI.fetchUsage();
-
-    if (result.error) {
-      const msg =
-        result.error === "keychain" ? "not logged in" : "--";
-      usage5h.textContent = `Usage: ${msg}`;
-      usage5h.className = "usage-metric";
-      usage5h.title = "";
-      usage7d.textContent = "";
-      usage7d.className = "usage-metric";
-      usage7d.title = "";
-      // Hide separators when showing error
-      usageSeps.forEach((sep) => {
-        (sep as HTMLElement).style.display = "none";
-      });
-      return;
-    }
-
-    if (result.data) {
-      // Show separators
-      usageSeps.forEach((sep) => {
-        (sep as HTMLElement).style.display = "";
-      });
-      updateUsageMetric(usage5h, "5h", result.data.five_hour);
-      updateUsageMetric(usage7d, "7d", result.data.seven_day);
-    }
-  } catch (err) {
-    console.error("[renderer] Usage refresh failed:", err);
-  } finally {
-    usageLoading = false;
-  }
-}
-
-statusBarEl.addEventListener("click", () => {
-  refreshUsage();
-});
-
-// Auto-refresh every 5 minutes
-usageRefreshInterval = setInterval(() => {
-  refreshUsage();
-}, 5 * 60 * 1000);
 
 // --- Help Menu IPC ---
 
@@ -1508,21 +1005,10 @@ window.terminalAPI.onHelpAbout(() => {
   showAbout();
 });
 
-// --- Init ---
+// --- Init button ---
+// NOTE: app startup (restoreFromSaved, refreshUsage) is called from init.js
+// which loads last so all module functions are available.
 
 btnNew.addEventListener("click", () => {
   createNewTab(nextTerminalName());
 });
-
-(async () => {
-  try {
-    const restored = await restoreFromTmux();
-    if (!restored) {
-      await createNewTab();
-    }
-    // Load usage data
-    refreshUsage();
-  } catch (err) {
-    console.error("Init error:", err);
-  }
-})();

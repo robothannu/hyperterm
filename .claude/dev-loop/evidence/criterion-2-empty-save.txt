@@ -1,0 +1,2 @@
+719:    await window.terminalAPI.saveSessions(JSON.stringify({ version: 3, tabs: [], activeTabIndex: 0 }));
+EXIT_CODE: 0

@@ -10,6 +10,26 @@ type TerminalInstance = InstanceType<typeof Terminal>;
 type FitAddonInstance = InstanceType<typeof FitAddon.FitAddon>;
 type SerializeAddonInstance = InstanceType<typeof SerializeAddon.SerializeAddon>;
 
+const XTERM_THEME_DARK = {
+  background: "#1c1c1c", foreground: "#d0d0d0", cursor: "#d0d0d0", cursorAccent: "#1c1c1c",
+  selectionBackground: "#414453", selectionForeground: "#ffffff",
+  black: "#000000", red: "#990000", green: "#00a600", yellow: "#999900",
+  blue: "#0000b2", magenta: "#b200b2", cyan: "#00a6b2", white: "#bfbfbf",
+  brightBlack: "#666666", brightRed: "#e50000", brightGreen: "#00d900",
+  brightYellow: "#e5e500", brightBlue: "#0000ff", brightMagenta: "#e500e5",
+  brightCyan: "#00e5e5", brightWhite: "#e5e5e5",
+};
+
+const XTERM_THEME_LIGHT = {
+  background: "#f8f8f8", foreground: "#1a1a1a", cursor: "#333333", cursorAccent: "#f8f8f8",
+  selectionBackground: "#b3d4ff", selectionForeground: "#000000",
+  black: "#000000", red: "#cc0000", green: "#006600", yellow: "#999900",
+  blue: "#0000cc", magenta: "#cc00cc", cyan: "#007a7a", white: "#888888",
+  brightBlack: "#555555", brightRed: "#ff3333", brightGreen: "#00aa00",
+  brightYellow: "#cccc00", brightBlue: "#3333ff", brightMagenta: "#ff33ff",
+  brightCyan: "#00cccc", brightWhite: "#333333",
+};
+
 class TerminalSession {
   public readonly terminal: TerminalInstance;
   public readonly container: HTMLElement;
@@ -27,31 +47,8 @@ class TerminalSession {
       fontSize: this.fontSize,
       fontFamily:
         "'SF Mono', Menlo, Monaco, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', monospace",
-      scrollback: 0,
-      theme: {
-        background: "#1c1c1c",
-        foreground: "#d0d0d0",
-        cursor: "#d0d0d0",
-        cursorAccent: "#1c1c1c",
-        selectionBackground: "#414453",
-        selectionForeground: "#ffffff",
-        black: "#000000",
-        red: "#990000",
-        green: "#00a600",
-        yellow: "#999900",
-        blue: "#0000b2",
-        magenta: "#b200b2",
-        cyan: "#00a6b2",
-        white: "#bfbfbf",
-        brightBlack: "#666666",
-        brightRed: "#e50000",
-        brightGreen: "#00d900",
-        brightYellow: "#e5e500",
-        brightBlue: "#0000ff",
-        brightMagenta: "#e500e5",
-        brightCyan: "#00e5e5",
-        brightWhite: "#e5e5e5",
-      },
+      scrollback: 10000,
+      theme: XTERM_THEME_DARK,
       allowProposedApi: true,
       rightClickSelectsWord: false,
     });
@@ -146,6 +143,10 @@ class TerminalSession {
     this.fontSize = Math.max(8, Math.min(24, size));
     this.terminal.options.fontSize = this.fontSize;
     this.fit();
+  }
+
+  setTheme(theme: "dark" | "light"): void {
+    this.terminal.options.theme = theme === "light" ? XTERM_THEME_LIGHT : XTERM_THEME_DARK;
   }
 
   increaseFontSize(): void {

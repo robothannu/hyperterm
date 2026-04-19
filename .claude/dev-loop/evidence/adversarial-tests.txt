@@ -1,0 +1,41 @@
+Adversarial test results (code review):
+
+1. Multiple dots in budget input ("5..0"):
+   - char filter allows multiple dots (digits + '.')
+   - parse::<f64>() fails -> error message shown
+   - RESULT: PASS (graceful error handling)
+
+2. Empty budget input + Enter:
+   - Clears budget (sets budget_limit = None, budget_exceeded = false)
+   - Shows "Budget cleared" HUD message
+   - RESULT: PASS
+
+3. Zero budget ("0" or "0.0"):
+   - parse succeeds but val > 0.0 check rejects
+   - Shows error: "Invalid amount. Enter a positive number"
+   - RESULT: PASS
+
+4. Budget already exceeded, user manually resumes then budget re-checked:
+   - budget_exceeded flag prevents re-pausing
+   - User can resume with P key
+   - check_budget() returns false when budget_exceeded already true
+   - RESULT: PASS (test_budget_exceeded_no_double_pause covers this)
+
+5. Budget raised above current cost:
+   - set_budget() resets budget_exceeded if new limit > total cost
+   - Allows re-triggering pause if costs increase again
+   - RESULT: PASS (test_budget_reset_when_limit_raised covers this)
+
+6. No budget set, agents running with high costs:
+   - check_budget() returns false when budget_limit is None
+   - Agents continue running
+   - RESULT: PASS (test_budget_no_effect_when_no_limit covers this)
+
+7. osascript notification with agent name containing quotes:
+   - send_system_notification escapes double quotes: message.replace('"', "\\\"")
+   - RESULT: PASS (handles special chars)
+
+8. Waiting -> Completed/Error notification gap:
+   - Only Running -> Completed/Error fires notifications
+   - Waiting -> Completed/Error does not fire notification
+   - RESULT: minor gap but unlikely in practice

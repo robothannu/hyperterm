@@ -1,11 +1,12 @@
-import { app, BrowserWindow, ipcMain, Menu, MenuItem, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, MenuItem, shell, Notification } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import * as net from "net";
+import * as os from "os";
 
 const execFileAsync = promisify(execFile);
-import * as https from "https";
 import * as PtyManager from "./pty-manager";
 
 interface Note {
@@ -28,9 +29,181 @@ process.on("unhandledRejection", (reason) => {
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 let forceQuitTimer: NodeJS.Timeout | null = null;
+let hookServer: net.Server | null = null;
 
 const sessionsFilePath = path.join(app.getPath("userData"), "sessions.json");
 const notesFilePath = path.join(app.getPath("userData"), "notes.json");
+const settingsFilePath = path.join(app.getPath("userData"), "settings.json");
+
+// --- App Settings ---
+
+interface AppSettings {
+  claudeNotifications: boolean;
+  fontSize?: number;
+  theme?: "dark" | "light";
+  recentProjects?: string[];
+}
+
+let appSettings: AppSettings = { claudeNotifications: true };
+
+function loadSettings(): void {
+  try {
+    if (fs.existsSync(settingsFilePath)) {
+      const raw = fs.readFileSync(settingsFilePath, "utf8");
+      const parsed = JSON.parse(raw);
+      appSettings = { ...appSettings, ...parsed };
+    }
+  } catch {
+    // ignore, use defaults
+  }
+}
+
+function persistSettings(): void {
+  try {
+    fs.writeFileSync(settingsFilePath, JSON.stringify(appSettings, null, 2), "utf8");
+  } catch (err) {
+    console.error("[main] Failed to persist settings:", err);
+  }
+}
+
+// --- Unix Socket Hook Server ---
+
+const sockPath = path.join(os.homedir(), "Library", "Application Support", "HyperTerm", "agent.sock");
+
+function startHookServer(): net.Server {
+  // Ensure directory exists
+  const sockDir = path.dirname(sockPath);
+  try { fs.mkdirSync(sockDir, { recursive: true }); } catch {}
+  // Remove stale socket file
+  try { fs.unlinkSync(sockPath); } catch {}
+
+  const server = net.createServer((socket) => {
+    let buf = "";
+    socket.on("data", (data) => {
+      buf += data.toString();
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const evt = JSON.parse(line);
+          mainWindow?.webContents.send("hook:event", evt);
+        } catch {
+          // ignore malformed JSON
+        }
+      }
+    });
+    socket.on("error", () => { /* ignore client errors */ });
+  });
+
+  server.on("error", (err) => {
+    console.error("[main] Hook server error:", err);
+  });
+
+  server.listen(sockPath, () => {
+    console.log(`[main] Hook server listening at ${sockPath}`);
+  });
+
+  return server;
+}
+
+// --- Hook Script + settings.json Installation ---
+
+const hookScriptDir = path.join(os.homedir(), ".config", "hyperterm");
+const hookScriptPath = path.join(hookScriptDir, "hook.sh");
+const claudeSettingsPath = path.join(os.homedir(), ".claude", "settings.json");
+
+function ensureHookScript(): void {
+  try {
+    fs.mkdirSync(hookScriptDir, { recursive: true });
+    const script = `#!/bin/bash
+# Claude Code hook → HyperTerm Unix socket
+# Claude Code passes event type inside JSON payload as hook_event_name (not via env var)
+PAYLOAD=$(cat)
+SOCK="$HOME/Library/Application Support/HyperTerm/agent.sock"
+EVENT_TYPE=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('hook_event_name','unknown'))" 2>/dev/null || echo "unknown")
+SESSION_ID=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null || echo "")
+TOOL_NAME=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
+MESSAGE=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null || echo "")
+# Escape string values for JSON embedding
+esc() { printf '%s' "$1" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])" 2>/dev/null || echo ""; }
+SE=$(esc "$SESSION_ID")
+TE=$(esc "$TOOL_NAME")
+ME=$(esc "$MESSAGE")
+printf '%s\\n' "{\\"event\\":\\"$EVENT_TYPE\\",\\"session_id\\":\\"$SE\\",\\"tool_name\\":\\"$TE\\",\\"message\\":\\"$ME\\"}" | \\
+  nc -U "$SOCK" 2>/dev/null || true
+`;
+    // Always overwrite to keep hook.sh up-to-date with the latest template
+    fs.writeFileSync(hookScriptPath, script, { mode: 0o755, encoding: "utf8" });
+  } catch (err) {
+    console.error("[main] Failed to write hook.sh:", err);
+  }
+}
+
+function installClaudeHooks(): boolean {
+  try {
+    ensureHookScript();
+
+    const claudeDir = path.join(os.homedir(), ".claude");
+    try { fs.mkdirSync(claudeDir, { recursive: true }); } catch {}
+
+    let existing: Record<string, unknown> = {};
+    try {
+      if (fs.existsSync(claudeSettingsPath)) {
+        existing = JSON.parse(fs.readFileSync(claudeSettingsPath, "utf8"));
+      }
+    } catch {
+      existing = {};
+    }
+
+    const hookEntry = {
+      matcher: "",
+      hooks: [{ type: "command", command: hookScriptPath }],
+    };
+
+    const hooks = (existing.hooks as Record<string, unknown[]> | undefined) || {};
+    for (const event of ["PreToolUse", "PostToolUse", "Notification", "Stop"]) {
+      if (!Array.isArray(hooks[event])) {
+        hooks[event] = [];
+      }
+      // Avoid duplicates
+      const arr = hooks[event] as Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>;
+      const alreadyPresent = arr.some((e) =>
+        Array.isArray(e.hooks) && e.hooks.some((h) => h.command === hookScriptPath)
+      );
+      if (!alreadyPresent) {
+        arr.push(hookEntry);
+      }
+    }
+
+    existing.hooks = hooks;
+    fs.writeFileSync(claudeSettingsPath, JSON.stringify(existing, null, 2), "utf8");
+    return true;
+  } catch (err) {
+    console.error("[main] Failed to install Claude hooks:", err);
+    return false;
+  }
+}
+
+function isHookInstalled(): boolean {
+  try {
+    if (!fs.existsSync(claudeSettingsPath)) return false;
+    const settings = JSON.parse(fs.readFileSync(claudeSettingsPath, "utf8"));
+    const hooks = settings?.hooks;
+    if (!hooks) return false;
+    for (const event of ["PreToolUse", "PostToolUse", "Notification", "Stop"]) {
+      const arr = hooks[event];
+      if (!Array.isArray(arr)) return false;
+      const found = arr.some((e: { hooks?: Array<{ command?: string }> }) =>
+        Array.isArray(e.hooks) && e.hooks.some((h) => h.command === hookScriptPath)
+      );
+      if (!found) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -61,7 +234,7 @@ function createWindow(): void {
     e.preventDefault();
   });
 
-  // Intercept close to save session metadata first, then detach (keep tmux alive)
+  // Intercept close to save session metadata first, then destroy all pty sessions
   mainWindow.on("close", (e) => {
     if (!isQuitting) {
       e.preventDefault();
@@ -71,7 +244,7 @@ function createWindow(): void {
       // Force-quit if renderer never responds with app:quit-ready
       forceQuitTimer = setTimeout(() => {
         console.warn("[main] Renderer did not respond to app:before-quit in time, force-quitting.");
-        PtyManager.detachAll();
+        PtyManager.destroyAll();
         if (mainWindow) {
           mainWindow.destroy();
         }
@@ -87,11 +260,15 @@ function createWindow(): void {
 
 // --- IPC Handlers ---
 
+function isValidDimension(cols: number, rows: number): boolean {
+  return Number.isInteger(cols) && Number.isInteger(rows)
+    && cols >= 1 && rows >= 1 && cols <= 10000 && rows <= 10000;
+}
+
 ipcMain.handle(
   "pty:create",
-  (_event, cols: number, rows: number, cwd?: string, tmuxSession?: string) => {
-    // Validate cols/rows to prevent NaN or out-of-bounds values reaching node-pty
-    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 10000 || rows > 10000) {
+  (_event, cols: number, rows: number, cwd?: string) => {
+    if (!isValidDimension(cols, rows)) {
       throw new Error(`Invalid dimensions: cols=${cols}, rows=${rows}`);
     }
     const result = PtyManager.createSession(
@@ -104,9 +281,8 @@ ipcMain.handle(
         mainWindow?.webContents.send("pty:exit", sessionId, exitCode);
       },
       cwd,
-      tmuxSession
     );
-    return result; // { id, tmuxName }
+    return result; // { id, sessionKey }
   }
 );
 
@@ -115,9 +291,7 @@ ipcMain.on("pty:write", (_event, id: number, data: string) => {
 });
 
 ipcMain.on("pty:resize", (_event, id: number, cols: number, rows: number) => {
-  if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 10000 || rows > 10000) {
-    return;
-  }
+  if (!isValidDimension(cols, rows)) return;
   PtyManager.resizeSession(id, cols, rows);
 });
 
@@ -126,17 +300,7 @@ ipcMain.on("pty:destroy", (_event, id: number) => {
 });
 
 ipcMain.handle("pty:getCwd", (_event, id: number) => {
-  return PtyManager.getSessionCwd(id);
-});
-
-// --- tmux IPC ---
-
-ipcMain.handle("tmux:check", () => {
-  return PtyManager.isTmuxAvailable();
-});
-
-ipcMain.handle("tmux:list", () => {
-  return PtyManager.listTmuxSessions();
+  return PtyManager.getCwd(id);
 });
 
 // --- Session metadata IPC ---
@@ -182,24 +346,24 @@ function writeNotes(data: Record<string, Note[]>): void {
   }
 }
 
-ipcMain.handle("notes:load", (_event, tmuxName: string) => {
+ipcMain.handle("notes:load", (_event, sessionKey: string) => {
   const all = readNotes();
-  return all[tmuxName] || [];
+  return all[sessionKey] || [];
 });
 
-ipcMain.handle("notes:save", (_event, tmuxName: string, notes: Note[]) => {
+ipcMain.handle("notes:save", (_event, sessionKey: string, notes: Note[]) => {
   const all = readNotes();
   if (notes.length === 0) {
-    delete all[tmuxName];
+    delete all[sessionKey];
   } else {
-    all[tmuxName] = notes;
+    all[sessionKey] = notes;
   }
   writeNotes(all);
 });
 
-ipcMain.handle("notes:deleteSession", (_event, tmuxName: string) => {
+ipcMain.handle("notes:deleteSession", (_event, sessionKey: string) => {
   const all = readNotes();
-  delete all[tmuxName];
+  delete all[sessionKey];
   writeNotes(all);
 });
 
@@ -221,38 +385,18 @@ async function getOAuthToken(): Promise<string | null> {
   }
 }
 
-function fetchUsageFromAPI(token: string): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const req = https.get(
+async function fetchUsageFromAPI(token: string): Promise<any> {
+  const { stdout } = await execFileAsync(
+    "curl",
+    [
+      "-s", "-f", "--max-time", "10",
+      "-H", `Authorization: Bearer ${token}`,
+      "-H", "anthropic-beta: oauth-2025-04-20",
       "https://api.anthropic.com/api/oauth/usage",
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "anthropic-beta": "oauth-2025-04-20",
-        },
-      },
-      (res) => {
-        let body = "";
-        res.on("data", (chunk: Buffer) => (body += chunk.toString()));
-        res.on("end", () => {
-          if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(body));
-          } catch {
-            reject(new Error("parse"));
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    req.setTimeout(10000, () => {
-      req.destroy();
-      reject(new Error("timeout"));
-    });
-  });
+    ],
+    { encoding: "utf8", timeout: 12000 }
+  );
+  return JSON.parse(stdout);
 }
 
 ipcMain.handle("usage:fetch", async () => {
@@ -270,55 +414,183 @@ ipcMain.handle("usage:fetch", async () => {
   }
 });
 
-// --- Pane IPC ---
+// --- Git IPC ---
 
-ipcMain.handle("tmux:listPanes", (_event, tmuxName: string) => {
-  return PtyManager.listPanes(tmuxName);
+function findGitRoot(dir: string): string | null {
+  let current = dir;
+  while (true) {
+    try {
+      if (fs.existsSync(path.join(current, ".git"))) return current;
+    } catch {
+      return null;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+ipcMain.handle("git:findRoot", (_event, dir: string) => {
+  if (!dir || typeof dir !== "string") return null;
+  return findGitRoot(dir);
 });
 
-ipcMain.handle("tmux:selectPane", (_event, tmuxName: string, paneId: string) => {
-  return PtyManager.selectPane(tmuxName, paneId);
+interface GitStatus {
+  branch: string;
+  dirty: boolean;
+  stagedCount: number;
+  unstagedCount: number;
+  untrackedCount: number;
+  aheadCount: number;
+}
+
+ipcMain.handle("git:status", async (_event, projectRoot: string): Promise<GitStatus | null> => {
+  if (!projectRoot || typeof projectRoot !== "string") return null;
+  try {
+    const [branchResult, statusResult, aheadResult] = await Promise.all([
+      execFileAsync("git", ["-C", projectRoot, "branch", "--show-current"], {
+        encoding: "utf8",
+        timeout: 5000,
+      }),
+      execFileAsync("git", ["-C", projectRoot, "status", "--porcelain"], {
+        encoding: "utf8",
+        timeout: 5000,
+      }),
+      execFileAsync("git", ["-C", projectRoot, "rev-list", "--count", "@{u}..HEAD"], {
+        encoding: "utf8",
+        timeout: 5000,
+      }).catch(() => ({ stdout: "0" })),
+    ]);
+
+    const branch = branchResult.stdout.trim() || "HEAD";
+    const lines = statusResult.stdout.split("\n").filter((l) => l.length > 0);
+    const aheadCount = parseInt(aheadResult.stdout.trim(), 10) || 0;
+
+    let stagedCount = 0;
+    let unstagedCount = 0;
+    let untrackedCount = 0;
+
+    for (const line of lines) {
+      const x = line[0]; // staged area
+      const y = line[1]; // working tree
+
+      if (x === "?" && y === "?") {
+        untrackedCount++;
+      } else {
+        if (x !== " " && x !== "?") stagedCount++;
+        if (y !== " " && y !== "?") unstagedCount++;
+      }
+    }
+
+    return {
+      branch,
+      dirty: lines.length > 0,
+      stagedCount,
+      unstagedCount,
+      untrackedCount,
+      aheadCount,
+    };
+  } catch {
+    return null;
+  }
 });
 
-ipcMain.handle("tmux:splitPane", (_event, tmuxName: string, direction: string) => {
-  return PtyManager.splitPane(tmuxName, direction as "horizontal" | "vertical");
+// Returns per-file list from `git status --porcelain`
+interface GitFileEntry {
+  path: string;
+  x: string; // staged status char
+  y: string; // unstaged status char
+}
+
+ipcMain.handle("git:files", async (_event, projectRoot: string): Promise<GitFileEntry[]> => {
+  if (!projectRoot || typeof projectRoot !== "string") return [];
+  try {
+    const result = await execFileAsync(
+      "git",
+      ["-C", projectRoot, "status", "--porcelain"],
+      { encoding: "utf8", timeout: 5000 }
+    );
+    return result.stdout
+      .split("\n")
+      .filter((l) => l.length >= 3)
+      .map((l) => ({
+        x: l[0],
+        y: l[1],
+        path: l.slice(3).trim(),
+      }));
+  } catch {
+    return [];
+  }
 });
 
-ipcMain.handle("tmux:closePane", (_event, tmuxName: string) => {
-  return PtyManager.closePane(tmuxName);
+// Returns unified diff string for a given file
+// Return: { diff: string } | { tooLarge: true; lineCount: number } | { error: string }
+ipcMain.handle(
+  "git:diff",
+  async (
+    _event,
+    projectRoot: string,
+    filePath: string,
+    staged: boolean
+  ): Promise<{ diff: string } | { tooLarge: true; lineCount: number } | { error: string }> => {
+    if (!projectRoot || !filePath) return { error: "invalid args" };
+    try {
+      let stdout: string;
+      try {
+        const args = staged
+          ? ["-C", projectRoot, "diff", "--cached", "--", filePath]
+          : ["-C", projectRoot, "diff", "HEAD", "--", filePath];
+        const result = await execFileAsync("git", args, {
+          encoding: "utf8",
+          timeout: 10000,
+        });
+        stdout = result.stdout;
+      } catch (err: unknown) {
+        // Untracked 파일: git diff --no-index /dev/null <file> (exit code 1 정상)
+        const anyErr = err as { stdout?: string; code?: number };
+        if (anyErr.stdout !== undefined) {
+          stdout = anyErr.stdout;
+        } else {
+          return { error: String(err) };
+        }
+      }
+
+      if (!stdout) {
+        // staged=false이고 아직 HEAD가 없거나 untracked인 경우 재시도
+        try {
+          const result = await execFileAsync(
+            "git",
+            ["-C", projectRoot, "diff", "--no-index", "--", "/dev/null", filePath],
+            { encoding: "utf8", timeout: 10000 }
+          );
+          stdout = result.stdout;
+        } catch (err2: unknown) {
+          const anyErr2 = err2 as { stdout?: string };
+          if (anyErr2.stdout) {
+            stdout = anyErr2.stdout;
+          }
+        }
+      }
+
+      const lineCount = stdout.split("\n").length;
+      if (lineCount > 5000) {
+        return { tooLarge: true, lineCount };
+      }
+      return { diff: stdout };
+    } catch (err: unknown) {
+      return { error: String(err) };
+    }
+  }
+);
+
+// --- Process info IPC (pty ID based) ---
+
+ipcMain.handle("pty:getProcessInfo", async (_event, id: number) => {
+  return await PtyManager.getProcessInfo(id);
 });
 
-ipcMain.handle("tmux:navigatePane", (_event, tmuxName: string, direction: string) => {
-  return PtyManager.navigatePane(tmuxName, direction as "U" | "D" | "L" | "R");
-});
-
-ipcMain.on("tmux:scroll", (_event, tmuxName: string, direction: string, lines: number) => {
-  PtyManager.scrollSession(tmuxName, direction as "up" | "down", lines);
-});
-
-ipcMain.on("tmux:exitCopyMode", (_event, tmuxName: string) => {
-  PtyManager.exitCopyMode(tmuxName);
-});
-
-ipcMain.on("tmux:sendKey", (_event, tmuxName: string, key: string) => {
-  PtyManager.sendTmuxKey(tmuxName, key);
-});
-
-ipcMain.handle("tmux:renameSession", (_event, oldName: string, newName: string) => {
-  return PtyManager.renameTmuxSession(oldName, newName);
-});
-
-ipcMain.handle("tmux:getSessionName", (_event, tmuxName: string) => {
-  return PtyManager.getTmuxSessionName(tmuxName);
-});
-
-ipcMain.handle("tmux:getPaneCommand", (_event, tmuxName: string) => {
-  return PtyManager.getTmuxPaneCurrentCommand(tmuxName);
-});
-
-ipcMain.handle("tmux:getProcessInfo", async (_event, tmuxName: string) => {
-  const pid = PtyManager.getTmuxPanePid(tmuxName);
-  return await PtyManager.getProcessInfo(pid);
+ipcMain.handle("pty:getAgentStatus", async (_event, id: number) => {
+  return await PtyManager.getAgentStatus(id);
 });
 
 // Renderer signals that session metadata has been saved — safe to quit
@@ -327,11 +599,52 @@ ipcMain.on("app:quit-ready", () => {
     clearTimeout(forceQuitTimer);
     forceQuitTimer = null;
   }
-  PtyManager.detachAll(); // keep tmux sessions alive
+  PtyManager.destroyAll(); // kill all pty processes
+  if (hookServer) {
+    hookServer.close();
+    hookServer = null;
+  }
   if (mainWindow) {
     mainWindow.destroy();
   }
   app.quit();
+});
+
+// --- Path Existence IPC ---
+
+ipcMain.handle("path:checkExists", (_event, dirPath: string): boolean => {
+  if (!dirPath || typeof dirPath !== "string") return false;
+  try {
+    return fs.existsSync(dirPath);
+  } catch {
+    return false;
+  }
+});
+
+// --- Settings IPC ---
+
+ipcMain.handle("settings:get", () => appSettings);
+ipcMain.handle("settings:save", (_event, settings: Partial<AppSettings>) => {
+  appSettings = { ...appSettings, ...settings };
+  persistSettings();
+  return true;
+});
+
+// --- Hook IPC ---
+
+ipcMain.handle("hook:checkInstalled", () => isHookInstalled());
+ipcMain.handle("hook:install", () => installClaudeHooks());
+
+// --- macOS Notification for waiting_approval ---
+
+ipcMain.on("hook:notify-approval", () => {
+  if (!appSettings.claudeNotifications) return;
+  if (Notification.isSupported()) {
+    new Notification({
+      title: "HyperTerm",
+      body: "Claude가 승인을 기다리고 있습니다",
+    }).show();
+  }
 });
 
 // --- App Lifecycle ---
@@ -411,6 +724,12 @@ function createMenu(): void {
 }
 
 app.whenReady().then(() => {
+  loadSettings();
+  hookServer = startHookServer();
+  // Auto-install Claude hooks if not yet installed
+  if (!isHookInstalled()) {
+    installClaudeHooks();
+  }
   createWindow();
   createMenu();
 });

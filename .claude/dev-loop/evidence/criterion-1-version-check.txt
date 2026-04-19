@@ -1,0 +1,2 @@
+799:      if (parsed.version === 2 || parsed.version === 3) {
+EXIT_CODE: 0

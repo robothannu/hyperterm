@@ -1,0 +1,12 @@
+{
+  "current_phase": "complete",
+  "iteration": 1,
+  "current_sprint": 3,
+  "total_sprints": 3,
+  "feature_request": "HyperTerm.html 디자인 구현 — Linear/Raycast 스타일 UI 리디자인",
+  "project_type": "web",
+  "scale": "large",
+  "feature_branch": null,
+  "max_iterations": 5,
+  "history": [{"sprint": 1, "score": 27, "verdict": "PASS"}, {"sprint": 2, "score": 28, "verdict": "PASS"}, {"sprint": 3, "score": 27, "verdict": "PASS"}]
+}

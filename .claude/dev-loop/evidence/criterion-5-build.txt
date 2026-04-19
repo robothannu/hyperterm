@@ -1,0 +1,9 @@
+
+> terminal-app@0.1.0 build
+> tsc && npm run copy-static
+
+
+> terminal-app@0.1.0 copy-static
+> cp src/renderer/index.html dist/renderer/index.html && cp src/renderer/styles.css dist/renderer/styles.css
+
+EXIT_CODE: 0
