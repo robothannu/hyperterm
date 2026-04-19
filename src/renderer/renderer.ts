@@ -326,6 +326,21 @@ async function createNewTab(
   }
 }
 
+// --- Titlebar: group name + branch ---
+const tbGroupNameEl = document.getElementById("tb-group-name");
+const tbBranchNameEl = document.getElementById("tb-branch-name");
+
+function updateTitlebarGroupName(tabId: number): void {
+  if (!tbGroupNameEl) return;
+  const label = tabLabels.get(tabId) || `Terminal ${tabId}`;
+  tbGroupNameEl.textContent = label;
+}
+
+function updateTitlebarBranch(branch: string | null): void {
+  if (!tbBranchNameEl) return;
+  tbBranchNameEl.textContent = branch || "—";
+}
+
 function switchToTab(tabId: number): void {
   // Hide ALL other tabs to prevent leaking across groups
   for (const tab of tabMap.values()) {
@@ -346,6 +361,8 @@ function switchToTab(tabId: number): void {
   }
 
   updateSidebarActive(tabId);
+  // Update titlebar group name
+  updateTitlebarGroupName(tabId);
   // Refresh Changed Files panel for the newly active tab
   refreshChangedFilesPanel();
   // On-demand git poll for newly active tab (updates badge within one cycle)

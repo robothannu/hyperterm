@@ -218,6 +218,7 @@ function addSidebarEntryDOM(tabId: number, label: string): void {
   li.innerHTML = `
     <div class="terminal-entry-row">
       <span class="terminal-label">${escapeHtml(label)}</span>
+      <span class="tab-notif hidden"></span>
       <div class="terminal-entry-actions">
         <button class="btn-notes" title="Notes">&#9998;</button>
         <button class="btn-close" title="Close terminal">&times;</button>
@@ -260,6 +261,10 @@ function startRename(
     labelEl.style.display = "";
     input.remove();
     tabLabels.set(tabId, newName);
+    // Update titlebar if this is the active tab
+    if (tabId === activeTabId && typeof updateTitlebarGroupName === "function") {
+      updateTitlebarGroupName(tabId);
+    }
     await saveSessionMetadata();
   };
 

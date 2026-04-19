@@ -48,6 +48,10 @@ function updateSidebarGitBadge(tabId: number, info: GitInfo | null): void {
 
   if (!info) {
     badge?.remove();
+    // Clear titlebar branch if this is the active tab
+    if (tabId === activeTabId && typeof updateTitlebarBranch === "function") {
+      updateTitlebarBranch(null);
+    }
     return;
   }
 
@@ -61,6 +65,11 @@ function updateSidebarGitBadge(tabId: number, info: GitInfo | null): void {
   const branchText = escapeHtml(info.branch);
   const dirtyDot = info.dirty ? '<span class="git-dirty-dot" title="Uncommitted changes">●</span>' : "";
   badge.innerHTML = `<span class="git-branch-icon">⎇</span> ${branchText}${dirtyDot ? " " + dirtyDot : ""}`;
+
+  // Update titlebar branch for the active tab
+  if (tabId === activeTabId && typeof updateTitlebarBranch === "function") {
+    updateTitlebarBranch(info.branch);
+  }
 }
 
 // ---------------------------------------------------------------------------
