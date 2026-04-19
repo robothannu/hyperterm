@@ -11,7 +11,7 @@ type FitAddonInstance = InstanceType<typeof FitAddon.FitAddon>;
 type SerializeAddonInstance = InstanceType<typeof SerializeAddon.SerializeAddon>;
 
 const XTERM_THEME_DARK = {
-  background: "#1c1c1c", foreground: "#d0d0d0", cursor: "#d0d0d0", cursorAccent: "#1c1c1c",
+  background: "#0e1014", foreground: "#d0d0d0", cursor: "#d0d0d0", cursorAccent: "#0e1014",
   selectionBackground: "#414453", selectionForeground: "#ffffff",
   black: "#000000", red: "#990000", green: "#00a600", yellow: "#999900",
   blue: "#0000b2", magenta: "#b200b2", cyan: "#00a6b2", white: "#bfbfbf",

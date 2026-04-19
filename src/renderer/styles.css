@@ -665,14 +665,14 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #1c1c1c;
+  background: var(--bg-1);
   cursor: pointer;
   z-index: 5;
   transition: background 0.15s;
 }
 
 .dead-pane-overlay:hover {
-  background: #252525;
+  background: var(--bg-2);
 }
 
 .dead-pane-icon {
@@ -1985,91 +1985,56 @@ html, body {
 
 /* === Light Theme === */
 
+/* Light theme: override ALL CSS variables so every element inherits correct colors */
 body.theme-light {
-  background: #f5f5f5;
-  color: #333333;
+  --bg-0: #f5f5f7;
+  --bg-1: #eaeaec;
+  --bg-2: #e0e0e2;
+  --bg-3: #d5d5d7;
+  --bg-4: #c8c8ca;
+  --line: rgba(0,0,0,0.09);
+  --line-2: rgba(0,0,0,0.13);
+  --fg-0: #1a1a1a;
+  --fg-1: #333333;
+  --fg-2: #666666;
+  --fg-3: #999999;
+  --glass: rgba(0,0,0,0.02);
+  --glass-strong: rgba(0,0,0,0.04);
+  background: var(--bg-0);
+  color: var(--fg-0);
 }
 
+/* Elements with hardcoded dark gradients — override to flat bg var */
+body.theme-light #titlebar {
+  background: var(--bg-1);
+}
+body.theme-light #toolbar-row {
+  background: var(--bg-1);
+}
+body.theme-light #statusbar {
+  background: var(--bg-1);
+}
 body.theme-light #sidebar {
-  background: #ebebeb;
-  border-right-color: #d0d0d0;
+  background: var(--bg-1);
 }
-
-body.theme-light #sidebar-header {
-  border-bottom-color: #d0d0d0;
+body.theme-light .pane-header {
+  background: var(--bg-2);
 }
-
-body.theme-light .sidebar-title {
-  color: #666666;
-}
-
-body.theme-light #terminal-list .terminal-entry {
-  color: #333333;
-}
-
-body.theme-light #terminal-list .terminal-entry:hover {
-  background: rgba(0,0,0,0.05);
-}
-
-body.theme-light #terminal-list .terminal-entry.active {
+body.theme-light .terminal-entry.active {
   background: rgba(124,140,255,0.12);
   box-shadow: inset 0 0 0 1px rgba(124,140,255,0.25);
 }
-
-body.theme-light .mru-entry {
-  color: #666666;
-}
-
-body.theme-light .mru-entry:hover {
-  background: rgba(0,0,0,0.05);
-  color: #222222;
-}
-
 body.theme-light .modal-dialog {
-  background: #f0f0f0;
-  border-color: #cccccc;
-  color: #222222;
+  background: var(--bg-1);
+  border-color: var(--line-2);
 }
-
-body.theme-light .settings-label {
-  color: #555555;
+body.theme-light .layouts {
+  background: var(--bg-2);
+  border-color: var(--line-2);
 }
-
-body.theme-light #titlebar {
-  background: #e8e8e8;
-  border-bottom-color: #d0d0d0;
-}
-
-body.theme-light #titlebar-center {
-  color: #666666;
-}
-
-body.theme-light #terminal-pane {
-  background: #f0f0f0;
-}
-
-body.theme-light .pane-header {
-  background: #e0e0e0;
-  border-bottom-color: #d0d0d0;
-}
-
-body.theme-light .pane-title {
-  color: #555555;
-}
-
-body.theme-light #statusbar {
-  background: #e8e8e8;
-  border-top-color: #d0d0d0;
-}
-
-body.theme-light .usage-metric,
-body.theme-light .usage-sep,
-body.theme-light .usage-reset {
-  color: #777777;
-}
-
-body.theme-light .claude-status-counter {
-  color: #555555;
+body.theme-light .layout-btn.active {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
 /* ===================================================================
@@ -2440,7 +2405,7 @@ body.theme-light .claude-status-counter {
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  background: linear-gradient(180deg, #0c0d12, var(--bg-0));
+  background: var(--bg-1);
   border-bottom: 1px solid var(--line);
 }
 
