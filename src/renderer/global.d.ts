@@ -153,3 +153,8 @@ declare function getGitCacheForPane(ptyId: number): { cwd: string; projectRoot: 
 
 // Cross-module function: git-status.ts — cleanup per-pane cache when pane closes
 declare function cleanupPaneGitCache(ptyId: number): void;
+
+// Sidebar pane sub-row functions (sidebar.ts — Sprint 2)
+declare function updateSidebarPaneRows(tabId: number): void;
+declare function refreshSidebarPaneRowBranch(tabId: number, ptyId: number): void;
+declare function setSidebarPaneRowState(tabId: number, ptyId: number, state: "idle" | "running" | "waiting" | "done"): void;

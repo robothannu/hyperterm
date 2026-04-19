@@ -596,6 +596,11 @@ async function splitFocusedPane(
     updateSidebarCountPill(tab.id);
   }
 
+  // Update sidebar pane sub-rows
+  if (typeof updateSidebarPaneRows === "function") {
+    updateSidebarPaneRows(tab.id);
+  }
+
   requestAnimationFrame(() => {
     resizeAllPanes(tab.root);
     setFocusedPane(newLeaf.ptyId);
@@ -658,6 +663,11 @@ function closePaneByPtyId(ptyId: number): void {
   // Update sidebar count pill
   if (typeof updateSidebarCountPill === "function") {
     updateSidebarCountPill(tabId);
+  }
+
+  // Update sidebar pane sub-rows
+  if (typeof updateSidebarPaneRows === "function") {
+    updateSidebarPaneRows(tabId);
   }
 
   // Update focus
@@ -885,6 +895,10 @@ async function restoreFromSaved(): Promise<boolean> {
       setTabLayoutPreset(tabId, savedTab.layoutPreset);
     }
     addSidebarEntry(tabId, savedTab.label);
+    // Build sub-rows for multi-pane tabs
+    if (typeof updateSidebarPaneRows === "function") {
+      updateSidebarPaneRows(tabId);
+    }
   }
 
   // Switch to previously active tab

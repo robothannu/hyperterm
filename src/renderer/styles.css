@@ -2190,6 +2190,87 @@ body.theme-light .claude-status-counter {
   flex-shrink: 0;
 }
 
+/* === Sidebar Card: Per-Pane Sub-Rows (Sprint 2) === */
+.card-pane-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  /* align with name column (14px dot + 8px gap = 22px) */
+  padding-left: 22px;
+  padding-top: 3px;
+  overflow: hidden;
+}
+
+.card-pane-row {
+  display: grid;
+  /* connector | cwd | branch | dot */
+  grid-template-columns: 12px minmax(0, 80px) minmax(0, 1fr) 8px;
+  align-items: center;
+  column-gap: 5px;
+  height: 18px;
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--fg-3);
+  /* prevent sub-row from triggering card click — display only */
+  pointer-events: none;
+}
+
+.cpr-connector {
+  color: var(--fg-3);
+  opacity: 0.5;
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.cpr-cwd {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-3);
+  max-width: 80px;
+}
+
+.cpr-branch {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-2);
+  /* cap branch length within the available space */
+  min-width: 0;
+}
+
+/* State dot */
+.cpr-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  justify-self: end;
+}
+
+.cpr-dot-idle {
+  background: var(--fg-3);
+  opacity: 0.5;
+}
+
+.cpr-dot-running {
+  background: var(--ok);
+  box-shadow: 0 0 0 2px rgba(74,222,128,0.2);
+  opacity: 1;
+}
+
+.cpr-dot-waiting {
+  background: var(--warn);
+  animation: dotWaitPulse 1s ease-in-out infinite;
+  opacity: 1;
+}
+
+.cpr-dot-done {
+  background: var(--ok);
+  opacity: 0.6;
+}
+
 /* === Sidebar Card: overflow safety for 1280px === */
 #terminal-list .terminal-entry {
   max-width: 100%;

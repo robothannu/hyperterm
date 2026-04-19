@@ -66,7 +66,6 @@ function updateSidebarGitBadge(tabId: number, info: GitInfo | null): void {
   const metaEl = li.querySelector(".card-meta") as HTMLElement | null;
   const gitEl = li.querySelector(".card-meta-git") as HTMLElement | null;
   const changesEl = li.querySelector(".card-meta-changes") as HTMLElement | null;
-  const aheadEl = li.querySelector(".card-meta-ahead") as HTMLElement | null;
 
   if (metaEl) {
     if (!info) {
@@ -82,14 +81,6 @@ function updateSidebarGitBadge(tabId: number, info: GitInfo | null): void {
           changesEl.style.display = "";
         } else {
           changesEl.style.display = "none";
-        }
-      }
-      if (aheadEl) {
-        if (info.ahead > 0) {
-          aheadEl.textContent = `↑${info.ahead}`;
-          aheadEl.style.display = "";
-        } else {
-          aheadEl.style.display = "none";
         }
       }
     }
@@ -205,6 +196,13 @@ async function pollGitForTab(tabId: number): Promise<void> {
   // Update each pane header with its own git info
   if (typeof updatePaneHeadersFromGitCache === "function") {
     updatePaneHeadersFromGitCache(tabId);
+  }
+
+  // Update sidebar pane sub-rows branch display for each pane
+  if (typeof refreshSidebarPaneRowBranch === "function") {
+    for (const leaf of leaves) {
+      refreshSidebarPaneRowBranch(tabId, leaf.ptyId);
+    }
   }
 
   // Sidebar card-meta: use focused pane's git info.
