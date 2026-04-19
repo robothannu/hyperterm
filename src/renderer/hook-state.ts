@@ -52,20 +52,41 @@ const hookStateMarkers = new Map<number, HTMLElement>();
 // ---------------------------------------------------------------------------
 
 // Known hook event names
-const KNOWN_HOOK_EVENTS = new Set(["PreToolUse", "PostToolUse", "Notification", "Stop"]);
+const KNOWN_HOOK_EVENTS = new Set([
+  "PreToolUse",
+  "PostToolUse",
+  "UserPromptSubmit",
+  "Notification",
+  "Stop",
+]);
 
-function transitionPaneState(leaf: PaneLeaf, event: string, _message?: string): AgentHookState {
+function isPermissionNotification(message: string): boolean {
+  // Claude Code Notification fires for two cases:
+  //  - permission request: "Claude needs your permission to use X"
+  //  - idle >60s: "Claude is waiting for your input"
+  // Only the permission case should flip to waiting_approval.
+  const m = message.toLowerCase();
+  return m.includes("permission") || m.includes("needs your");
+}
+
+function transitionPaneState(leaf: PaneLeaf, event: string, message?: string): AgentHookState {
   const current = leaf.agentState;
 
   switch (event) {
+    case "UserPromptSubmit":
+      // User sent a prompt → Claude is now working (even for text-only responses
+      // that never fire PreToolUse/PostToolUse)
+      return "working";
     case "PreToolUse":
       return "working";
     case "PostToolUse":
       return "working";
     case "Notification":
-      // Notification = Claude가 사용자 주의를 요하는 이벤트 → 항상 waiting_approval
-      // (message 필드 유무/내용과 무관하게 승인 대기로 처리)
-      return "waiting_approval";
+      if (isPermissionNotification(message || "")) {
+        return "waiting_approval";
+      }
+      // Idle-waiting notification: do not change state
+      return current;
     case "Stop":
       return "idle";
     default:
@@ -340,12 +361,18 @@ function handleHookEvent(evt: HookEvent): void {
     showHookToast(`⚠ Waiting for input — ${tabLabel}`, "warn");
     updateSidebarDotPulse(tabId, true);
     setTabNotifBadge(tabId, "approval");
+    if (typeof setSidebarPaneRowState === "function") {
+      setSidebarPaneRowState(tabId, leaf.ptyId, "waiting");
+    }
     window.terminalAPI.notifyApproval();
     updateClaudeStatusCounter();
   }
 
   if (prevState !== "working" && newState === "working") {
     setTabNotifBadge(tabId, "working");
+    if (typeof setSidebarPaneRowState === "function") {
+      setSidebarPaneRowState(tabId, leaf.ptyId, "running");
+    }
     updateClaudeStatusCounter();
   }
 
@@ -354,11 +381,26 @@ function handleHookEvent(evt: HookEvent): void {
     updateSidebarDotPulse(tabId, false);
     setTabNotifBadge(tabId, "done");
     setTimeout(() => setTabNotifBadge(tabId, "clear"), 5000);
+    // Sub-row: show "done" immediately, then revert to "idle" after 8s
+    if (typeof setSidebarPaneRowState === "function") {
+      setSidebarPaneRowState(tabId, leaf.ptyId, "done");
+      const _tabId = tabId;
+      const _ptyId = leaf.ptyId;
+      setTimeout(() => {
+        if (typeof setSidebarPaneRowState === "function") {
+          setSidebarPaneRowState(_tabId, _ptyId, "idle");
+        }
+      }, 8000);
+    }
     updateClaudeStatusCounter();
   }
 
   if (prevState === "waiting_approval" && newState !== "waiting_approval") {
     updateSidebarDotPulse(tabId, false);
+    // Sub-row: clear waiting state (will be overwritten by working/idle transitions above if applicable)
+    if (typeof setSidebarPaneRowState === "function" && newState !== "working" && newState !== "idle") {
+      setSidebarPaneRowState(tabId, leaf.ptyId, "idle");
+    }
   }
 
   // Clean up session mapping when Claude stops

@@ -284,8 +284,8 @@ function addSidebarEntryDOM(tabId: number, label: string): void {
     <div class="card-meta" style="display:none">
       <span class="card-meta-git"></span>
       <span class="card-meta-changes" style="display:none"></span>
-      <span class="card-meta-ahead" style="display:none"></span>
     </div>
+    <div class="card-pane-rows" style="display:none"></div>
   `;
 
   // No per-entry event listeners — all handled by delegation above
@@ -359,6 +359,158 @@ function updateSidebarActive(tabId: number): void {
       (el as HTMLElement).dataset.id === String(tabId)
     );
   });
+}
+
+// ---------------------------------------------------------------------------
+// Per-Pane Sub-Rows — Sprint 2
+// ---------------------------------------------------------------------------
+
+// Helper: shorten cwd to last 2 path segments for sub-row display
+function shortenCwdForSubrow(cwd: string): string {
+  if (!cwd) return "~";
+  // Normalize home dir
+  const home = cwd.replace(/^\/(?:Users|home)\/[^/]+/, "~");
+  const parts = home.replace(/\/$/, "").split("/").filter(Boolean);
+  if (parts.length === 0) return "~";
+  if (parts.length <= 2) return home.replace(/\/$/, "") || "~";
+  return "…/" + parts.slice(-2).join("/");
+}
+
+// Helper: shorten branch for sub-row (shorter than card-meta)
+function shortBranchForSubrow(b: string): string {
+  return b.length > 20 ? b.slice(0, 18) + "…" : b;
+}
+
+// Build a single sub-row element for a pane leaf
+function buildPaneSubRow(ptyId: number, index: number, total: number): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "card-pane-row";
+  row.dataset.ptyId = String(ptyId);
+
+  // Tree connector character
+  const connector = index === total - 1 ? "└" : "├";
+  const connectorEl = document.createElement("span");
+  connectorEl.className = "cpr-connector";
+  connectorEl.textContent = connector;
+  row.appendChild(connectorEl);
+
+  // CWD label (populated asynchronously from cwd poll)
+  const cwdEl = document.createElement("span");
+  cwdEl.className = "cpr-cwd";
+  cwdEl.textContent = "~";
+  row.appendChild(cwdEl);
+
+  // Branch (from paneGitCache)
+  const branchEl = document.createElement("span");
+  branchEl.className = "cpr-branch";
+  branchEl.style.display = "none";
+  row.appendChild(branchEl);
+
+  // State dot (Sprint 3 will animate this; for now always idle)
+  const dotEl = document.createElement("span");
+  dotEl.className = "cpr-dot cpr-dot-idle";
+  dotEl.setAttribute("data-state", "idle");
+  dotEl.title = "Idle";
+  row.appendChild(dotEl);
+
+  // Populate from cache immediately if available
+  refreshSubRowContent(row, ptyId);
+
+  return row;
+}
+
+// Refresh a single sub-row's cwd + branch from cache
+function refreshSubRowContent(row: HTMLElement, ptyId: number): void {
+  const cwdEl = row.querySelector(".cpr-cwd") as HTMLElement | null;
+  const branchEl = row.querySelector(".cpr-branch") as HTMLElement | null;
+  if (!cwdEl || !branchEl) return;
+
+  // Get cwd from pane git cache
+  if (typeof getGitCacheForPane === "function") {
+    const cache = getGitCacheForPane(ptyId);
+    if (cache?.cwd) {
+      cwdEl.textContent = shortenCwdForSubrow(cache.cwd);
+    }
+    if (cache?.info?.branch) {
+      branchEl.textContent = "⎇ " + shortBranchForSubrow(cache.info.branch);
+      branchEl.style.display = "";
+    } else {
+      branchEl.style.display = "none";
+    }
+  }
+}
+
+// Rebuild all sub-rows for a tab (called after split or close)
+function updateSidebarPaneRows(tabId: number): void {
+  const li = document.querySelector(`#terminal-list [data-id="${tabId}"]`) as HTMLElement | null;
+  if (!li) return;
+
+  const container = li.querySelector(".card-pane-rows") as HTMLElement | null;
+  if (!container) return;
+
+  const tab = tabMap.get(tabId);
+  if (!tab) return;
+
+  const leaves = getAllLeaves(tab.root);
+
+  if (leaves.length <= 1) {
+    // Single pane: hide sub-row area
+    container.style.display = "none";
+    container.innerHTML = "";
+    return;
+  }
+
+  // Multi-pane: rebuild rows
+  container.innerHTML = "";
+  leaves.forEach((leaf, i) => {
+    const row = buildPaneSubRow(leaf.ptyId, i, leaves.length);
+    container.appendChild(row);
+  });
+  container.style.display = "";
+}
+
+// Update only the branch + cwd display for a specific pane's sub-row
+function refreshSidebarPaneRowBranch(tabId: number, ptyId: number): void {
+  const li = document.querySelector(`#terminal-list [data-id="${tabId}"]`) as HTMLElement | null;
+  if (!li) return;
+  const row = li.querySelector(`.card-pane-row[data-pty-id="${ptyId}"]`) as HTMLElement | null;
+  if (!row) return;
+  refreshSubRowContent(row, ptyId);
+}
+
+// Update state dot for a specific pane's sub-row (Sprint 3 will call this)
+function setSidebarPaneRowState(
+  tabId: number,
+  ptyId: number,
+  state: "idle" | "running" | "waiting" | "done"
+): void {
+  const li = document.querySelector(`#terminal-list [data-id="${tabId}"]`) as HTMLElement | null;
+  if (!li) return;
+  const row = li.querySelector(`.card-pane-row[data-pty-id="${ptyId}"]`) as HTMLElement | null;
+  if (!row) return;
+  const dotEl = row.querySelector(".cpr-dot") as HTMLElement | null;
+  if (!dotEl) return;
+
+  dotEl.setAttribute("data-state", state);
+  dotEl.className = "cpr-dot";
+  switch (state) {
+    case "running":
+      dotEl.classList.add("cpr-dot-running");
+      dotEl.title = "Running";
+      break;
+    case "waiting":
+      dotEl.classList.add("cpr-dot-waiting");
+      dotEl.title = "Waiting";
+      break;
+    case "done":
+      dotEl.classList.add("cpr-dot-done");
+      dotEl.title = "Done";
+      break;
+    default:
+      dotEl.classList.add("cpr-dot-idle");
+      dotEl.title = "Idle";
+      break;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -107,5 +107,53 @@
     "total": 27,
     "verdict": "PASS",
     "timestamp": "2026-04-19"
+  },
+  {
+    "feature": "per_pane_git_branch",
+    "iteration": 1,
+    "sprint": 1,
+    "scores": {
+      "functionality": 5,
+      "user_experience": 5,
+      "visual_quality": 5,
+      "edge_cases": 4,
+      "performance": 4,
+      "regression": 5
+    },
+    "total": 28,
+    "verdict": "PASS",
+    "timestamp": "2026-04-19"
+  },
+  {
+    "feature": "sidebar_per_pane_state",
+    "iteration": 1,
+    "sprint": 2,
+    "scores": {
+      "functionality": 5,
+      "user_experience": 4,
+      "visual_quality": 4,
+      "edge_cases": 5,
+      "performance": 5,
+      "regression": 5
+    },
+    "total": 28,
+    "verdict": "PASS",
+    "timestamp": "2026-04-19"
+  },
+  {
+    "feature": "sidebar_per_pane_state",
+    "iteration": 1,
+    "sprint": 3,
+    "scores": {
+      "functionality": 5,
+      "user_experience": 4,
+      "visual_quality": 4,
+      "edge_cases": 5,
+      "performance": 5,
+      "regression": 5
+    },
+    "total": 28,
+    "verdict": "PASS",
+    "timestamp": "2026-04-19"
   }
 ]

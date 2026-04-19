@@ -2,8 +2,9 @@
 /// <reference path="./pane-types.d.ts" />
 
 // --- Git Status Polling ---
-// Polls git status for each tab's active pane cwd every 5 seconds.
-// Updates sidebar git badge (branch + dirty dot).
+// Polls git status for each pane independently.
+// Each pane's cwd is tracked separately in paneGitCache.
+// Sidebar card-meta shows the focused pane's git info for the tab.
 
 const GIT_POLL_INTERVAL_MS = 5000;
 let gitPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -25,11 +26,22 @@ interface GitCacheEntry {
   filesTs: number;
 }
 
+// Per-pane git cache: ptyId → GitCacheEntry
+// Each pane tracks its own cwd/branch independently.
+const paneGitCache = new Map<number, GitCacheEntry>();
+
+// Tab-level cache kept for backward compat (changed-files-panel reads this).
+// Updated to reflect the focused pane's git info after each poll.
 const tabGitCache = new Map<number, GitCacheEntry>();
 
-// Expose cache for changed-files-panel to read (avoids duplicate IPC)
+// Expose tab-level cache for changed-files-panel to read (avoids duplicate IPC)
 function getGitCacheForTab(tabId: number): GitCacheEntry | undefined {
   return tabGitCache.get(tabId);
+}
+
+// Expose pane-level cache (for pane header CWD poll in renderer.ts)
+function getGitCacheForPane(ptyId: number): GitCacheEntry | undefined {
+  return paneGitCache.get(ptyId);
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +66,6 @@ function updateSidebarGitBadge(tabId: number, info: GitInfo | null): void {
   const metaEl = li.querySelector(".card-meta") as HTMLElement | null;
   const gitEl = li.querySelector(".card-meta-git") as HTMLElement | null;
   const changesEl = li.querySelector(".card-meta-changes") as HTMLElement | null;
-  const aheadEl = li.querySelector(".card-meta-ahead") as HTMLElement | null;
 
   if (metaEl) {
     if (!info) {
@@ -70,14 +81,6 @@ function updateSidebarGitBadge(tabId: number, info: GitInfo | null): void {
           changesEl.style.display = "";
         } else {
           changesEl.style.display = "none";
-        }
-      }
-      if (aheadEl) {
-        if (info.ahead > 0) {
-          aheadEl.textContent = `↑${info.ahead}`;
-          aheadEl.style.display = "";
-        } else {
-          aheadEl.style.display = "none";
         }
       }
     }
@@ -104,36 +107,34 @@ function updateSidebarGitBadge(tabId: number, info: GitInfo | null): void {
 }
 
 // ---------------------------------------------------------------------------
-// Poll a single tab
+// Poll a single pane — updates paneGitCache[ptyId]
 // ---------------------------------------------------------------------------
 
-async function pollGitForTab(tabId: number): Promise<void> {
-  const tab = tabMap.get(tabId);
-  if (!tab) return;
-
-  // Get active pane's cwd — use the first leaf if no explicit active leaf
-  const leaves = getAllLeaves(tab.root);
-  if (leaves.length === 0) return;
-
-  const leaf = leaves[0];
+async function pollGitForPane(ptyId: number): Promise<GitCacheEntry> {
   let cwd: string;
   try {
-    cwd = await window.terminalAPI.getCwd(leaf.ptyId);
+    cwd = await window.terminalAPI.getCwd(ptyId);
   } catch {
-    return;
+    const empty: GitCacheEntry = { cwd: "", projectRoot: null, info: null, files: null, filesTs: 0 };
+    paneGitCache.set(ptyId, empty);
+    return empty;
   }
 
-  if (!cwd) return;
+  if (!cwd) {
+    const empty: GitCacheEntry = { cwd: "", projectRoot: null, info: null, files: null, filesTs: 0 };
+    paneGitCache.set(ptyId, empty);
+    return empty;
+  }
 
-  // Check cache — cwd가 같을 때만 캐시된 projectRoot 재사용
-  const cached = tabGitCache.get(tabId);
+  // Check existing pane cache
+  const cached = paneGitCache.get(ptyId);
   let projectRoot: string | null;
 
   if (cached && cached.cwd === cwd) {
-    // 같은 디렉터리 — 캐시된 root 재사용, status만 갱신
+    // Same dir — reuse cached root
     projectRoot = cached.projectRoot;
   } else {
-    // cwd 변경 또는 첫 탐색 — root 재탐색
+    // cwd changed or first time — find root
     try {
       projectRoot = await window.terminalAPI.gitFindRoot(cwd);
     } catch {
@@ -142,13 +143,13 @@ async function pollGitForTab(tabId: number): Promise<void> {
   }
 
   if (!projectRoot) {
-    tabGitCache.set(tabId, { cwd, projectRoot: null, info: null, files: null, filesTs: 0 });
-    updateSidebarGitBadge(tabId, null);
-    return;
+    const entry: GitCacheEntry = { cwd, projectRoot: null, info: null, files: null, filesTs: 0 };
+    paneGitCache.set(ptyId, entry);
+    return entry;
   }
 
   // MRU: register this project root (only when root changes)
-  const prevCached = tabGitCache.get(tabId);
+  const prevCached = paneGitCache.get(ptyId);
   if (!prevCached || prevCached.projectRoot !== projectRoot) {
     if (typeof addMruProject === "function") {
       addMruProject(projectRoot).catch(() => {/* ignore */});
@@ -168,11 +169,54 @@ async function pollGitForTab(tabId: number): Promise<void> {
           ahead: status.aheadCount ?? 0,
         }
       : null;
-    tabGitCache.set(tabId, { cwd, projectRoot, info, files: files ?? null, filesTs: Date.now() });
-    updateSidebarGitBadge(tabId, info);
+    const entry: GitCacheEntry = { cwd, projectRoot, info, files: files ?? null, filesTs: Date.now() };
+    paneGitCache.set(ptyId, entry);
+    return entry;
   } catch {
-    updateSidebarGitBadge(tabId, null);
+    const entry: GitCacheEntry = { cwd, projectRoot, info: null, files: null, filesTs: 0 };
+    paneGitCache.set(ptyId, entry);
+    return entry;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Poll a single tab — polls ALL panes independently, then updates sidebar
+// ---------------------------------------------------------------------------
+
+async function pollGitForTab(tabId: number): Promise<void> {
+  const tab = tabMap.get(tabId);
+  if (!tab) return;
+
+  const leaves = getAllLeaves(tab.root);
+  if (leaves.length === 0) return;
+
+  // Poll all panes in parallel
+  await Promise.all(leaves.map((leaf) => pollGitForPane(leaf.ptyId)));
+
+  // Update each pane header with its own git info
+  if (typeof updatePaneHeadersFromGitCache === "function") {
+    updatePaneHeadersFromGitCache(tabId);
+  }
+
+  // Update sidebar pane sub-rows branch display for each pane
+  if (typeof refreshSidebarPaneRowBranch === "function") {
+    for (const leaf of leaves) {
+      refreshSidebarPaneRowBranch(tabId, leaf.ptyId);
+    }
+  }
+
+  // Sidebar card-meta: use focused pane's git info.
+  // Rationale: focused pane is what the user is actively working in,
+  // so its branch is the most relevant for the sidebar badge.
+  const focusedLeaf = leaves.find((l) => l.ptyId === tab.focusedPtyId) ?? leaves[0];
+  const focusedEntry = paneGitCache.get(focusedLeaf.ptyId);
+
+  // Sync tab-level cache for changed-files-panel (uses focusedLeaf's data)
+  if (focusedEntry) {
+    tabGitCache.set(tabId, focusedEntry);
+  }
+
+  updateSidebarGitBadge(tabId, focusedEntry?.info ?? null);
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +235,22 @@ async function pollActiveGitStatus(): Promise<void> {
 
 function invalidateGitCache(tabId: number): void {
   tabGitCache.delete(tabId);
+  // Also clear all pane caches for this tab
+  const tab = tabMap.get(tabId);
+  if (tab) {
+    for (const leaf of getAllLeaves(tab.root)) {
+      paneGitCache.delete(leaf.ptyId);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public: cleanup per-pane cache when a pane is closed
+// ---------------------------------------------------------------------------
+
+function cleanupPaneGitCache(ptyId: number): void {
+  paneGitCache.delete(ptyId);
+  console.log(`[git-status] pane cache cleaned for ptyId=${ptyId}`);
 }
 
 // ---------------------------------------------------------------------------

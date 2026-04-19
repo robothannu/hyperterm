@@ -190,6 +190,20 @@ async function pollAgentStatus(): Promise<void> {
     setPaneAgentStatus(leaf, isRunning);
     if (isRunning) tabHasAgent = true;
 
+    // Update sub-row state based on agent process transitions
+    if (typeof setSidebarPaneRowState === "function") {
+      if (!wasRunning && isRunning) {
+        // Claude process just started — show "running" only if hook hasn't already set a more specific state
+        if (leaf.agentState === "idle" || leaf.agentState === "done") {
+          setSidebarPaneRowState(activeTabId!, leaf.ptyId, "running");
+        }
+      } else if (wasRunning && !isRunning) {
+        // Claude process just stopped — revert to idle only if no hook state is active
+        if (leaf.agentState === "idle" || leaf.agentState === "done") {
+          setSidebarPaneRowState(activeTabId!, leaf.ptyId, "idle");
+        }
+      }
+    }
   }
 
   updateSidebarAgentMarker(activeTabId, tabHasAgent);

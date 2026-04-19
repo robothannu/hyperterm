@@ -1,12 +1,12 @@
 {
-  "current_phase": "complete",
+  "current_phase": "building",
   "iteration": 1,
   "current_sprint": 3,
   "total_sprints": 3,
-  "feature_request": "HyperTerm.html 디자인 구현 — Linear/Raycast 스타일 UI 리디자인",
+  "feature_request": "사이드바 per-pane 상태 구분: pane별 서브행(git branch + Running/Waiting 상태) + per-pane git branch polling",
   "project_type": "web",
-  "scale": "large",
-  "feature_branch": null,
+  "scale": "medium",
+  "feature_branch": "feature/per-pane-status",
   "max_iterations": 5,
-  "history": [{"sprint": 1, "score": 27, "verdict": "PASS"}, {"sprint": 2, "score": 28, "verdict": "PASS"}, {"sprint": 3, "score": 27, "verdict": "PASS"}]
+  "history": [{"sprint": 1, "score": 28, "verdict": "PASS"}, {"sprint": 2, "score": 28, "verdict": "PASS"}]
 }

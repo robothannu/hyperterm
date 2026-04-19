@@ -339,10 +339,9 @@ async function createPaneSession(
       try {
         const newCwd = await window.terminalAPI.getCwd(ptyId);
         if (newCwd) cwdEl.textContent = shortenCwd(newCwd);
-        // Update branch from git cache if available
-        const tabId = ptyToTab.get(ptyId);
-        if (tabId !== undefined && typeof getGitCacheForTab === "function") {
-          const cache = getGitCacheForTab(tabId);
+        // Update branch from per-pane git cache
+        if (typeof getGitCacheForPane === "function") {
+          const cache = getGitCacheForPane(ptyId);
           if (cache?.info?.branch) {
             branchEl.textContent = "⎇ " + shortBranchName(cache.info.branch);
             branchEl.style.display = "";
@@ -500,20 +499,28 @@ function switchToTab(tabId: number): void {
   updatePaneHeadersFromGitCache(tabId);
 }
 
-// Update branch info in pane headers using tabGitCache (synchronous read)
+// Update branch info in pane headers using paneGitCache (per-pane, synchronous read)
 function updatePaneHeadersFromGitCache(tabId: number): void {
-  if (typeof getGitCacheForTab !== "function") return;
   const tab = tabMap.get(tabId);
   if (!tab) return;
-  const cache = getGitCacheForTab(tabId);
-  const branch = cache?.info?.branch ?? null;
-  const branchText = branch ? "⎇ " + shortBranchName(branch) : null;
 
   const leaves = getAllLeaves(tab.root);
   for (const leaf of leaves) {
     const branchEl = leaf.element.querySelector(".ph-branch") as HTMLElement | null;
     const branchSep = leaf.element.querySelectorAll(".ph-sep")[0] as HTMLElement | null;
     if (!branchEl) continue;
+
+    // Use per-pane cache if available, otherwise fall back to tab-level cache
+    let branch: string | null = null;
+    if (typeof getGitCacheForPane === "function") {
+      const paneCache = getGitCacheForPane(leaf.ptyId);
+      branch = paneCache?.info?.branch ?? null;
+    } else if (typeof getGitCacheForTab === "function") {
+      const tabCache = getGitCacheForTab(tabId);
+      branch = tabCache?.info?.branch ?? null;
+    }
+
+    const branchText = branch ? "⎇ " + shortBranchName(branch) : null;
     if (branchText) {
       branchEl.textContent = branchText;
       branchEl.style.display = "";
@@ -589,6 +596,11 @@ async function splitFocusedPane(
     updateSidebarCountPill(tab.id);
   }
 
+  // Update sidebar pane sub-rows
+  if (typeof updateSidebarPaneRows === "function") {
+    updateSidebarPaneRows(tab.id);
+  }
+
   requestAnimationFrame(() => {
     resizeAllPanes(tab.root);
     setFocusedPane(newLeaf.ptyId);
@@ -643,10 +655,19 @@ function closePaneByPtyId(ptyId: number): void {
   ptyToTab.delete(ptyId);
   cleanupPaneAgentMarker(ptyId);
   cleanupPaneHookMarker(ptyId);
+  // Clean up per-pane git cache
+  if (typeof cleanupPaneGitCache === "function") {
+    cleanupPaneGitCache(ptyId);
+  }
 
   // Update sidebar count pill
   if (typeof updateSidebarCountPill === "function") {
     updateSidebarCountPill(tabId);
+  }
+
+  // Update sidebar pane sub-rows
+  if (typeof updateSidebarPaneRows === "function") {
+    updateSidebarPaneRows(tabId);
   }
 
   // Update focus
@@ -690,6 +711,10 @@ function closeTab(tabId: number): void {
     sessions.delete(leaf.ptyId);
     sessionKeys.delete(leaf.ptyId);
     ptyToTab.delete(leaf.ptyId);
+    // Clean up per-pane git cache
+    if (typeof cleanupPaneGitCache === "function") {
+      cleanupPaneGitCache(leaf.ptyId);
+    }
   }
 
   tab.container.remove();
@@ -870,6 +895,10 @@ async function restoreFromSaved(): Promise<boolean> {
       setTabLayoutPreset(tabId, savedTab.layoutPreset);
     }
     addSidebarEntry(tabId, savedTab.label);
+    // Build sub-rows for multi-pane tabs
+    if (typeof updateSidebarPaneRows === "function") {
+      updateSidebarPaneRows(tabId);
+    }
   }
 
   // Switch to previously active tab
