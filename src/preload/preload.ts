@@ -67,6 +67,7 @@ export interface TerminalAPI {
     stagedCount: number;
     unstagedCount: number;
     untrackedCount: number;
+    aheadCount: number;
   } | null>;
   gitFiles(projectRoot: string): Promise<{ path: string; x: string; y: string }[]>;
   gitDiff(
@@ -173,6 +174,7 @@ contextBridge.exposeInMainWorld("terminalAPI", {
     stagedCount: number;
     unstagedCount: number;
     untrackedCount: number;
+    aheadCount: number;
   } | null> => {
     return ipcRenderer.invoke("git:status", projectRoot);
   },

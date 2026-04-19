@@ -462,22 +462,6 @@ html, body {
   background: var(--line-2);
 }
 
-/* Pane header with session name */
-.pane-header {
-  height: 26px;
-  min-height: 26px;
-  background: linear-gradient(180deg, #11131a, #0d0f14);
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  padding: 0 10px;
-  gap: 8px;
-  user-select: none;
-  -webkit-app-region: no-drag;
-  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  color: var(--fg-2);
-}
 
 .pane-title {
   font-size: 11px;
@@ -2162,7 +2146,7 @@ body.theme-light .claude-status-counter {
   display: flex;
   align-items: center;
   padding: 0 10px;
-  gap: 6px;
+  gap: 8px;
   user-select: none;
   -webkit-app-region: no-drag;
   font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;

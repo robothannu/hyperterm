@@ -304,6 +304,7 @@ function startRename(
   input.className = "rename-input";
   input.value = currentName;
 
+  input.style.gridColumn = "2 / 3";
   labelEl.style.display = "none";
   const labelRow = labelEl.parentElement ?? li;
   labelRow.insertBefore(input, labelEl);
