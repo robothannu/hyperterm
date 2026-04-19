@@ -1,61 +1,76 @@
 # Work Progress
 
 ## Current Task
-- 완료 (코드 리뷰 이슈 15개 전체 수정 + 사이드바 개선)
+- 완료 (Linear/Raycast UI 리디자인 + 알림 시스템 + hook 버그 수정)
 
 ## Last Session (2026-04-19)
 
-### 사이드바 텍스트 오버플로우 & 리사이즈 (pre-harness)
-- `.terminal-label` — `white-space: nowrap` 제거 → `word-break: break-all` 적용 (긴 브랜치명 wrapping)
-- `#sidebar` resize handle 추가 — 드래그로 150~500px 조정, `localStorage` 저장
-- `src/renderer/sidebar-resize.ts` 신규 모듈 생성
+### 알림 뱃지 시스템 (그룹 이름 옆)
+- `tab-notif` 뱃지 추가 (sidebar.ts `addSidebarEntryDOM`)
+- 상태별 색상: `⚙ Running` 파란색 / `⚠ Waiting` 주황 맥박 / `✓ Done` 초록 5초 후 소멸
+- hook-state.ts에 `setTabNotifBadge()` 함수 추가 및 handleHookEvent에서 호출
 
-### 코드 리뷰 이슈 15개 수정 (harness 3-sprint, 브랜치 `feature/code-review-fixes` → `2d_gui` 머지)
+### Claude Code Hook 버그 수정 (핵심)
+- `CLAUDE_HOOK_EVENT` 환경변수가 실제로 설정되지 않음 발견
+- payload stdin JSON의 `hook_event_name` 필드를 읽도록 `hook.sh` 수정
+- `main.ts` 템플릿도 동일하게 수정
+- 결과: Recent Activity가 항상 비어있던 문제 해결
 
-**Sprint 1: Leak & Lifecycle Hygiene (28/30)**
-- `sidebar.ts` — event delegation 패턴 전환 (`#terminal-list`에 7개 리스너 ONE-TIME 설치, `__delegationInstalled` 가드)
-- `renderer.ts` — `_teardownAll()` 추가, `beforeunload` + `onBeforeQuit` 연결 (ResizeObserver, polling, keydown 해제)
-- `keybindings.ts` — named handler → `teardownKeybindings()` 추가
-- `renderSidebar()` 버그 수정: `innerHTML=""` 후 빈 DOM에서 tabId 읽던 것 → `tabMap.keys()` 사용
+### Recent Activity 제거
+- `activity-log.ts` 로드 및 `initActivityLog()` 호출 제거
+- 관련 CSS 전부 삭제
 
-**Sprint 2: Correctness & Failure Visibility (27/30)**
-- `renderer.ts` — `createNewTab()` try-catch: 실패 시 tabMap/tabLabels/tabClusters/ptyToTab/DOM 전체 rollback + `showToast()` 표시
-- `renderer.ts` — `closePaneByPtyId()` race condition 수정, `splitFocusedPane()` DOM rollback
-- `agent-status.ts` — FAIL_SENTINEL 패턴, 연속 3회 실패 시 statusbar indicator + throttled console.warn
-- `hook-state.ts` — `KNOWN_HOOK_EVENTS` Set, 미지정 이벤트 `console.warn` + state 무변경
-- `changed-files-panel.ts` — `typeof` 런타임 검사 제거
+### HyperTerm Linear/Raycast UI 리디자인 (harness 3-sprint)
+**Sprint 1 (27/30)**: Visual Foundation
+- CSS 변수 시스템 (`--bg-0~4`, `--fg-0~3`, `--accent`, `--ok`, `--warn` 등)
+- Inter + JetBrains Mono 폰트 (Google Fonts + CSP 확장)
+- Titlebar 3-column grid: `HyperTerm › GroupName · branch`
+- Sidebar "TERMINAL GROUPS" 헤더 + SVG 아이콘 버튼
+- Statusbar: Claude counter 좌 / 5H·7D usage bar 우 (indigo/amber/red)
 
-**Sprint 3: Polling Efficiency & UX Polish (27/30)**
-- `git-status.ts` — `pollAllGitStatus` 제거 → `pollActiveGitStatus()` (activeTabId만), `pollGitOnTabSwitch()` 탭 전환 시 on-demand
-- `agent-status.ts` — activeTabId 전용 polling 로그 추가
-- `notes-panel.ts` — `tryCloseNotesPanel()`: 미저장 텍스트 시 `window.confirm()`, 취소/폐기 처리 (close버튼·ESC·overlay 모두)
-- `sidebar-mru.ts` — `path:checkExists` IPC, `validateMruProjects()` 앱 로드 시 실행, 클릭 시 showToast
-- `settings-modal.ts` + `renderer.ts` — `activeSessionSettings` 전역, 신규 세션 생성 시 적용
+**Sprint 2 (28/30)**: Rich Sidebar Cards & Pane Headers
+- 사이드바 project card: dot-status / 이름 / count pill / meta(branch·changes·ahead)
+- git:status IPC에 `aheadCount` 추가 (rev-list)
+- Pane header: dot · cwd · branch · 제목 · Clear/Split/Close 버튼
+- `.pane-leaf.focused`: indigo border + shadow
+- rename input grid-column 회귀 수정 (iter 2)
+
+**Sprint 3 (27/30)**: Layout Presets & Toolbar Row
+- `toolbar-row.ts` 신규: 4개 레이아웃 프리셋 버튼 (1/2/3/4-pane)
+- `applyLayoutPreset()`: 기존 pane 재사용, 부족분 생성, 초과분 teardown
+- `layoutPreset` sessions.json 저장/복원
+
+### Settings 모달 디자인 일관성
+- 헤더 gradient + border, Inter 600 타이포
+- 슬라이더 webkit 커스텀 (indigo thumb + glow)
+- 토글 border 추가, 값 레이블 JetBrains Mono
+- Hook 상태 pill border-radius 10px
+
+### 패키지 빌드
+- `npm run dist` → `release/mac-arm64/HyperTerm.app` 완료
 
 ## Next Steps
-- [ ] **HIGH: 실제 Claude Code 연동 검증** — packaged .app에서 `claude` 실행 후 hook 이벤트 왕복 확인
-- [ ] **HIGH: DevTools Memory 프로파일링** — packaged .app에서 Criterion 1·2 런타임 검증 (event listener bounded, detached node 없음)
+- [ ] **HIGH: 패키지 .app에서 Claude Code 연동 검증** — hook 이벤트 왕복 확인 (뱃지 표시 확인)
+- [ ] **HIGH: DevTools Memory 프로파일링** — event listener bounded, detached node 없음
 - [ ] **MEDIUM: /Applications 배포** — `cp -r release/mac-arm64/HyperTerm.app /Applications/HyperTerm.app`
-- [ ] **LOW: Settings 확장** — auto-switch on approval 토글, sound 알림 옵션
-- [ ] **LOW: Diff 뷰어 prev/next** — 파일 간 연속 review 키보드 네비
-- [ ] **LOW: 죽은 코드 제거** — `pty-manager.ts`의 미사용 함수들
+- [ ] **LOW: 레이아웃 프리셋 UX** — 전환 시 toast 피드백, tabLayoutPresets closeTab 정리
+- [ ] **LOW: rename-input max-width** — 넓은 사이드바에서 140px 캡 여유 있게
 
 ## Key Decisions
-- **Event Delegation**: sidebar `#terminal-list`에 단일 delegation. `innerHTML=""` 후에도 리스너 유지됨.
-- **`_teardownAll()`**: `beforeunload`와 `onBeforeQuit` 양쪽 연결. 모든 op idempotent.
-- **activeTabId-only polling**: git/agent 모두 비활성 탭 IPC 차단. 탭 전환 시 on-demand poll.
-- **`activeSessionSettings`**: font/theme 전역 변수로 신규 세션에 즉시 반영.
-- **`window.confirm()`**: notes 미저장 경고에 브라우저 내장 confirm 사용 (외부 의존성 없음).
-- **Rename**: `tabLabels` Map이 source of truth.
-- **Hook 통합**: `nc -U` (socat 불필요).
+- **Hook 이벤트**: `CLAUDE_HOOK_EVENT` env var 대신 stdin payload `hook_event_name` 파싱
+- **Activity Log 제거**: 그룹 이름 옆 뱃지로 대체 — 더 직관적
+- **알림 색상**: Running=파란(정보), Waiting=주황 맥박(행동요구), Done=초록 5초(확인)
+- **Card dot-status**: idle=gray / running=green glow / waiting=amber / done=green flash
+- **Layout preset 저장**: toolbar highlight는 metadata, 실제 tree는 SavedPaneNode에서 복원
+- **Excess pane 제거**: closePaneByPtyId 우회 → closeTab 사이드이펙트 방지
 
 ## Harness State
-- Phase: complete — 코드 리뷰 이슈 전체 수정 완료 (branch merged into 2d_gui)
+- Phase: complete — HyperTerm Linear/Raycast UI 리디자인 완료 (branch merged into 2d_gui)
 - Feature: -
 - Branch: -
 
 ## Blockers / Notes
-- macOS arm64 전용 빌드 (Intel 미테스트)
-- Claude Code 연동은 HyperTerm 앱 실행 중일 때만 소켓 생성됨
-- `beforeunload` + `onBeforeQuit` 이중 연결로 teardown 로그 2회 출력 가능 (idempotent, 기능 문제 없음)
-- `createNewTab` catch가 `createPaneSession` 이후 동기 throw 시 일부 map 누수 가능성 (낮음)
+- macOS arm64 전용 빌드
+- hook.sh 이미 배포됨 (`~/.config/hyperterm/hook.sh`) — 앱 재실행 시 자동 업데이트됨
+- toolbar-row.ts의 `tabLayoutPresets` Map: closeTab 시 delete 미호출 (minor memory leak, 탭 수 적어 무해)
+- light theme에 ph-* pane header 규칙 미적용 (dark 기본, 체감 없음)

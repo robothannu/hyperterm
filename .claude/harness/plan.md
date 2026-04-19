@@ -1,82 +1,68 @@
-# Plan: Renderer Process Hardening — Code Review Issue Remediation
+# Plan: HyperTerm 2D GUI Redesign — Linear/Raycast Style
 
 ## Iteration: 1
 ## Project Type: web
 ## Strategy: NEW
 
 ## Goal
-코드 리뷰에서 발견된 15개 이슈를 3개 스프린트로 해결한다. Sprint 1은 메모리·리스너 누수(장기 세션 안정성), Sprint 2는 race condition·에러 가시성(정확성), Sprint 3은 polling 효율·UX 개선(품질) 순으로 진행한다.
+기존 TypeScript 로직(IPC, PTY, hooks, sessions, git polling)을 보존한 채, HyperTerm.html 목업과 동일한 Linear/Raycast 스타일 다크 UI로 renderer 계층을 리디자인한다. 사용자 체감 변화는 (1) 풍부한 사이드바 카드, (2) 원클릭 레이아웃 프리셋, (3) pane header의 cwd+branch 표시, (4) Claude usage가 중심이 된 status bar 세 축에서 발생한다.
 
 ## Sprints
 
-### Sprint 1: Leak & Lifecycle Hygiene
-**Deliverable**: 이벤트 리스너, 옵저버, 타이머가 사이드바 재렌더·탭 생성/삭제·앱 종료 시 결정론적으로 해제된다.
-**Covers**: #1(sidebar 리스너), #2(pane-click 리스너), #3(ResizeObserver), #8(global keydown on quit)
+### Sprint 1: Visual Foundation & Chrome
+**Deliverable**: 앱 전체 색상/타이포/여백이 Linear/Raycast 톤으로 바뀌고, titlebar·sidebar 섹션 헤더·statusbar 프레임이 새 스타일로 렌더된다. Claude usage bar가 목업 형태로 재배치된다.
 
 **Acceptance Criteria**:
-1. [ ] 20개 탭 생성 → 15개 삭제 → 10개 rename 후, DevTools "Event Listeners" 패널에서 `#terminal-list` 엘리먼트의 리스너 수가 탭 수에 비례해 증가하지 않는다(상한 bounded).
-2. [ ] 앱 리로드(`Cmd+R`) 후 콘솔에 orphaned observer 경고 없음, DevTools Memory에서 이전 사이클의 sidebar `<li>` detached node 잔류 없음.
-3. [ ] File → Quit 시 resize observer, agent polling, git polling, global keydown handler 해제 로그가 콘솔에 확인되고 `quitReady` 전에 출력된다.
-4. [ ] 같은 pane을 30회 열고 닫아도 DevTools에서 해당 pane 컨테이너의 mousedown/mouseup 핸들러 수가 증가하지 않는다.
-5. [ ] 3번의 renderSidebar() 재렌더 후 click, double-click rename, drag-reorder, notes-button, close-button 이 모두 정상 동작한다.
+1. [ ] 앱 실행 시 전체 배경이 다크 네이비 톤(#0a0b0f 계열)이며, UI 텍스트는 Inter 계열, 터미널·코드·branch 텍스트는 JetBrains Mono 계열로 표시된다.
+2. [ ] Titlebar 중앙에 현재 활성 그룹명과 해당 그룹의 git branch가 한 줄에 표시되며, 그룹 전환/branch 변경 시 업데이트된다.
+3. [ ] Sidebar 상단에 "Terminal Groups" 섹션 헤더(uppercase letter-spaced)와 설정·신규 그룹 아이콘 버튼이 목업과 동일한 배치로 존재하며, 클릭 시 기존 동작이 유지된다.
+4. [ ] Statusbar가 (왼쪽) Claude 상태 카운터 · (오른쪽) 5H / 7D usage bar 순서로 정렬되고, usage bar 색이 정상/경고/임계 구간에서 각각 indigo·amber·red로 전환된다.
+5. [ ] 기존 Settings/About/Help/Cluster/Diff 모달이 새 다크 팔레트와 충돌 없이 표시된다.
+6. [ ] `npm run build`가 에러 없이 통과하고, 앱 실행 시 콘솔에 CSS/폰트 로딩 실패 경고가 없다.
 
----
-
-### Sprint 2: Correctness & Failure Visibility
-**Deliverable**: 탭·pane lifecycle이 race-safe, IPC 에러가 사용자에게 노출, hook 미지원 이벤트 로깅, 전역 function 타입 검사 제거.
-**Covers**: #4(closePaneByPtyId race), #5(createNewTab partial state), #6(agent polling silent error), #7(tab 생성 UI 피드백), #11(typeof 검사), #14(unknown hook event)
+### Sprint 2: Rich Sidebar Cards & Pane Headers
+**Deliverable**: 사이드바 각 그룹이 project card로 재구성되어 이름·상태 점·카운트·branch·changes·ahead를 한 카드에 표시한다. 터미널 pane header에는 cwd + branch + 제목이 한 줄로 보인다.
 
 **Acceptance Criteria**:
-1. [ ] PTY 생성 강제 실패 시 (a) 사용자에게 토스트/상태바 오류 메시지, (b) sidebar에 phantom 항목 없음, (c) tabMap·tabLabels·tabClusters·ptyToTab에 실패한 탭의 항목 없음(콘솔 dump 확인).
-2. [ ] pane 닫기 중 IPC teardown이 진행 중일 때 uncaught promise rejection 없음, 형제 pane이 500ms 이내 키 입력 수용.
-3. [ ] agent-status IPC 반복 실패 시(main process 핸들러 비활성화 시뮬레이션) statusbar에 폴링 저하 표시, 콘솔에 throttled warning 출력(silent 아님).
-4. [ ] 미지정 hook event 수신 시 `console.warn`에 해당 이벤트 이름 출력, 어떤 pane의 agentState도 변경되지 않음.
-5. [ ] Changed Files 패널 refresh가 `typeof` 런타임 검사 없이 모듈 로드 여부에 따라 명시적으로 처리된다.
-6. [ ] create tab → split pane → close pane → close tab → invalid-dir tab(실패) → rename → reorder 시나리오에서 DevTools 콘솔 uncaught error 없음.
+1. [ ] 각 사이드바 그룹 항목에 동시 표시: (a) 상태 점(running=green glow, waiting=amber, idle=gray), (b) 그룹 이름, (c) 우측 카운트 pill(세션 수 또는 live 표식), (d) 하단 메타 라인에 branch 아이콘+단축 브랜치명, dirty 개수, ahead 개수 — git polling 캐시와 실시간 동기화.
+2. [ ] 그룹 이름 ellipsis 처리, branch 이름 26자 초과 시 말줄임, 1280px 윈도우에서 카드 폭 overflow 없음.
+3. [ ] 기존 기능 전부 작동: 클릭→그룹 전환, 더블클릭→rename, drag reorder, close/notes 버튼, Cmd+1~9, cluster 헤더, MRU 섹션, notification badge(Running/Waiting/Done), sidebar-tab-approval 강조.
+4. [ ] 활성 그룹은 indigo gradient 배경 + indigo 테두리로 구분, hover 시 새 팔레트와 일치.
+5. [ ] 각 pane header에 한 줄 표시: 상태 점 · cwd(~ 축약) · branch(accent 컬러) · pane 제목 · 우측 mini 버튼(Clear/Split/Close). 더블클릭 rename, 버튼 동작 기존과 동일.
+6. [ ] Pane focus 시 indigo border + subtle shadow, hook state marker/notification badge가 새 pane header 안에서 기존 의미로 표시.
 
----
-
-### Sprint 3: Polling Efficiency & UX Polish
-**Deliverable**: 비활성 탭 polling 축소, stale MRU 항목 제거, settings 기본값 신규 세션 반영, notes 미저장 경고.
-**Covers**: #9(git polling scope), #10(agent polling batching), #12(notes 미저장 경고), #13(MRU path validation), #15(settings 신규 세션 반영)
+### Sprint 3: Layout Presets & Toolbar Row
+**Deliverable**: 터미널 영역 상단에 toolbar row가 추가되고, 1/2/3/4-pane 레이아웃 프리셋 버튼을 클릭 한 번으로 적용할 수 있다.
 
 **Acceptance Criteria**:
-1. [ ] 8개 탭 중 1개만 표시 시, 5초 polling 창당 main process git IPC 호출 수가 탭 총 수가 아닌 활성 탭 수에 비례한다(main process 로그 확인). 탭 전환 후 1 polling 주기 이내 비활성 탭 git 배지가 갱신된다.
-2. [ ] 활성 탭의 agent-status polling이 N개 pane을 대상으로 하나의 burst로 실행된다(main process 로그에서 단일 그룹으로 확인 가능). 비활성 탭에 대한 IPC 호출 없음.
-3. [ ] notes panel 닫기(close 버튼·ESC·오버레이 클릭) 시 textarea에 미저장 텍스트가 있으면 확인 프롬프트; "취소" → 패널 열린 채 텍스트 유지, "폐기" → 패널 닫고 텍스트 초기화. 빈 textarea면 프롬프트 없음.
-4. [ ] 앱 실행 시 디스크에 존재하지 않는 MRU 경로가 목록에서 제거된다. 존재하지 않는 경로 클릭 시 사용자 오류 메시지 표시 후 항목 삭제.
-5. [ ] Settings에서 폰트 크기·테마 변경 후 즉시 생성한 신규 탭에 업데이트된 값이 반영된다(변경 전 기본값 아님).
-6. [ ] 기존 git 배지, agent 마커, notes 기능, settings 모달 동작 리그레션 없음.
+1. [ ] Toolbar row 우측에 4개 레이아웃 프리셋 버튼(single / split / 3-pane / 4-pane)이 segmented control 형태로 배치되고, 현재 레이아웃에 해당하는 버튼이 indigo 하이라이트된다.
+2. [ ] 프리셋 버튼 클릭 시 해당 그룹의 pane 트리가 해당 구조로 재구성된다. 기존 pane은 재사용, 부족분은 신규 생성, 초과분은 기존 close 경로로 처리된다.
+3. [ ] 레이아웃 전환 후 xterm.js 리사이즈가 자동 수행되어 모든 pane의 프롬프트가 정상 표시된다.
+4. [ ] 선택된 레이아웃이 sessions.json에 저장되고, 앱 재실행 시 해당 그룹 복원 시 동일 레이아웃이 유지된다.
+5. [ ] 기존 수동 split(Cmd+D, 우클릭, divider drag)이 프리셋 적용 후에도 작동한다.
+6. [ ] Toolbar row가 사이드바 숨김·resize에 관계없이 항상 접근 가능하다.
 
 ## Architecture Blueprint (advisory)
 
 ### Affected Files
-- `src/renderer/sidebar.ts` — event delegation으로 전환
-- `src/renderer/renderer.ts` — lifecycle teardown, race condition 수정, feature detection
-- `src/renderer/hook-state.ts` — unknown event 로깅
-- `src/renderer/terminal-session.ts` — pane click listener 안전성
-- `src/renderer/agent-status.ts` — 에러 표면화, 활성 탭 전용 polling
-- `src/renderer/git-status.ts` — 활성 탭 우선 polling
-- `src/renderer/keybindings.ts` — quit 시 teardown
-- `src/renderer/notes-panel.ts` — 미저장 확인
-- `src/renderer/sidebar-mru.ts` — 경로 존재 검증
-- `src/renderer/settings-modal.ts` — 신규 세션 기본값 전파
+- `src/renderer/index.html` — DOM 골격 확장 (toolbar row, 사이드바 검색, titlebar 중앙)
+- `src/renderer/styles.css` — 전역 palette 토큰, 카드·pane header·toolbar·statusbar 재스타일링
+- `src/renderer/sidebar.ts` — addSidebarEntryDOM: status dot, count pill, meta row
+- `src/renderer/git-status.ts` — updateSidebarGitBadge → 카드 메타 포맷(branch/changes/ahead)
+- `src/renderer/renderer.ts` — pane header 마크업 확장(cwd + branch + mini 버튼)
+- `src/renderer/statusbar.ts` — 왼쪽 영역 정리, usage bar 시각 토큰 재매핑
+- `src/renderer/hook-state.ts` — 마커 컬러만 새 토큰에 매핑, selector 보존
+- (Sprint 3 신규) `src/renderer/layout-presets.ts` — 프리셋 적용/복원 로직
 
 ### Component Relationships
-- Renderer lifecycle hub: 단일 init / teardown 지점 (현재 init.ts)
-- Sidebar: 순수 render target, `#terminal-list`에 delegation으로 이벤트 중계
-- Polling modules: `activeTabId` 기준으로 scope 제한
+- titlebar ↔ 활성 탭 레이블·git cache (읽기 전용)
+- sidebar card ↔ git-status cache, hook-state, notification badge (기존 API 재사용)
+- toolbar row ↔ layout-presets ↔ pane-tree (기존 split/close 경로 재사용)
+- statusbar ↔ agent status counter + usage API (기존 IPC 그대로)
 
 ## Constraints
-- Group vs. tmux-session 아키텍처 유지
-- sessions.json / settings JSON 스키마 불변
-- 기존 키보드 단축키·한국어 문자열 유지
-- 신규 외부 의존성 없음
-- 모듈별 독립 편집 가능성 유지
-
-## Self-Review Checklist
-- [x] 모든 수락 기준이 실행 중인 앱 관찰로 검증 가능
-- [x] 구현 세부사항(함수명·알고리즘) 없음
-- [x] 스프린트 3개, 각각 독립 검증 가능
-- [x] 15개 리뷰 이슈가 정확히 하나의 스프린트에 배치됨
-- [x] 위험도 순 정렬: 누수 → 정확성 → 효율/UX
+- TypeScript 로직(IPC, PTY, hooks, sessions, git polling, MRU, notes)은 기존 signature·동작 유지
+- `npm run build`가 각 스프린트 종료 시점에 에러 없이 통과
+- 기존 notification 체계(Running/Waiting/Done, sidebar-tab-approval, hook-state marker)는 시각 토큰만 교체, 의미·트리거 보존
+- Tweaks panel과 AI error toast는 구현하지 않음
+- `#terminal-list`, `.terminal-entry`, `.pane-leaf`, `.pane-header` 등 기존 selector 의존 클래스/ID는 계속 존재해야 함

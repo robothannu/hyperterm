@@ -1,5 +1,111 @@
 [
-  {"iteration": 1, "sprint": 1, "scores": {"functionality": 5, "user_experience": 5, "visual_quality": 5, "edge_cases": 4, "performance": 4, "regression": 5}, "total": 28, "verdict": "PASS", "timestamp": "2026-04-19"},
-  {"iteration": 1, "sprint": 2, "scores": {"functionality": 5, "user_experience": 5, "visual_quality": 4, "edge_cases": 4, "performance": 5, "regression": 4}, "total": 27, "verdict": "PASS", "timestamp": "2026-04-19"},
-  {"iteration": 1, "sprint": 3, "scores": {"functionality": 5, "user_experience": 5, "visual_quality": 5, "edge_cases": 4, "performance": 5, "regression": 4}, "total": 27, "verdict": "PASS", "timestamp": "2026-04-19"}
+  {
+    "iteration": 1,
+    "sprint": 1,
+    "scores": {
+      "functionality": 5,
+      "user_experience": 5,
+      "visual_quality": 5,
+      "edge_cases": 4,
+      "performance": 4,
+      "regression": 5
+    },
+    "total": 28,
+    "verdict": "PASS",
+    "timestamp": "2026-04-19"
+  },
+  {
+    "iteration": 1,
+    "sprint": 2,
+    "scores": {
+      "functionality": 5,
+      "user_experience": 5,
+      "visual_quality": 4,
+      "edge_cases": 4,
+      "performance": 5,
+      "regression": 4
+    },
+    "total": 27,
+    "verdict": "PASS",
+    "timestamp": "2026-04-19"
+  },
+  {
+    "iteration": 1,
+    "sprint": 3,
+    "scores": {
+      "functionality": 5,
+      "user_experience": 5,
+      "visual_quality": 5,
+      "edge_cases": 4,
+      "performance": 5,
+      "regression": 4
+    },
+    "total": 27,
+    "verdict": "PASS",
+    "timestamp": "2026-04-19"
+  },
+  {
+    "feature": "2d_gui_redesign",
+    "iteration": 1,
+    "sprint": 1,
+    "scores": {
+      "functionality": 5,
+      "user_experience": 4,
+      "visual_quality": 5,
+      "edge_cases": 3,
+      "performance": 5,
+      "regression": 5
+    },
+    "total": 27,
+    "verdict": "PASS",
+    "timestamp": "2026-04-19"
+  },
+  {
+    "feature": "2d_gui_redesign",
+    "iteration": 1,
+    "sprint": 2,
+    "scores": {
+      "functionality": 5,
+      "user_experience": 3,
+      "visual_quality": 4,
+      "edge_cases": 4,
+      "performance": 5,
+      "regression": 4
+    },
+    "total": 25,
+    "verdict": "NEEDS_REVISION",
+    "timestamp": "2026-04-19"
+  },
+  {
+    "feature": "2d_gui_redesign",
+    "iteration": 2,
+    "sprint": 2,
+    "scores": {
+      "functionality": 5,
+      "user_experience": 4,
+      "visual_quality": 4,
+      "edge_cases": 5,
+      "performance": 5,
+      "regression": 5
+    },
+    "total": 28,
+    "verdict": "PASS",
+    "timestamp": "2026-04-19"
+  },
+  {
+    "feature": "2d_gui_redesign",
+    "iteration": 1,
+    "sprint": 3,
+    "scores": {
+      "functionality": 5,
+      "user_experience": 4,
+      "visual_quality": 5,
+      "edge_cases": 3,
+      "performance": 5,
+      "regression": 5
+    },
+    "total": 27,
+    "verdict": "PASS",
+    "timestamp": "2026-04-19"
+  }
 ]

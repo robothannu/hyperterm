@@ -1688,53 +1688,77 @@ html, body {
   100% { opacity: 0; }
 }
 
-/* === Settings Modal (Sprint 6) === */
+/* === Settings Modal === */
 
 .settings-dialog {
-  width: 480px;
+  width: 440px;
   max-width: 96vw;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.04) inset;
 }
 
 .settings-dialog .modal-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 14px 18px 13px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-1);
+  letter-spacing: 0.01em;
+  margin: 0;
 }
 
 .settings-close-btn {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
   background: transparent;
   border: none;
-  color: var(--fg-2);
-  font-size: 18px;
+  color: var(--fg-3);
+  font-size: 16px;
   cursor: pointer;
-  padding: 0 4px;
+  border-radius: 5px;
   line-height: 1;
-  border-radius: 4px;
-  transition: color 0.15s;
+  transition: background 0.12s, color 0.12s;
 }
 
 .settings-close-btn:hover {
+  background: var(--glass-strong);
   color: var(--fg-0);
 }
 
 .settings-content {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 20px 0 4px;
+  padding: 4px 0 8px;
 }
 
 .settings-row {
   display: flex;
   align-items: center;
+  padding: 10px 18px;
   gap: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
 }
 
 .settings-label {
-  flex: 0 0 120px;
-  font-size: 13px;
+  flex: 0 0 100px;
+  font-size: 12.5px;
   color: var(--fg-2);
   text-align: right;
+  font-weight: 500;
 }
 
 .settings-control {
@@ -1747,13 +1771,33 @@ html, body {
 /* Slider */
 .settings-slider {
   flex: 1;
-  accent-color: var(--accent);
-  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
   height: 4px;
+  border-radius: 2px;
+  background: var(--bg-4);
+  cursor: pointer;
+  outline: none;
+}
+
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(124,140,255,0.2);
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+
+.settings-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 0 5px rgba(124,140,255,0.25);
 }
 
 .settings-value-label {
-  font-size: 12px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11.5px;
   color: var(--fg-2);
   width: 36px;
   text-align: left;
@@ -1766,14 +1810,14 @@ html, body {
 
 .settings-toggle-label {
   font-size: 12px;
-  color: var(--fg-2);
+  color: var(--fg-3);
 }
 
 .settings-toggle-switch {
   position: relative;
   display: inline-block;
-  width: 40px;
-  height: 22px;
+  width: 38px;
+  height: 20px;
   cursor: pointer;
 }
 
@@ -1787,57 +1831,72 @@ html, body {
   position: absolute;
   inset: 0;
   background: var(--bg-4);
-  border-radius: 22px;
-  transition: background 0.2s;
+  border: 1px solid var(--line-2);
+  border-radius: 20px;
+  transition: background 0.2s, border-color 0.2s;
 }
 
 .settings-toggle-slider::before {
   content: "";
   position: absolute;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--fg-2);
-  top: 3px;
-  left: 3px;
+  background: var(--fg-3);
+  top: 2px;
+  left: 2px;
   transition: transform 0.2s, background 0.2s;
 }
 
 .settings-toggle-switch input:checked + .settings-toggle-slider {
   background: var(--accent);
+  border-color: var(--accent);
 }
 
 .settings-toggle-switch input:checked + .settings-toggle-slider::before {
   transform: translateX(18px);
-  background: #ffffff;
+  background: #fff;
 }
 
 /* Hook status */
 .settings-hook-row {
-  gap: 12px;
+  gap: 10px;
 }
 
 .settings-hook-status {
-  font-size: 13px;
-  padding: 2px 10px;
-  border-radius: 4px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid transparent;
 }
 
 .settings-hook-status.installed {
   color: var(--ok);
   background: rgba(74,222,128,0.08);
-  border: 1px solid rgba(74,222,128,0.2);
+  border-color: rgba(74,222,128,0.22);
 }
 
 .settings-hook-status.not-installed {
   color: var(--warn);
   background: rgba(245,181,71,0.08);
-  border: 1px solid rgba(245,181,71,0.2);
+  border-color: rgba(245,181,71,0.22);
 }
 
 .settings-hook-install-btn {
-  font-size: 12px;
-  padding: 4px 12px;
+  font-size: 11.5px;
+  padding: 3px 10px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-3);
+  color: var(--fg-1);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.settings-hook-install-btn:hover {
+  background: var(--bg-4);
 }
 
 /* === Sidebar header with icon buttons === */

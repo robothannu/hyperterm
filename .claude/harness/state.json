@@ -3,14 +3,10 @@
   "iteration": 1,
   "current_sprint": 3,
   "total_sprints": 3,
-  "feature_request": "코드 리뷰 이슈 전체 수정: 이벤트 리스너 누수, race condition, 에러 처리 누락, polling 최적화, UX 개선",
+  "feature_request": "HyperTerm.html 디자인 구현 — Linear/Raycast 스타일 UI 리디자인",
   "project_type": "web",
   "scale": "large",
-  "feature_branch": "feature/code-review-fixes",
+  "feature_branch": null,
   "max_iterations": 5,
-  "history": [
-    {"sprint": 1, "score": 28, "verdict": "PASS"},
-    {"sprint": 2, "score": 27, "verdict": "PASS"},
-    {"sprint": 3, "score": 27, "verdict": "PASS"}
-  ]
+  "history": [{"sprint": 1, "score": 27, "verdict": "PASS"}, {"sprint": 2, "score": 28, "verdict": "PASS"}, {"sprint": 3, "score": 27, "verdict": "PASS"}]
 }
