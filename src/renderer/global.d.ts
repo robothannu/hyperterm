@@ -85,6 +85,7 @@ interface TerminalAPI {
     stagedCount: number;
     unstagedCount: number;
     untrackedCount: number;
+    aheadCount: number;
   } | null>;
   gitFiles(projectRoot: string): Promise<{ path: string; x: string; y: string }[]>;
   gitDiff(
@@ -117,6 +118,14 @@ declare function teardownKeybindings(): void;
 declare function teardownSidebarDelegation(): void;
 declare function stopGitPolling(): void;
 
+// Sidebar dot state (sidebar.ts → hook-state.ts, agent-status.ts)
+declare function setSidebarDotState(tabId: number, state: "idle" | "running" | "waiting" | "done"): void;
+declare function applySidebarDotState(dotEl: HTMLElement): void;
+declare function updateSidebarCountPill(tabId: number): void;
+
+// Pane header branch update (renderer.ts → git-status.ts)
+declare function updatePaneHeadersFromGitCache(tabId: number): void;
+
 // Cross-module function: git-status.ts — on-demand poll when switching tabs
 declare function pollGitOnTabSwitch(tabId: number): void;
 
@@ -126,9 +135,15 @@ declare var activeSessionSettings: { fontSize: number; theme: "dark" | "light" }
 // Toast helper defined in renderer.ts, available to all modules loaded after it
 declare function showToast(message: string, variant?: "error" | "warn" | "ok" | "done"): void;
 
+// Toolbar row: layout preset functions (toolbar-row.ts)
+declare function initToolbarRow(): void;
+declare function syncToolbarToTab(tabId: number): void;
+declare function getTabLayoutPreset(tabId: number): string | undefined;
+declare function setTabLayoutPreset(tabId: number, presetName: string): void;
+
 // Cross-module function: changed-files-panel.ts exports this for renderer.ts to call
 declare function refreshChangedFilesPanel(): Promise<void>;
 
 // Cross-module function: git-status.ts exports this for changed-files-panel.ts to call
 // Returns the GitCacheEntry for the given tabId, or undefined if not cached
-declare function getGitCacheForTab(tabId: number): { cwd: string; projectRoot: string | null; info: { branch: string; dirty: boolean } | null; files: { path: string; x: string; y: string }[] | null; filesTs: number } | undefined;
+declare function getGitCacheForTab(tabId: number): { cwd: string; projectRoot: string | null; info: { branch: string; dirty: boolean; dirtyCount: number; ahead: number } | null; files: { path: string; x: string; y: string }[] | null; filesTs: number } | undefined;

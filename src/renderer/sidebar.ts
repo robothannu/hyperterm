@@ -8,6 +8,57 @@
 let draggedTabId: number | null = null;
 
 // ---------------------------------------------------------------------------
+// Card dot state helper — called by agent-status.ts and hook-state.ts
+// ---------------------------------------------------------------------------
+
+function applySidebarDotState(dotEl: HTMLElement): void {
+  const state = dotEl.getAttribute("data-state") || "idle";
+  dotEl.className = "card-dot-status";
+  switch (state) {
+    case "running":
+      dotEl.classList.add("dot-running");
+      dotEl.title = "Claude is running";
+      break;
+    case "waiting":
+      dotEl.classList.add("dot-waiting");
+      dotEl.title = "Waiting for approval";
+      break;
+    case "done":
+      dotEl.classList.add("dot-done-flash");
+      dotEl.title = "Done";
+      break;
+    default:
+      dotEl.classList.add("dot-idle");
+      dotEl.title = "Idle";
+      break;
+  }
+}
+
+function setSidebarDotState(tabId: number, state: "idle" | "running" | "waiting" | "done"): void {
+  const li = document.querySelector(`#terminal-list [data-id="${tabId}"]`) as HTMLElement | null;
+  if (!li) return;
+  const dotEl = li.querySelector(".card-dot-status") as HTMLElement | null;
+  if (!dotEl) return;
+  dotEl.setAttribute("data-state", state);
+  applySidebarDotState(dotEl);
+}
+
+// Update count pill with pane count for a tab
+function updateSidebarCountPill(tabId: number): void {
+  const li = document.querySelector(`#terminal-list [data-id="${tabId}"]`) as HTMLElement | null;
+  if (!li) return;
+  const pill = li.querySelector(".card-count-pill") as HTMLElement | null;
+  if (!pill) return;
+
+  const tab = tabMap.get(tabId);
+  if (!tab) return;
+  const count = getAllLeaves(tab.root).length;
+  pill.textContent = String(count);
+  // Reset to default style (agent-status may override later)
+  pill.className = "card-count-pill";
+}
+
+// ---------------------------------------------------------------------------
 // Event delegation — attached once to #terminal-list
 // ---------------------------------------------------------------------------
 
@@ -215,13 +266,25 @@ function addSidebarEntryDOM(tabId: number, label: string): void {
   li.dataset.id = String(tabId);
   li.className = "terminal-entry";
   li.draggable = true;
+
+  // Project card layout:
+  // Row 1: [dot-status] [name + tab-notif] [count pill] [actions]
+  // Row 2: [meta: git + changes + ahead]
   li.innerHTML = `
     <div class="terminal-entry-row">
+      <span class="card-dot-status" title="idle"></span>
       <span class="terminal-label">${escapeHtml(label)}</span>
+      <span class="tab-notif hidden"></span>
+      <span class="card-count-pill">1</span>
       <div class="terminal-entry-actions">
         <button class="btn-notes" title="Notes">&#9998;</button>
         <button class="btn-close" title="Close terminal">&times;</button>
       </div>
+    </div>
+    <div class="card-meta" style="display:none">
+      <span class="card-meta-git"></span>
+      <span class="card-meta-changes" style="display:none"></span>
+      <span class="card-meta-ahead" style="display:none"></span>
     </div>
   `;
 
@@ -241,6 +304,7 @@ function startRename(
   input.className = "rename-input";
   input.value = currentName;
 
+  input.style.gridColumn = "2 / 3";
   labelEl.style.display = "none";
   const labelRow = labelEl.parentElement ?? li;
   labelRow.insertBefore(input, labelEl);
@@ -260,6 +324,10 @@ function startRename(
     labelEl.style.display = "";
     input.remove();
     tabLabels.set(tabId, newName);
+    // Update titlebar if this is the active tab
+    if (tabId === activeTabId && typeof updateTitlebarGroupName === "function") {
+      updateTitlebarGroupName(tabId);
+    }
     await saveSessionMetadata();
   };
 

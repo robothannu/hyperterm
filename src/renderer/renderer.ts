@@ -158,6 +158,19 @@ function setFocusedPane(ptyId: number): void {
 
 // --- Core Functions ---
 
+// Helper: shorten home dir to ~
+function shortenCwd(cwd: string): string {
+  const home = cwd.startsWith("/Users/") || cwd.startsWith("/home/")
+    ? cwd.replace(/^\/(?:Users|home)\/[^/]+/, "~")
+    : cwd;
+  return home || "~";
+}
+
+// Helper: shorten branch name for pane header (max 26 chars)
+function shortBranchName(b: string): string {
+  return b.length > 26 ? b.slice(0, 24) + "…" : b;
+}
+
 async function createPaneSession(
   parentElement: HTMLElement,
   cwd?: string
@@ -166,15 +179,69 @@ async function createPaneSession(
   paneElement.className = "pane-leaf";
   parentElement.appendChild(paneElement);
 
-  // Pane header showing session name
+  // Rich pane header: status-dot · cwd · branch · title | mini buttons
   const paneHeader = document.createElement("div");
   paneHeader.className = "pane-header";
   paneElement.appendChild(paneHeader);
 
+  // Status dot
+  const headerDot = document.createElement("span");
+  headerDot.className = "ph-dot";
+  paneHeader.appendChild(headerDot);
+
+  // CWD
+  const cwdEl = document.createElement("span");
+  cwdEl.className = "ph-cwd";
+  cwdEl.textContent = cwd ? shortenCwd(cwd) : "~";
+  paneHeader.appendChild(cwdEl);
+
+  // Branch (hidden until git info available)
+  const branchSep = document.createElement("span");
+  branchSep.className = "ph-sep";
+  branchSep.textContent = "·";
+  branchSep.style.display = "none";
+  paneHeader.appendChild(branchSep);
+
+  const branchEl = document.createElement("span");
+  branchEl.className = "ph-branch";
+  branchEl.style.display = "none";
+  paneHeader.appendChild(branchEl);
+
+  // Title separator
+  const titleSep = document.createElement("span");
+  titleSep.className = "ph-sep";
+  titleSep.textContent = "·";
+  paneHeader.appendChild(titleSep);
+
+  // Pane title (dblclick to rename)
   const paneTitle = document.createElement("span");
   paneTitle.className = "pane-title";
   paneTitle.textContent = "...";
   paneHeader.appendChild(paneTitle);
+
+  // Right mini buttons
+  const miniRight = document.createElement("div");
+  miniRight.className = "ph-right";
+
+  const btnClear = document.createElement("button");
+  btnClear.className = "ph-mini";
+  btnClear.title = "Clear";
+  btnClear.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M3 5h10M6 5V3h4v2M5 5l0.7 9h4.6L11 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+  const btnSplit = document.createElement("button");
+  btnSplit.className = "ph-mini";
+  btnSplit.title = "Split";
+  btnSplit.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="13" height="13" rx="1.5" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="1.5" x2="8" y2="14.5" stroke="currentColor" stroke-width="1.2"/></svg>`;
+
+  const btnClose = document.createElement("button");
+  btnClose.className = "ph-mini";
+  btnClose.title = "Close";
+  btnClose.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+
+  miniRight.appendChild(btnClear);
+  miniRight.appendChild(btnSplit);
+  miniRight.appendChild(btnClose);
+  paneHeader.appendChild(miniRight);
 
   const termContainer = document.createElement("div");
   termContainer.className = "terminal-container";
@@ -215,10 +282,26 @@ async function createPaneSession(
   sessions.set(ptyId, session);
   sessionKeys.set(ptyId, sessionKey);
 
-  // Set initial pane title to "Terminal"
+  // Set initial pane title
   paneTitle.textContent = "Terminal";
 
-  // Double-click pane header to rename
+  // Wire mini buttons
+  btnClear.addEventListener("click", (e) => {
+    e.stopPropagation();
+    session.write("\x0c"); // Ctrl+L
+  });
+
+  btnSplit.addEventListener("click", (e) => {
+    e.stopPropagation();
+    splitFocusedPane("horizontal");
+  });
+
+  btnClose.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closePaneByPtyId(ptyId);
+  });
+
+  // Double-click pane title to rename
   paneTitle.addEventListener("dblclick", (e) => {
     e.stopPropagation();
     const current = paneTitle.textContent || "";
@@ -248,6 +331,40 @@ async function createPaneSession(
     input.addEventListener("click", (ev) => ev.stopPropagation());
   });
 
+  // Periodic CWD update for pane header
+  let cwdPollTimer: ReturnType<typeof setInterval> | null = null;
+  function startCwdPoll(): void {
+    if (cwdPollTimer !== null) return;
+    cwdPollTimer = setInterval(async () => {
+      try {
+        const newCwd = await window.terminalAPI.getCwd(ptyId);
+        if (newCwd) cwdEl.textContent = shortenCwd(newCwd);
+        // Update branch from git cache if available
+        const tabId = ptyToTab.get(ptyId);
+        if (tabId !== undefined && typeof getGitCacheForTab === "function") {
+          const cache = getGitCacheForTab(tabId);
+          if (cache?.info?.branch) {
+            branchEl.textContent = "⎇ " + shortBranchName(cache.info.branch);
+            branchEl.style.display = "";
+            branchSep.style.display = "";
+          } else {
+            branchEl.style.display = "none";
+            branchSep.style.display = "none";
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }, 3000);
+  }
+
+  function stopCwdPoll(): void {
+    if (cwdPollTimer !== null) {
+      clearInterval(cwdPollTimer);
+      cwdPollTimer = null;
+    }
+  }
+
   session.onData((data: string) => {
     window.terminalAPI.writePty(ptyId, data);
   });
@@ -264,7 +381,17 @@ async function createPaneSession(
     if (tab && tab.focusedPtyId !== ptyId) {
       setFocusedPane(ptyId);
     }
+    // Update CWD immediately on focus
+    window.terminalAPI.getCwd(ptyId).then((newCwd) => {
+      if (newCwd) cwdEl.textContent = shortenCwd(newCwd);
+    }).catch(() => {/* ignore */});
   });
+
+  // Start CWD polling after pty is ready
+  startCwdPoll();
+
+  // Register cleanup for CWD poll (called from closePaneByPtyId path)
+  paneElement.addEventListener("pane-destroy", () => stopCwdPoll(), { once: true });
 
   return { type: "leaf", ptyId, session, element: paneElement, agentStatus: false, agentState: "idle" };
 }
@@ -326,6 +453,21 @@ async function createNewTab(
   }
 }
 
+// --- Titlebar: group name + branch ---
+const tbGroupNameEl = document.getElementById("tb-group-name");
+const tbBranchNameEl = document.getElementById("tb-branch-name");
+
+function updateTitlebarGroupName(tabId: number): void {
+  if (!tbGroupNameEl) return;
+  const label = tabLabels.get(tabId) || `Terminal ${tabId}`;
+  tbGroupNameEl.textContent = label;
+}
+
+function updateTitlebarBranch(branch: string | null): void {
+  if (!tbBranchNameEl) return;
+  tbBranchNameEl.textContent = branch || "—";
+}
+
 function switchToTab(tabId: number): void {
   // Hide ALL other tabs to prevent leaking across groups
   for (const tab of tabMap.values()) {
@@ -346,10 +488,41 @@ function switchToTab(tabId: number): void {
   }
 
   updateSidebarActive(tabId);
+  // Update titlebar group name
+  updateTitlebarGroupName(tabId);
+  // Sync toolbar preset highlight to the newly active tab
+  if (typeof syncToolbarToTab === "function") syncToolbarToTab(tabId);
   // Refresh Changed Files panel for the newly active tab
   refreshChangedFilesPanel();
   // On-demand git poll for newly active tab (updates badge within one cycle)
   pollGitOnTabSwitch(tabId);
+  // Immediately apply cached git branch to pane headers (SHOULD FIX from Sprint 1)
+  updatePaneHeadersFromGitCache(tabId);
+}
+
+// Update branch info in pane headers using tabGitCache (synchronous read)
+function updatePaneHeadersFromGitCache(tabId: number): void {
+  if (typeof getGitCacheForTab !== "function") return;
+  const tab = tabMap.get(tabId);
+  if (!tab) return;
+  const cache = getGitCacheForTab(tabId);
+  const branch = cache?.info?.branch ?? null;
+  const branchText = branch ? "⎇ " + shortBranchName(branch) : null;
+
+  const leaves = getAllLeaves(tab.root);
+  for (const leaf of leaves) {
+    const branchEl = leaf.element.querySelector(".ph-branch") as HTMLElement | null;
+    const branchSep = leaf.element.querySelectorAll(".ph-sep")[0] as HTMLElement | null;
+    if (!branchEl) continue;
+    if (branchText) {
+      branchEl.textContent = branchText;
+      branchEl.style.display = "";
+      if (branchSep) branchSep.style.display = "";
+    } else {
+      branchEl.style.display = "none";
+      if (branchSep) branchSep.style.display = "none";
+    }
+  }
 }
 
 async function splitFocusedPane(
@@ -411,6 +584,11 @@ async function splitFocusedPane(
 
   setupDividerDrag(splitNode);
 
+  // Update sidebar count pill
+  if (typeof updateSidebarCountPill === "function") {
+    updateSidebarCountPill(tab.id);
+  }
+
   requestAnimationFrame(() => {
     resizeAllPanes(tab.root);
     setFocusedPane(newLeaf.ptyId);
@@ -436,6 +614,9 @@ function closePaneByPtyId(ptyId: number): void {
   const parentInfo = findLeafParent(tab.root, ptyId);
   if (!parentInfo) return;
 
+  // Capture the leaf element before tree mutation for pane-destroy event
+  const closingLeaf = findLeaf(tab.root, ptyId);
+
   const siblingIndex = parentInfo.index === 0 ? 1 : 0;
   const sibling = parentInfo.parent.children[siblingIndex];
 
@@ -451,7 +632,10 @@ function closePaneByPtyId(ptyId: number): void {
     tab.root = sibling;
   }
 
-  // Clean up closed pane
+  // Clean up closed pane — dispatch pane-destroy to stop CWD poll
+  if (closingLeaf) {
+    closingLeaf.element.dispatchEvent(new Event("pane-destroy", { bubbles: false }));
+  }
   window.terminalAPI.destroyPty(ptyId);
   sessions.get(ptyId)?.dispose();
   sessions.delete(ptyId);
@@ -459,6 +643,11 @@ function closePaneByPtyId(ptyId: number): void {
   ptyToTab.delete(ptyId);
   cleanupPaneAgentMarker(ptyId);
   cleanupPaneHookMarker(ptyId);
+
+  // Update sidebar count pill
+  if (typeof updateSidebarCountPill === "function") {
+    updateSidebarCountPill(tabId);
+  }
 
   // Update focus
   const leaves = getAllLeaves(tab.root);
@@ -492,6 +681,8 @@ function closeTab(tabId: number): void {
 
   // Destroy all panes
   for (const leaf of getAllLeaves(tab.root)) {
+    // Stop CWD poll before cleanup
+    leaf.element.dispatchEvent(new Event("pane-destroy", { bubbles: false }));
     cleanupPaneAgentMarker(leaf.ptyId);
     cleanupPaneHookMarker(leaf.ptyId);
     window.terminalAPI.destroyPty(leaf.ptyId);
@@ -566,6 +757,7 @@ async function saveSessionMetadata(): Promise<void> {
         label: tabLabels.get(tabId) || `Terminal ${i + 1}`,
         cluster: tabClusters.get(tabId),
         layout: await serializePaneTree(tab.root),
+        layoutPreset: typeof getTabLayoutPreset === "function" ? getTabLayoutPreset(tabId) : undefined,
       });
     }
     const state: SavedStateV2 = { version: 3, tabs: savedTabs, activeTabIndex };
@@ -673,6 +865,9 @@ async function restoreFromSaved(): Promise<boolean> {
     tabLabels.set(tabId, savedTab.label);
     if (savedTab.cluster) {
       tabClusters.set(tabId, savedTab.cluster);
+    }
+    if (savedTab.layoutPreset && typeof setTabLayoutPreset === "function") {
+      setTabLayoutPreset(tabId, savedTab.layoutPreset);
     }
     addSidebarEntry(tabId, savedTab.label);
   }

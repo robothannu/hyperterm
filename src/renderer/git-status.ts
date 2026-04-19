@@ -13,6 +13,8 @@ let gitPollTimer: ReturnType<typeof setInterval> | null = null;
 interface GitInfo {
   branch: string;
   dirty: boolean;
+  dirtyCount: number;
+  ahead: number;
 }
 
 interface GitCacheEntry {
@@ -38,29 +40,67 @@ function getGitCacheForTab(tabId: number): GitCacheEntry | undefined {
 // Sidebar git badge
 // ---------------------------------------------------------------------------
 
+function shortBranch(b: string): string {
+  return b.length > 26 ? b.slice(0, 24) + "…" : b;
+}
+
 function updateSidebarGitBadge(tabId: number, info: GitInfo | null): void {
   const li = document.querySelector(
     `#terminal-list [data-id="${tabId}"]`
   ) as HTMLElement | null;
   if (!li) return;
 
-  let badge = li.querySelector(".sidebar-git-badge") as HTMLElement | null;
+  // Update the .card-meta element (new rich card layout)
+  const metaEl = li.querySelector(".card-meta") as HTMLElement | null;
+  const gitEl = li.querySelector(".card-meta-git") as HTMLElement | null;
+  const changesEl = li.querySelector(".card-meta-changes") as HTMLElement | null;
+  const aheadEl = li.querySelector(".card-meta-ahead") as HTMLElement | null;
 
+  if (metaEl) {
+    if (!info) {
+      metaEl.style.display = "none";
+    } else {
+      metaEl.style.display = "";
+      if (gitEl) {
+        gitEl.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" style="flex:none;opacity:0.7"><circle cx="4" cy="4" r="1.5" stroke="currentColor" stroke-width="1.2"/><circle cx="4" cy="12" r="1.5" stroke="currentColor" stroke-width="1.2"/><circle cx="12" cy="8" r="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4 5.5v5M5.5 12h3a2.5 2.5 0 002.5-2.5v0" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><span>${escapeHtml(shortBranch(info.branch))}</span>`;
+      }
+      if (changesEl) {
+        if (info.dirty && info.dirtyCount > 0) {
+          changesEl.textContent = `●${info.dirtyCount}`;
+          changesEl.style.display = "";
+        } else {
+          changesEl.style.display = "none";
+        }
+      }
+      if (aheadEl) {
+        if (info.ahead > 0) {
+          aheadEl.textContent = `↑${info.ahead}`;
+          aheadEl.style.display = "";
+        } else {
+          aheadEl.style.display = "none";
+        }
+      }
+    }
+  }
+
+  // Legacy .sidebar-git-badge fallback (kept for backward compat, hidden in new layout)
+  let badge = li.querySelector(".sidebar-git-badge") as HTMLElement | null;
   if (!info) {
     badge?.remove();
+    if (tabId === activeTabId && typeof updateTitlebarBranch === "function") {
+      updateTitlebarBranch(null);
+    }
     return;
   }
 
-  if (!badge) {
-    badge = document.createElement("div");
-    badge.className = "sidebar-git-badge";
-    // Insert after the terminal-entry's label row (append to li)
-    li.appendChild(badge);
+  // Update titlebar branch for the active tab
+  if (tabId === activeTabId && typeof updateTitlebarBranch === "function") {
+    updateTitlebarBranch(info.branch);
+    // Also update pane header branch elements for the active tab
+    if (typeof updatePaneHeadersFromGitCache === "function") {
+      updatePaneHeadersFromGitCache(tabId);
+    }
   }
-
-  const branchText = escapeHtml(info.branch);
-  const dirtyDot = info.dirty ? '<span class="git-dirty-dot" title="Uncommitted changes">●</span>' : "";
-  badge.innerHTML = `<span class="git-branch-icon">⎇</span> ${branchText}${dirtyDot ? " " + dirtyDot : ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +161,12 @@ async function pollGitForTab(tabId: number): Promise<void> {
       window.terminalAPI.gitFiles(projectRoot).catch(() => null as { path: string; x: string; y: string }[] | null),
     ]);
     const info: GitInfo | null = status
-      ? { branch: status.branch, dirty: status.dirty }
+      ? {
+          branch: status.branch,
+          dirty: status.dirty,
+          dirtyCount: status.stagedCount + status.unstagedCount + status.untrackedCount,
+          ahead: status.aheadCount ?? 0,
+        }
       : null;
     tabGitCache.set(tabId, { cwd, projectRoot, info, files: files ?? null, filesTs: Date.now() });
     updateSidebarGitBadge(tabId, info);

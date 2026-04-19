@@ -118,18 +118,19 @@ function ensureHookScript(): void {
     fs.mkdirSync(hookScriptDir, { recursive: true });
     const script = `#!/bin/bash
 # Claude Code hook → HyperTerm Unix socket
+# Claude Code passes event type inside JSON payload as hook_event_name (not via env var)
 PAYLOAD=$(cat)
 SOCK="$HOME/Library/Application Support/HyperTerm/agent.sock"
-EVENT_TYPE="\${CLAUDE_HOOK_EVENT:-unknown}"
-SESSION_ID="\${CLAUDE_SESSION_ID:-}"
-TOOL_NAME="\${CLAUDE_TOOL_NAME:-}"
-# Extract top-level message field from payload (Notification events)
-MESSAGE=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null || true)
-# Escape double quotes in message for JSON embedding
-MESSAGE_ESCAPED=$(echo "$MESSAGE" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g')
-# Build JSON, truncate payload to 4096 bytes
-PAYLOAD_TRIMMED=$(echo "$PAYLOAD" | head -c 4096)
-printf '%s\\n' "{\\"event\\":\\"$EVENT_TYPE\\",\\"session_id\\":\\"$SESSION_ID\\",\\"tool_name\\":\\"$TOOL_NAME\\",\\"message\\":\\"$MESSAGE_ESCAPED\\",\\"payload\\":$PAYLOAD_TRIMMED}" | \\
+EVENT_TYPE=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('hook_event_name','unknown'))" 2>/dev/null || echo "unknown")
+SESSION_ID=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null || echo "")
+TOOL_NAME=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
+MESSAGE=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null || echo "")
+# Escape string values for JSON embedding
+esc() { printf '%s' "$1" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])" 2>/dev/null || echo ""; }
+SE=$(esc "$SESSION_ID")
+TE=$(esc "$TOOL_NAME")
+ME=$(esc "$MESSAGE")
+printf '%s\\n' "{\\"event\\":\\"$EVENT_TYPE\\",\\"session_id\\":\\"$SE\\",\\"tool_name\\":\\"$TE\\",\\"message\\":\\"$ME\\"}" | \\
   nc -U "$SOCK" 2>/dev/null || true
 `;
     // Always overwrite to keep hook.sh up-to-date with the latest template
@@ -440,12 +441,13 @@ interface GitStatus {
   stagedCount: number;
   unstagedCount: number;
   untrackedCount: number;
+  aheadCount: number;
 }
 
 ipcMain.handle("git:status", async (_event, projectRoot: string): Promise<GitStatus | null> => {
   if (!projectRoot || typeof projectRoot !== "string") return null;
   try {
-    const [branchResult, statusResult] = await Promise.all([
+    const [branchResult, statusResult, aheadResult] = await Promise.all([
       execFileAsync("git", ["-C", projectRoot, "branch", "--show-current"], {
         encoding: "utf8",
         timeout: 5000,
@@ -454,10 +456,15 @@ ipcMain.handle("git:status", async (_event, projectRoot: string): Promise<GitSta
         encoding: "utf8",
         timeout: 5000,
       }),
+      execFileAsync("git", ["-C", projectRoot, "rev-list", "--count", "@{u}..HEAD"], {
+        encoding: "utf8",
+        timeout: 5000,
+      }).catch(() => ({ stdout: "0" })),
     ]);
 
     const branch = branchResult.stdout.trim() || "HEAD";
     const lines = statusResult.stdout.split("\n").filter((l) => l.length > 0);
+    const aheadCount = parseInt(aheadResult.stdout.trim(), 10) || 0;
 
     let stagedCount = 0;
     let unstagedCount = 0;
@@ -481,6 +488,7 @@ ipcMain.handle("git:status", async (_event, projectRoot: string): Promise<GitSta
       stagedCount,
       unstagedCount,
       untrackedCount,
+      aheadCount,
     };
   } catch {
     return null;

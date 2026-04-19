@@ -48,6 +48,7 @@ interface SavedTab {
   label: string;
   cluster?: string;
   layout: SavedPaneNode;
+  layoutPreset?: string;
 }
 interface SavedStateV2 {
   version: 3;
