@@ -13,6 +13,14 @@ const tabClusters = new Map<number, string>();
 let activeTabId: number | null = null;
 let sessionCounter = 0;
 
+// Current active settings — updated by settings-modal.ts when user changes values.
+// Used by createPaneSession to apply font/theme to newly created terminals.
+// eslint-disable-next-line no-var
+var activeSessionSettings: { fontSize: number; theme: "dark" | "light" } = {
+  fontSize: 14,
+  theme: "dark",
+};
+
 const terminalPane = document.getElementById("terminal-pane")!;
 const terminalList = document.getElementById("terminal-list")!;
 const btnNew = document.getElementById("btn-new-terminal")!;
@@ -178,6 +186,9 @@ async function createPaneSession(
   let rows: number;
   try {
     session.open();
+    // Apply current font size and theme from active settings
+    session.setFontSize(activeSessionSettings.fontSize);
+    session.setTheme(activeSessionSettings.theme);
     cols = session.getCols();
     rows = session.getRows();
   } catch (err) {
@@ -337,6 +348,8 @@ function switchToTab(tabId: number): void {
   updateSidebarActive(tabId);
   // Refresh Changed Files panel for the newly active tab
   refreshChangedFilesPanel();
+  // On-demand git poll for newly active tab (updates badge within one cycle)
+  pollGitOnTabSwitch(tabId);
 }
 
 async function splitFocusedPane(

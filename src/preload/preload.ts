@@ -84,6 +84,9 @@ export interface TerminalAPI {
   // --- Settings ---
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: Partial<AppSettings>): Promise<boolean>;
+
+  // --- Path existence ---
+  checkPathExists(dirPath: string): Promise<boolean>;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -205,5 +208,10 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   },
   saveSettings: (settings: Partial<AppSettings>): Promise<boolean> => {
     return ipcRenderer.invoke("settings:save", settings);
+  },
+
+  // --- Path existence ---
+  checkPathExists: (dirPath: string): Promise<boolean> => {
+    return ipcRenderer.invoke("path:checkExists", dirPath);
   },
 } satisfies TerminalAPI);

@@ -102,6 +102,18 @@ function renderMruSection(): void {
 }
 
 async function onMruEntryClick(projectPath: string): Promise<void> {
+  // Validate path existence before opening
+  try {
+    const exists = await window.terminalAPI.checkPathExists(projectPath);
+    if (!exists) {
+      showToast(`경로를 찾을 수 없습니다: ${projectPath}`, "error");
+      await removeMruProject(projectPath);
+      return;
+    }
+  } catch {
+    // If check fails, proceed anyway (don't block the user)
+  }
+
   const label = nextTerminalName();
   try {
     await createNewTab(label, projectPath);
@@ -152,8 +164,50 @@ function createMruSectionDOM(): void {
 // Init
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Path validation helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove a path from the MRU list and persist.
+ * Called when a path is found to not exist on disk.
+ */
+async function removeMruProject(projectPath: string): Promise<void> {
+  const idx = mruProjects.indexOf(projectPath);
+  if (idx === -1) return;
+  mruProjects.splice(idx, 1);
+  await saveMruProjects();
+  renderMruSection();
+}
+
+/**
+ * On app load: check each saved MRU path for existence.
+ * Stale (non-existent) paths are silently removed.
+ */
+async function validateMruProjects(): Promise<void> {
+  if (!window.terminalAPI.checkPathExists) return;
+  const results = await Promise.all(
+    mruProjects.map((p) => window.terminalAPI.checkPathExists(p).catch(() => false))
+  );
+  // Filter out stale paths (iterate in reverse to preserve indices)
+  const stale: string[] = [];
+  for (let i = 0; i < mruProjects.length; i++) {
+    if (!results[i]) stale.push(mruProjects[i]);
+  }
+  if (stale.length === 0) return;
+  mruProjects = mruProjects.filter((p) => !stale.includes(p));
+  await saveMruProjects();
+  renderMruSection();
+}
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+
 async function initSidebarMru(): Promise<void> {
   await loadMruProjects();
   createMruSectionDOM();
+  // Validate paths on startup — remove stale entries silently
+  await validateMruProjects();
   renderMruSection();
 }

@@ -102,6 +102,9 @@ interface TerminalAPI {
   // --- Settings ---
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: Partial<AppSettings>): Promise<boolean>;
+
+  // --- Path existence ---
+  checkPathExists(dirPath: string): Promise<boolean>;
 }
 
 interface Window {
@@ -113,6 +116,12 @@ interface Window {
 declare function teardownKeybindings(): void;
 declare function teardownSidebarDelegation(): void;
 declare function stopGitPolling(): void;
+
+// Cross-module function: git-status.ts — on-demand poll when switching tabs
+declare function pollGitOnTabSwitch(tabId: number): void;
+
+// Cross-module shared state: renderer.ts — current active font/theme for new sessions
+declare var activeSessionSettings: { fontSize: number; theme: "dark" | "light" };
 
 // Toast helper defined in renderer.ts, available to all modules loaded after it
 declare function showToast(message: string, variant?: "error" | "warn" | "ok" | "done"): void;

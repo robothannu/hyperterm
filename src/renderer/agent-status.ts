@@ -153,6 +153,9 @@ async function pollAgentStatus(): Promise<void> {
   const leaves = getAllLeaves(tab.root);
   let tabHasAgent = false;
 
+  // Single burst: all panes of the active tab polled together
+  console.log(`[agent-status] polling ${leaves.length} pane(s) for active tab ${activeTabId}`);
+
   // Distinguish IPC failures from null results
   const FAIL_SENTINEL = Symbol("ipc_fail");
   const results = await Promise.all(
