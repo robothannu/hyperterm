@@ -147,3 +147,9 @@ declare function refreshChangedFilesPanel(): Promise<void>;
 // Cross-module function: git-status.ts exports this for changed-files-panel.ts to call
 // Returns the GitCacheEntry for the given tabId, or undefined if not cached
 declare function getGitCacheForTab(tabId: number): { cwd: string; projectRoot: string | null; info: { branch: string; dirty: boolean; dirtyCount: number; ahead: number } | null; files: { path: string; x: string; y: string }[] | null; filesTs: number } | undefined;
+
+// Cross-module function: git-status.ts — per-pane cache lookup
+declare function getGitCacheForPane(ptyId: number): { cwd: string; projectRoot: string | null; info: { branch: string; dirty: boolean; dirtyCount: number; ahead: number } | null; files: { path: string; x: string; y: string }[] | null; filesTs: number } | undefined;
+
+// Cross-module function: git-status.ts — cleanup per-pane cache when pane closes
+declare function cleanupPaneGitCache(ptyId: number): void;
