@@ -131,12 +131,13 @@ async function pollGitForTab(tabId: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Poll all tabs
+// Poll only the active tab (called by periodic timer)
 // ---------------------------------------------------------------------------
 
-async function pollAllGitStatus(): Promise<void> {
-  const tabIds = Array.from(tabMap.keys());
-  await Promise.all(tabIds.map((tabId) => pollGitForTab(tabId)));
+async function pollActiveGitStatus(): Promise<void> {
+  if (activeTabId === null) return;
+  console.log(`[git-status] polling active tab ${activeTabId}`);
+  await pollGitForTab(activeTabId);
 }
 
 // ---------------------------------------------------------------------------
@@ -151,12 +152,21 @@ function invalidateGitCache(tabId: number): void {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Poll on tab switch: immediately refresh git status for newly active tab
+// ---------------------------------------------------------------------------
+
+function pollGitOnTabSwitch(tabId: number): void {
+  console.log(`[git-status] on-demand poll for tab ${tabId} (tab switch)`);
+  pollGitForTab(tabId).catch(() => {/* ignore */});
+}
+
 function startGitPolling(): void {
   if (gitPollTimer !== null) return;
-  // Initial poll
-  pollAllGitStatus();
+  // Initial poll for active tab
+  pollActiveGitStatus();
   gitPollTimer = setInterval(() => {
-    pollAllGitStatus();
+    pollActiveGitStatus();
   }, GIT_POLL_INTERVAL_MS);
 }
 

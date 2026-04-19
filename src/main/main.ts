@@ -602,6 +602,17 @@ ipcMain.on("app:quit-ready", () => {
   app.quit();
 });
 
+// --- Path Existence IPC ---
+
+ipcMain.handle("path:checkExists", (_event, dirPath: string): boolean => {
+  if (!dirPath || typeof dirPath !== "string") return false;
+  try {
+    return fs.existsSync(dirPath);
+  } catch {
+    return false;
+  }
+});
+
 // --- Settings IPC ---
 
 ipcMain.handle("settings:get", () => appSettings);

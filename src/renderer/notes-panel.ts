@@ -30,6 +30,29 @@ function openNotesPanel(tabId: number): void {
   loadAndRenderNotes(tabId);
 }
 
+/**
+ * Attempt to close the notes panel.
+ * If there is unsaved text in the textarea, show a confirmation prompt.
+ * "취소" → keep panel open, text preserved.
+ * "폐기" → close panel, clear textarea.
+ * Empty textarea → close immediately without prompt.
+ */
+function tryCloseNotesPanel(): void {
+  const unsaved = notesInput.value.trim();
+  if (unsaved !== "") {
+    const discard = window.confirm(
+      "저장되지 않은 노트가 있습니다.\n폐기하고 닫으시겠습니까?"
+    );
+    if (!discard) {
+      // 취소: keep panel open, text preserved
+      return;
+    }
+    // 폐기: clear textarea then close
+    notesInput.value = "";
+  }
+  closeNotesPanel();
+}
+
 function closeNotesPanel(): void {
   notesPanel.classList.add("hidden");
   notesPanelTabId = null;
@@ -121,11 +144,21 @@ function updateNoteIndicator(tabId: number, hasNotes: boolean): void {
   if (btn) btn.classList.toggle("has-notes", hasNotes);
 }
 
-notesCloseBtn.addEventListener("click", closeNotesPanel);
+notesCloseBtn.addEventListener("click", tryCloseNotesPanel);
 notesAddBtn.addEventListener("click", addNote);
 notesInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     addNote();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    tryCloseNotesPanel();
+  }
+});
+
+// Overlay click on notes panel background closes panel (with unsaved check)
+notesPanel.addEventListener("click", (e) => {
+  if (e.target === notesPanel) {
+    tryCloseNotesPanel();
   }
 });

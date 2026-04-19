@@ -8,6 +8,60 @@
 const AGENT_POLL_INTERVAL_MS = 2500;
 let agentPollTimer: ReturnType<typeof setInterval> | null = null;
 
+// ---------------------------------------------------------------------------
+// IPC failure tracking
+// ---------------------------------------------------------------------------
+
+const AGENT_IPC_FAIL_THRESHOLD = 3;
+let agentIpcFailCount = 0;
+let agentIpcThrottleWarned = false; // throttle: warn once per failure run
+
+function setAgentIpcErrorIndicator(visible: boolean): void {
+  const statusbar = document.getElementById("statusbar");
+  if (!statusbar) return;
+
+  let indicator = document.getElementById("agent-ipc-error") as HTMLElement | null;
+  if (visible) {
+    if (!indicator) {
+      indicator = document.createElement("span");
+      indicator.id = "agent-ipc-error";
+      indicator.className = "agent-ipc-error";
+      indicator.title = "Agent status polling failed — IPC error";
+      indicator.textContent = "⚠ agent IPC";
+      // Insert before the spacer
+      const spacer = statusbar.querySelector(".statusbar-spacer");
+      if (spacer) {
+        statusbar.insertBefore(indicator, spacer);
+      } else {
+        statusbar.prepend(indicator);
+      }
+    }
+  } else {
+    indicator?.remove();
+  }
+}
+
+function recordAgentIpcSuccess(): void {
+  if (agentIpcFailCount > 0) {
+    agentIpcFailCount = 0;
+    agentIpcThrottleWarned = false;
+    setAgentIpcErrorIndicator(false);
+  }
+}
+
+function recordAgentIpcFailure(): void {
+  agentIpcFailCount++;
+  if (agentIpcFailCount >= AGENT_IPC_FAIL_THRESHOLD) {
+    setAgentIpcErrorIndicator(true);
+    if (!agentIpcThrottleWarned) {
+      agentIpcThrottleWarned = true;
+      console.warn(
+        `[agent-status] getAgentStatus IPC failed ${agentIpcFailCount} consecutive times — polling degraded`
+      );
+    }
+  }
+}
+
 // Map of ptyId → the marker element inside the pane header
 const paneAgentMarkers = new Map<number, HTMLElement>();
 // Track previous running state per ptyId for activity logging
@@ -99,16 +153,30 @@ async function pollAgentStatus(): Promise<void> {
   const leaves = getAllLeaves(tab.root);
   let tabHasAgent = false;
 
+  // Single burst: all panes of the active tab polled together
+  console.log(`[agent-status] polling ${leaves.length} pane(s) for active tab ${activeTabId}`);
+
+  // Distinguish IPC failures from null results
+  const FAIL_SENTINEL = Symbol("ipc_fail");
   const results = await Promise.all(
     leaves.map((leaf) =>
-      window.terminalAPI.getAgentStatus(leaf.ptyId).catch(() => null)
+      window.terminalAPI.getAgentStatus(leaf.ptyId).catch(() => FAIL_SENTINEL)
     )
   );
+
+  // Track IPC health: any success resets counter; all failures increment
+  const anySuccess = results.some((r) => r !== FAIL_SENTINEL);
+  if (anySuccess) {
+    recordAgentIpcSuccess();
+  } else if (leaves.length > 0) {
+    recordAgentIpcFailure();
+  }
 
   const tabLabel = tabLabels.get(activeTabId) || `Terminal ${activeTabId}`;
   for (let i = 0; i < leaves.length; i++) {
     const leaf = leaves[i];
-    const result = results[i];
+    const raw = results[i];
+    const result = raw === FAIL_SENTINEL ? null : (raw as { isClaudeRunning: boolean; claudePid: number | null } | null);
     const isRunning = result?.isClaudeRunning ?? false;
     const wasRunning = prevAgentRunning.get(leaf.ptyId) ?? false;
     prevAgentRunning.set(leaf.ptyId, isRunning);

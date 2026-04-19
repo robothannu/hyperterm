@@ -76,6 +76,8 @@ function populateSettingsUI(): void {
 // ---------------------------------------------------------------------------
 
 function applyFontSizeToAll(size: number): void {
+  // Update global default so new sessions inherit this size
+  activeSessionSettings.fontSize = size;
   for (const session of sessions.values()) {
     session.setFontSize(size);
   }
@@ -86,6 +88,8 @@ function applyFontSizeToAll(size: number): void {
 // ---------------------------------------------------------------------------
 
 function applyTheme(theme: "dark" | "light"): void {
+  // Update global default so new sessions inherit this theme
+  activeSessionSettings.theme = theme;
   document.body.classList.toggle("theme-light", theme === "light");
   document.body.classList.toggle("theme-dark", theme === "dark");
   for (const session of sessions.values()) {
@@ -135,9 +139,11 @@ async function initSettingsModal(): Promise<void> {
   try {
     currentSettings = await window.terminalAPI.getSettings();
     if (currentSettings.fontSize) {
+      // applyFontSizeToAll also updates activeSessionSettings
       applyFontSizeToAll(currentSettings.fontSize);
     }
     if (currentSettings.theme) {
+      // applyTheme also updates activeSessionSettings
       applyTheme(currentSettings.theme);
     }
   } catch {

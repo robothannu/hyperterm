@@ -102,8 +102,33 @@ interface TerminalAPI {
   // --- Settings ---
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: Partial<AppSettings>): Promise<boolean>;
+
+  // --- Path existence ---
+  checkPathExists(dirPath: string): Promise<boolean>;
 }
 
 interface Window {
   terminalAPI: TerminalAPI;
 }
+
+// Cross-module teardown helpers (defined in their respective modules,
+// called from renderer.ts _teardownAll during beforeunload / onBeforeQuit)
+declare function teardownKeybindings(): void;
+declare function teardownSidebarDelegation(): void;
+declare function stopGitPolling(): void;
+
+// Cross-module function: git-status.ts — on-demand poll when switching tabs
+declare function pollGitOnTabSwitch(tabId: number): void;
+
+// Cross-module shared state: renderer.ts — current active font/theme for new sessions
+declare var activeSessionSettings: { fontSize: number; theme: "dark" | "light" };
+
+// Toast helper defined in renderer.ts, available to all modules loaded after it
+declare function showToast(message: string, variant?: "error" | "warn" | "ok" | "done"): void;
+
+// Cross-module function: changed-files-panel.ts exports this for renderer.ts to call
+declare function refreshChangedFilesPanel(): Promise<void>;
+
+// Cross-module function: git-status.ts exports this for changed-files-panel.ts to call
+// Returns the GitCacheEntry for the given tabId, or undefined if not cached
+declare function getGitCacheForTab(tabId: number): { cwd: string; projectRoot: string | null; info: { branch: string; dirty: boolean } | null; files: { path: string; x: string; y: string }[] | null; filesTs: number } | undefined;

@@ -51,28 +51,28 @@ const hookStateMarkers = new Map<number, HTMLElement>();
 // State machine transition
 // ---------------------------------------------------------------------------
 
-function transitionPaneState(leaf: PaneLeaf, event: string, message?: string): AgentHookState {
+// Known hook event names
+const KNOWN_HOOK_EVENTS = new Set(["PreToolUse", "PostToolUse", "Notification", "Stop"]);
+
+function transitionPaneState(leaf: PaneLeaf, event: string, _message?: string): AgentHookState {
   const current = leaf.agentState;
-  let next: AgentHookState = current;
 
   switch (event) {
     case "PreToolUse":
-      next = "working";
-      break;
+      return "working";
     case "PostToolUse":
-      next = "working";
-      break;
+      return "working";
     case "Notification":
       // Notification = Claude가 사용자 주의를 요하는 이벤트 → 항상 waiting_approval
       // (message 필드 유무/내용과 무관하게 승인 대기로 처리)
-      next = "waiting_approval";
-      break;
+      return "waiting_approval";
     case "Stop":
-      next = "idle";
-      break;
+      return "idle";
+    default:
+      // Unknown event: log and preserve current state (AC4)
+      console.warn("[hook-state] Unknown hook event received:", event);
+      return current;
   }
-
-  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +271,12 @@ function findOrAssignLeaf(sessionId: string): { leaf: PaneLeaf; tabId: number } 
 // ---------------------------------------------------------------------------
 
 function handleHookEvent(evt: HookEvent): void {
+  // Reject unknown events before any state mutation (AC4)
+  if (!KNOWN_HOOK_EVENTS.has(evt.event)) {
+    console.warn("[hook-state] Unknown hook event received:", evt.event);
+    return;
+  }
+
   const sessionId = evt.session_id || "";
 
   const found = findOrAssignLeaf(sessionId);
