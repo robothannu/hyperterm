@@ -3,7 +3,7 @@
 
 // --- Global Keyboard Shortcuts ---
 
-document.addEventListener("keydown", (e) => {
+function _globalKeydownHandler(e: KeyboardEvent): void {
   if (e.key === "Escape") {
     hideContextMenu();
   }
@@ -124,4 +124,13 @@ document.addEventListener("keydown", (e) => {
     });
     return;
   }
-});
+}
+
+// Install the handler (called once at module load)
+document.addEventListener("keydown", _globalKeydownHandler);
+
+// Teardown — removes the global keydown listener
+function teardownKeybindings(): void {
+  document.removeEventListener("keydown", _globalKeydownHandler);
+  console.log("[keybindings] global keydown handler removed");
+}

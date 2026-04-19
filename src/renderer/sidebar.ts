@@ -2,7 +2,130 @@
 /// <reference path="./pane-types.d.ts" />
 
 // --- Sidebar Management ---
+// Event delegation: ONE set of listeners on #terminal-list, dispatched by target traversal.
+// Per-entry state (draggedTabId) is kept as module variables.
+
 let draggedTabId: number | null = null;
+
+// ---------------------------------------------------------------------------
+// Event delegation — attached once to #terminal-list
+// ---------------------------------------------------------------------------
+
+function initSidebarDelegation(): void {
+  // Guard: only install once (safe to call again after hot-reload without effect)
+  if ((terminalList as any).__delegationInstalled) return;
+  (terminalList as any).__delegationInstalled = true;
+
+  // Helper: walk up from target to find the closest .terminal-entry li
+  function closestEntry(el: EventTarget | null): HTMLLIElement | null {
+    if (!(el instanceof Element)) return null;
+    return el.closest(".terminal-entry") as HTMLLIElement | null;
+  }
+
+  // Helper: get tabId from li
+  function getTabId(li: HTMLLIElement): number | null {
+    const id = Number(li.dataset.id);
+    return isNaN(id) ? null : id;
+  }
+
+  // --- click ---
+  terminalList.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+
+    // btn-close
+    if (target.closest(".btn-close")) {
+      const li = closestEntry(target);
+      if (!li) return;
+      const tabId = getTabId(li);
+      if (tabId === null) return;
+      e.stopPropagation();
+      closeTab(tabId);
+      return;
+    }
+
+    // btn-notes
+    if (target.closest(".btn-notes")) {
+      const li = closestEntry(target);
+      if (!li) return;
+      const tabId = getTabId(li);
+      if (tabId === null) return;
+      e.stopPropagation();
+      openNotesPanel(tabId);
+      return;
+    }
+
+    // rename-input (ignore clicks inside active rename field)
+    if (target.closest(".rename-input")) return;
+
+    // entry click → switch tab
+    const li = closestEntry(target);
+    if (!li) return;
+    const tabId = getTabId(li);
+    if (tabId === null) return;
+    switchToTab(tabId);
+  });
+
+  // --- dblclick (rename) ---
+  terminalList.addEventListener("dblclick", (e) => {
+    const target = e.target as HTMLElement;
+    const labelEl = target.closest(".terminal-label") as HTMLSpanElement | null;
+    if (!labelEl) return;
+    const li = closestEntry(labelEl);
+    if (!li) return;
+    const tabId = getTabId(li);
+    if (tabId === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startRename(tabId, li, labelEl);
+  });
+
+  // --- drag events ---
+  terminalList.addEventListener("dragstart", (e) => {
+    const li = closestEntry(e.target);
+    if (!li) return;
+    const tabId = getTabId(li);
+    if (tabId === null) return;
+    draggedTabId = tabId;
+    li.style.opacity = "0.5";
+    e.dataTransfer?.setData("text/plain", String(tabId));
+  });
+
+  terminalList.addEventListener("dragend", (e) => {
+    const li = closestEntry(e.target);
+    if (li) li.style.opacity = "1";
+    draggedTabId = null;
+  });
+
+  terminalList.addEventListener("dragover", (e) => {
+    const li = closestEntry(e.target);
+    if (!li) return;
+    const tabId = getTabId(li);
+    if (tabId === null) return;
+    e.preventDefault();
+    if (draggedTabId === null || draggedTabId === tabId) return;
+    li.style.borderTop = "2px solid #007aff";
+  });
+
+  terminalList.addEventListener("dragleave", (e) => {
+    const li = closestEntry(e.target);
+    if (li) li.style.borderTop = "";
+  });
+
+  terminalList.addEventListener("drop", (e) => {
+    const li = closestEntry(e.target);
+    if (!li) return;
+    const tabId = getTabId(li);
+    if (tabId === null) return;
+    e.preventDefault();
+    li.style.borderTop = "";
+    if (draggedTabId === null || draggedTabId === tabId) return;
+    reorderTabs(draggedTabId, tabId);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 function addSidebarEntry(tabId: number, label: string): void {
   addSidebarEntryDOM(tabId, label);
@@ -47,15 +170,14 @@ function reorderTabs(fromTabId: number, toTabId: number): void {
 function renderSidebar(): void {
   terminalList.innerHTML = "";
 
-  // Get tabs in DOM order
-  const entries = Array.from(terminalList.querySelectorAll(".terminal-entry"));
-  const orderedTabIds = entries.map(el => Number(el.getAttribute("data-id"))).filter(id => !isNaN(id));
+  // Get tabs in DOM order (at render time, tabMap keys are the source of truth)
+  const tabIds = Array.from(tabMap.keys());
 
   // Group tabs by cluster
   const clusters = new Map<string, number[]>();
   const noCluster: number[] = [];
 
-  for (const tabId of orderedTabIds) {
+  for (const tabId of tabIds) {
     const cluster = tabClusters.get(tabId);
     if (cluster) {
       if (!clusters.has(cluster)) clusters.set(cluster, []);
@@ -72,13 +194,13 @@ function renderSidebar(): void {
   }
 
   // Render clusters
-  for (const [clusterName, tabIds] of clusters) {
+  for (const [clusterName, clusterTabIds] of clusters) {
     const header = document.createElement("li");
     header.className = "sidebar-cluster-header";
     header.textContent = clusterName;
     terminalList.appendChild(header);
 
-    for (const tabId of tabIds) {
+    for (const tabId of clusterTabIds) {
       const label = tabLabels.get(tabId) || `Terminal ${tabId}`;
       addSidebarEntryDOM(tabId, label);
     }
@@ -86,6 +208,9 @@ function renderSidebar(): void {
 }
 
 function addSidebarEntryDOM(tabId: number, label: string): void {
+  // Ensure delegation is installed (idempotent)
+  initSidebarDelegation();
+
   const li = document.createElement("li");
   li.dataset.id = String(tabId);
   li.className = "terminal-entry";
@@ -100,58 +225,7 @@ function addSidebarEntryDOM(tabId: number, label: string): void {
     </div>
   `;
 
-  const labelEl = li.querySelector(".terminal-label") as HTMLSpanElement;
-
-  li.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
-    if (target.closest(".rename-input")) return;
-    switchToTab(tabId);
-  });
-
-  labelEl.addEventListener("dblclick", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    startRename(tabId, li, labelEl);
-  });
-
-  li.querySelector(".btn-notes")!.addEventListener("click", (e) => {
-    e.stopPropagation();
-    openNotesPanel(tabId);
-  });
-
-  li.querySelector(".btn-close")!.addEventListener("click", (e) => {
-    e.stopPropagation();
-    closeTab(tabId);
-  });
-
-  li.addEventListener("dragstart", (e) => {
-    draggedTabId = tabId;
-    li.style.opacity = "0.5";
-    e.dataTransfer?.setData("text/plain", String(tabId));
-  });
-
-  li.addEventListener("dragend", () => {
-    li.style.opacity = "1";
-    draggedTabId = null;
-  });
-
-  li.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    if (draggedTabId === null || draggedTabId === tabId) return;
-    li.style.borderTop = "2px solid #007aff";
-  });
-
-  li.addEventListener("dragleave", () => {
-    li.style.borderTop = "";
-  });
-
-  li.addEventListener("drop", (e) => {
-    e.preventDefault();
-    li.style.borderTop = "";
-    if (draggedTabId === null || draggedTabId === tabId) return;
-    reorderTabs(draggedTabId, tabId);
-  });
-
+  // No per-entry event listeners — all handled by delegation above
   terminalList.appendChild(li);
 }
 
@@ -217,4 +291,16 @@ function updateSidebarActive(tabId: number): void {
       (el as HTMLElement).dataset.id === String(tabId)
     );
   });
+}
+
+// ---------------------------------------------------------------------------
+// Teardown — called from beforeunload / onBeforeQuit
+// ---------------------------------------------------------------------------
+
+function teardownSidebarDelegation(): void {
+  // The delegation listeners are on terminalList (persistent DOM element).
+  // On reload the entire JS context is destroyed; on quit we just log.
+  // We mark the flag cleared so reinit works after a soft reload if needed.
+  (terminalList as any).__delegationInstalled = false;
+  console.log("[sidebar] delegation teardown");
 }

@@ -710,18 +710,48 @@ const resizeObserver = new ResizeObserver(() => {
 });
 resizeObserver.observe(terminalPane);
 
+// --- Lifecycle Teardown ---
+
+function _teardownAll(): void {
+  resizeObserver.disconnect();
+  console.log("[renderer] ResizeObserver disconnected");
+
+  if (usageRefreshInterval !== null) {
+    clearInterval(usageRefreshInterval);
+    usageRefreshInterval = null;
+    console.log("[renderer] usageRefreshInterval cleared");
+  }
+
+  stopAgentPolling();
+  console.log("[renderer] agent polling stopped");
+
+  stopGitPolling();
+  console.log("[renderer] git polling stopped");
+
+  // Teardown global keydown handler (keybindings.ts)
+  if (typeof teardownKeybindings === "function") {
+    teardownKeybindings();
+  }
+
+  // Teardown sidebar delegation (sidebar.ts)
+  if (typeof teardownSidebarDelegation === "function") {
+    teardownSidebarDelegation();
+  }
+}
+
+// Reload / window close (Cmd+R, window unload)
+window.addEventListener("beforeunload", () => {
+  _teardownAll();
+});
+
 // --- Save on Close ---
 
 let usageRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
 window.terminalAPI.onBeforeQuit(async () => {
   await flushSessionMetadata();
-  resizeObserver.disconnect();
-  if (usageRefreshInterval !== null) {
-    clearInterval(usageRefreshInterval);
-    usageRefreshInterval = null;
-  }
-  stopAgentPolling();
+  _teardownAll();
+  console.log("[renderer] quitReady");
   window.terminalAPI.quitReady();
 });
 

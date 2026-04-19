@@ -107,3 +107,9 @@ interface TerminalAPI {
 interface Window {
   terminalAPI: TerminalAPI;
 }
+
+// Cross-module teardown helpers (defined in their respective modules,
+// called from renderer.ts _teardownAll during beforeunload / onBeforeQuit)
+declare function teardownKeybindings(): void;
+declare function teardownSidebarDelegation(): void;
+declare function stopGitPolling(): void;
