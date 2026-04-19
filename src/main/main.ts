@@ -162,7 +162,7 @@ function installClaudeHooks(): boolean {
     };
 
     const hooks = (existing.hooks as Record<string, unknown[]> | undefined) || {};
-    for (const event of ["PreToolUse", "PostToolUse", "Notification", "Stop"]) {
+    for (const event of ["PreToolUse", "PostToolUse", "UserPromptSubmit", "Notification", "Stop"]) {
       if (!Array.isArray(hooks[event])) {
         hooks[event] = [];
       }
@@ -191,7 +191,7 @@ function isHookInstalled(): boolean {
     const settings = JSON.parse(fs.readFileSync(claudeSettingsPath, "utf8"));
     const hooks = settings?.hooks;
     if (!hooks) return false;
-    for (const event of ["PreToolUse", "PostToolUse", "Notification", "Stop"]) {
+    for (const event of ["PreToolUse", "PostToolUse", "UserPromptSubmit", "Notification", "Stop"]) {
       const arr = hooks[event];
       if (!Array.isArray(arr)) return false;
       const found = arr.some((e: { hooks?: Array<{ command?: string }> }) =>

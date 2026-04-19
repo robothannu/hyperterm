@@ -56,15 +56,13 @@ async function refreshUsage(): Promise<void> {
     const result = await window.terminalAPI.fetchUsage();
 
     if (result.error) {
-      const msg =
-        result.error === "keychain" ? "not logged in" : "--";
-      usage5h.textContent = `Usage: ${msg}`;
+      // On any error (auth or fetch), hide usage entirely
+      usage5h.textContent = "";
       usage5h.className = "usage-metric";
       usage5h.title = "";
       usage7d.textContent = "";
       usage7d.className = "usage-metric";
       usage7d.title = "";
-      // Hide separators when showing error
       usageSeps.forEach((sep) => {
         (sep as HTMLElement).style.display = "none";
       });
