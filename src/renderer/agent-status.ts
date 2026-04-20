@@ -154,59 +154,53 @@ function updateSidebarAgentMarker(tabId: number, hasAgent: boolean): void {
 
 async function pollAgentStatus(): Promise<void> {
   if (activeTabId === null) return;
-  const tab = tabMap.get(activeTabId);
-  if (!tab) return;
 
-  const leaves = getAllLeaves(tab.root);
-  let tabHasAgent = false;
-
-  // Single burst: all panes of the active tab polled together
-  console.log(`[agent-status] polling ${leaves.length} pane(s) for active tab ${activeTabId}`);
-
-  // Distinguish IPC failures from null results
+  // Poll all tabs, not just the active one, so that inactive tab panes
+  // don't accumulate stale agentStatus=true values.
   const FAIL_SENTINEL = Symbol("ipc_fail");
+
+  // Collect all leaves across every tab (preserve tab association)
+  const allEntries: Array<{ tabId: number; leaf: PaneLeaf }> = [];
+  for (const [tabId, tab] of tabMap.entries()) {
+    for (const leaf of getAllLeaves(tab.root)) {
+      allEntries.push({ tabId, leaf });
+    }
+  }
+
+  if (allEntries.length === 0) return;
+
+  console.log(`[agent-status] polling ${allEntries.length} pane(s) across ${tabMap.size} tab(s)`);
+
+  // Burst-poll all panes at once
   const results = await Promise.all(
-    leaves.map((leaf) =>
+    allEntries.map(({ leaf }) =>
       window.terminalAPI.getAgentStatus(leaf.ptyId).catch(() => FAIL_SENTINEL)
     )
   );
 
-  // Track IPC health: any success resets counter; all failures increment
+  // Track IPC health
   const anySuccess = results.some((r) => r !== FAIL_SENTINEL);
   if (anySuccess) {
     recordAgentIpcSuccess();
-  } else if (leaves.length > 0) {
+  } else if (allEntries.length > 0) {
     recordAgentIpcFailure();
   }
 
-  const tabLabel = tabLabels.get(activeTabId) || `Terminal ${activeTabId}`;
-  for (let i = 0; i < leaves.length; i++) {
-    const leaf = leaves[i];
+  // Update each pane's agentStatus + pane header marker only
+  // (setSidebarPaneRowState is NOT called here — that is hook-state's responsibility)
+  let activeTabHasAgent = false;
+  for (let i = 0; i < allEntries.length; i++) {
+    const { tabId, leaf } = allEntries[i];
     const raw = results[i];
     const result = raw === FAIL_SENTINEL ? null : (raw as { isClaudeRunning: boolean; claudePid: number | null } | null);
     const isRunning = result?.isClaudeRunning ?? false;
-    const wasRunning = prevAgentRunning.get(leaf.ptyId) ?? false;
     prevAgentRunning.set(leaf.ptyId, isRunning);
     setPaneAgentStatus(leaf, isRunning);
-    if (isRunning) tabHasAgent = true;
-
-    // Update sub-row state based on agent process transitions
-    if (typeof setSidebarPaneRowState === "function") {
-      if (!wasRunning && isRunning) {
-        // Claude process just started — show "running" only if hook hasn't already set a more specific state
-        if (leaf.agentState === "idle" || leaf.agentState === "done") {
-          setSidebarPaneRowState(activeTabId!, leaf.ptyId, "running");
-        }
-      } else if (wasRunning && !isRunning) {
-        // Claude process just stopped — revert to idle only if no hook state is active
-        if (leaf.agentState === "idle" || leaf.agentState === "done") {
-          setSidebarPaneRowState(activeTabId!, leaf.ptyId, "idle");
-        }
-      }
-    }
+    if (tabId === activeTabId && isRunning) activeTabHasAgent = true;
   }
 
-  updateSidebarAgentMarker(activeTabId, tabHasAgent);
+  // Sidebar top marker: active tab only
+  updateSidebarAgentMarker(activeTabId, activeTabHasAgent);
 }
 
 // ---------------------------------------------------------------------------

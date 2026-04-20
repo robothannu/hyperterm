@@ -295,13 +295,26 @@ function findOrAssignLeaf(sessionId: string): { leaf: PaneLeaf; tabId: number } 
     return findLeafByPtyId(ptyId);
   }
 
-  // Find first Claude-running pane not yet mapped to any session_id
+  // New session_id: search for an unmapped Claude-running pane.
+  // AC2: active tab is searched FIRST, then other tabs as fallback.
   const mappedPtyIds = new Set(hookSessionMap.values());
-  for (const [tabId, tab] of tabMap.entries()) {
+
+  // Build ordered tab iteration: active tab first, then the rest
+  const orderedTabIds: number[] = [];
+  if (activeTabId !== null && tabMap.has(activeTabId)) {
+    orderedTabIds.push(activeTabId);
+  }
+  for (const tabId of tabMap.keys()) {
+    if (tabId !== activeTabId) {
+      orderedTabIds.push(tabId);
+    }
+  }
+
+  for (const tabId of orderedTabIds) {
+    const tab = tabMap.get(tabId)!;
     const leaves = getAllLeaves(tab.root);
     for (const leaf of leaves) {
       if (leaf.agentStatus && !mappedPtyIds.has(leaf.ptyId)) {
-        // Assign this session_id to this pane
         hookSessionMap.set(sessionId, leaf.ptyId);
         leaf.hookSessionId = sessionId;
         return { leaf, tabId };
@@ -309,7 +322,7 @@ function findOrAssignLeaf(sessionId: string): { leaf: PaneLeaf; tabId: number } 
     }
   }
 
-  // Fallback: if no Claude-running pane found, try any pane in the active tab
+  // Fallback: no Claude-running pane found — assign to first pane of active tab
   if (activeTabId !== null) {
     const tab = tabMap.get(activeTabId);
     if (tab) {
