@@ -1,90 +1,91 @@
 # HyperTerm
 
-macOS용 Electron 터미널 앱. Claude Code와 함께 멀티 세션 작업을 위해 설계됨.
+An Electron terminal app for macOS, designed for multi-session work alongside Claude Code.
 
-xterm.js + tmux 기반으로 세션이 앱 종료 후에도 유지되며, 재실행 시 자동 복원됩니다.
-
----
-
-## 주요 기능
-
-### 터미널 그룹 관리
-- **사이드바** — 터미널 그룹 목록, 클릭으로 전환
-- **그룹 이름 변경** — 더블클릭으로 인라인 편집
-- **그룹 클러스터** — `Cmd+Shift+G`로 프로젝트 단위 묶음 설정
-- **세션 영속성** — tmux 기반, 앱 종료 후에도 세션 유지 및 자동 복원
-
-### 멀티 패인 분할
-- 수평/수직 분할 (우클릭 컨텍스트 메뉴)
-- 드래그로 분할 비율 조정
-- 레이아웃 프리셋 (툴바에서 1패인 / 2분할 / 3분할 선택)
-
-### Claude Code 연동
-- **Running/Waiting 뱃지** — Claude가 작업 중이면 `⚙ Running`, 승인 대기 시 `⚠ Waiting`
-- **완료 알림** — 작업 완료 시 `✓ Done` 뱃지 5초 표시
-- **멀티탭 동시 모니터링** — 백그라운드 탭의 Claude 세션 상태도 실시간 감지
-- **승인 대기 점프** — `Cmd+Shift+A`로 `waiting_approval` 상태 탭으로 즉시 이동
-- **Claude Usage** — 상태바에 Claude Code 플랜 사용량 표시 (5h/7d, 5분마다 자동 갱신)
-
-### 사이드바 서브행
-각 그룹 항목 아래 pane별 상태 행 표시:
-- **git branch** — 현재 작업 브랜치
-- **상태 인디케이터** — idle(회색) / running(초록) / waiting(주황 맥박) / done(초록 flash)
-- **변경 파일 수** — `●N` 형태로 uncommitted 변경 수
-
-### 테마
-- **다크 테마** (기본) — SF Mono, `#0e1014` 배경
-- **라이트 테마** — 전체 CSS 변수 재정의로 일관된 색상
-- 설정에서 토글
-
-### Changed Files 패널
-- `Cmd+Shift+E` — 현재 탭의 git 변경 파일 목록 사이드 패널
-- diff 뷰 (diff2html)
+Built on xterm.js with per-pane PTY processes. Group names, clusters, and layouts are persisted and restored on relaunch.
 
 ---
 
-## 시스템 요구사항
+## Features
 
-| 항목 | 요구사항 |
-|------|---------|
+### Terminal group management
+- **Sidebar** — list of terminal groups; click to switch
+- **Rename group** — double-click to edit inline
+- **Group clusters** — set a project-level cluster name with `Cmd+Shift+G`
+- **Metadata persistence** — group names, clusters, and layouts are saved to `sessions.json` and restored on relaunch
+
+> Note: PTY processes themselves are not preserved across app restarts. Only group metadata (name, cluster, layout) is restored; terminals start fresh.
+
+### Multi-pane splits
+- Horizontal / vertical splits (right-click context menu)
+- Drag dividers to resize
+- Layout presets in the toolbar (single / 2-split / 3-split)
+
+### Claude Code integration
+- **Running / Waiting badges** — `⚙ Running` while Claude is working, `⚠ Waiting` when permission is required
+- **Completion badge** — `✓ Done` shown for 5 seconds after a task finishes
+- **Multi-tab monitoring** — background tabs are polled so their Claude state stays live
+- **Jump to waiting** — `Cmd+Shift+A` jumps to any tab awaiting approval
+- **Claude Usage** — status bar shows Claude Code plan usage (5h / 7d windows, refreshed every 5 minutes)
+
+### Sidebar sub-rows
+Each group entry shows a per-pane status row:
+- **Git branch** — current working branch
+- **Status indicator** — idle (gray) / running (green) / waiting (pulsing orange) / done (green flash)
+- **Changed file count** — `●N` for uncommitted changes
+
+### Theme
+- **Dark theme** (default) — SF Mono, `#0e1014` background
+- **Light theme** — full CSS-variable override for consistent colors
+- Toggle from settings
+
+### Changed Files panel
+- `Cmd+Shift+E` — side panel listing the current tab's git changes
+- Inline diff view (diff2html)
+
+---
+
+## System requirements
+
+| Item | Requirement |
+|------|-------------|
 | OS | macOS (Apple Silicon, arm64) |
 | Node.js | 18+ |
 | npm | 9+ |
-| tmux | 번들 포함 (별도 설치 불필요) |
 
-> Intel Mac, Windows, Linux 미지원
+> Intel Mac, Windows, and Linux are not supported.
 
 ---
 
-## 설치
+## Installation
 
-### 빌드된 앱 사용 (권장)
+### Use the pre-built app (recommended)
 
-1. [Releases](https://github.com/robothannu/hyperterm/releases) 페이지에서 최신 `HyperTerm-x.x.x-arm64.dmg` 다운로드
-2. DMG를 열고 `HyperTerm.app`을 `/Applications`로 드래그
-3. **첫 실행은 아래 우회 절차 필요** (앱이 Apple Developer ID로 서명되지 않음)
+1. Download the latest `HyperTerm-x.x.x-arm64.dmg` from [Releases](https://github.com/robothannu/hyperterm/releases).
+2. Open the DMG and drag `HyperTerm.app` to `/Applications`.
+3. **First launch requires a Gatekeeper workaround** (the app is not signed with an Apple Developer ID).
 
-#### 첫 실행 — Gatekeeper 우회
+#### First launch — Gatekeeper workaround
 
-**방법 1: Finder 우클릭 (권장)**
+**Option 1: Right-click in Finder (recommended)**
 
-1. `/Applications`에서 HyperTerm.app **우클릭 → 열기**
-2. 경고 창에서 **열기** 클릭
-3. 이후부터는 일반 앱처럼 실행 가능
+1. In `/Applications`, **right-click `HyperTerm.app` → Open**
+2. Click **Open** in the warning dialog
+3. Subsequent launches work like any normal app
 
-**방법 2: `"손상되었기 때문에 열 수 없습니다"` 메시지가 뜰 때**
+**Option 2: When you see `"HyperTerm is damaged and can't be opened"`**
 
-macOS Sequoia 이상에서 Quarantine 플래그 때문에 자주 발생. 터미널에서:
+Common on macOS Sequoia and later due to the quarantine flag. Run in Terminal:
 
 ```bash
 xattr -cr /Applications/HyperTerm.app
 open /Applications/HyperTerm.app
 ```
 
-> **왜 이런 절차가 필요한가?**
-> HyperTerm은 Apple Developer ID($99/년)로 정식 서명되지 않아 macOS Gatekeeper가 기본적으로 차단합니다. 악성 소프트웨어가 아니며, 전체 소스코드는 이 저장소에서 확인할 수 있습니다. 무결성 확인은 Release 페이지의 SHA-256 체크섬으로 가능합니다.
+> **Why is this necessary?**
+> HyperTerm is not signed with an Apple Developer ID ($99/year), so macOS Gatekeeper blocks it by default. It is not malicious — the full source is in this repository, and you can verify download integrity using the SHA-256 checksums published on each Release.
 
-### 직접 빌드
+### Build from source
 
 ```bash
 git clone https://github.com/robothannu/hyperterm.git
@@ -93,11 +94,11 @@ npm install
 npm run dist
 ```
 
-빌드 결과물:
-- `release/HyperTerm-<version>-arm64.dmg` — DMG 인스톨러
-- `release/mac-arm64/HyperTerm.app` — 앱 번들
+Build outputs:
+- `release/HyperTerm-<version>-arm64.dmg` — installer
+- `release/mac-arm64/HyperTerm.app` — app bundle
 
-### 개발 모드
+### Development mode
 
 ```bash
 git clone https://github.com/robothannu/hyperterm.git
@@ -108,79 +109,78 @@ npm start
 
 ---
 
-## 사용법
+## Usage
 
-### 터미널 그룹
+### Terminal groups
 
-| 동작 | 방법 |
-|------|------|
-| 새 그룹 | 사이드바 `+` 버튼 또는 `Cmd+N` |
-| 그룹 전환 | 사이드바 클릭 또는 `Cmd+1~9` |
-| 이전/다음 그룹 | `Cmd+Shift+[` / `Cmd+Shift+]` |
-| 이름 변경 | 사이드바에서 더블클릭 |
-| 그룹 닫기 | 사이드바 `×` 버튼 |
-| 앱 종료 | `Cmd+Q` (tmux 세션 유지됨, 재시작 시 복원) |
+| Action | How |
+|--------|-----|
+| New group | Sidebar `+` button or `Cmd+N` |
+| Switch group | Click in sidebar, or `Cmd+1`–`Cmd+9` |
+| Previous / next group | `Cmd+Shift+[` / `Cmd+Shift+]` |
+| Rename | Double-click in sidebar |
+| Close group | Sidebar `×` button |
+| Quit app | `Cmd+Q` (group metadata is restored on next launch; PTYs restart fresh) |
 
-### 패인 분할
+### Pane splits
 
-| 동작 | 방법 |
-|------|------|
-| 수평/수직 분할 | 터미널 영역 우클릭 → 분할 선택 |
-| 패인 간 포커스 이동 | `Cmd+Arrow` |
-| 레이아웃 프리셋 | 툴바 버튼 (1패인 / 좌우 / 상하 / 3분할) |
+| Action | How |
+|--------|-----|
+| Horizontal / vertical split | Right-click terminal area → choose split |
+| Focus adjacent pane | `Cmd+Arrow` |
+| Layout preset | Toolbar buttons (single / side-by-side / stacked / 3-split) |
 
-### 키보드 단축키
+### Keyboard shortcuts
 
-| 단축키 | 동작 |
-|--------|------|
-| `Cmd+N` | 새 터미널 그룹 |
-| `Cmd+1~9` | N번째 탭으로 이동 |
-| `Cmd+Shift+]` / `[` | 다음/이전 탭 |
-| `Cmd+Arrow` | 패인 간 포커스 이동 |
-| `Cmd+Shift+G` | 클러스터(프로젝트) 이름 설정 |
-| `Cmd+Shift+A` | 승인 대기 중인 Claude 탭으로 점프 |
-| `Cmd+Shift+E` | Changed Files 패널 토글 |
-| `Cmd++` / `Cmd+-` | 폰트 크기 증가/감소 |
-| `Cmd+0` | 폰트 크기 초기화 (12pt) |
-| `Cmd+C` | 선택 텍스트 복사 (선택 없으면 SIGINT) |
-| `Cmd+V` | 텍스트 붙여넣기 |
-| `Ctrl+V` | 이미지 붙여넣기 (Claude Code 이미지 입력 호환) |
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+N` | New terminal group |
+| `Cmd+1`–`Cmd+9` | Switch to the Nth tab |
+| `Cmd+Shift+]` / `[` | Next / previous tab |
+| `Cmd+Arrow` | Move focus between panes |
+| `Cmd+Shift+G` | Set cluster (project) name |
+| `Cmd+Shift+A` | Jump to a Claude tab that is waiting for approval |
+| `Cmd+Shift+E` | Toggle Changed Files panel |
+| `Cmd++` / `Cmd+-` | Increase / decrease font size |
+| `Cmd+0` | Reset font size (12pt) |
+| `Cmd+C` | Copy selection (sends SIGINT when no selection) |
+| `Cmd+V` | Paste text |
+| `Ctrl+V` | Paste image (compatible with Claude Code image input) |
 
-### Claude Code 연동
+### Claude Code integration
 
-앱 실행 시 `~/.config/hyperterm/hook.sh`와 `~/.claude/settings.json`에 훅이 자동 설치됩니다.
+On first launch, HyperTerm installs hooks into `~/.config/hyperterm/hook.sh` and `~/.claude/settings.json`.
 
-| 상태 | 뱃지 | 의미 |
-|------|------|------|
-| 작업 중 | `⚙ Running` (파란색) | Claude가 응답 생성 또는 툴 사용 중 |
-| 승인 대기 | `⚠ Waiting` (주황 맥박) | 권한 승인 필요 |
-| 완료 | `✓ Done` (초록, 5초) | 작업 완료 |
+| State | Badge | Meaning |
+|-------|-------|---------|
+| Running | `⚙ Running` (blue) | Claude is generating a response or using a tool |
+| Waiting | `⚠ Waiting` (pulsing orange) | Permission required |
+| Done | `✓ Done` (green, 5s) | Task finished |
 
-- 여러 탭에서 동시에 Claude를 실행해도 각 탭의 상태가 독립적으로 표시됩니다.
-- `Cmd+Shift+A`로 승인이 필요한 탭에 즉시 점프할 수 있습니다.
+- Per-tab state is tracked independently, so you can run Claude in several tabs at once.
+- Use `Cmd+Shift+A` to jump to any tab that needs approval.
 
-### Claude Usage 상태바
+### Claude Usage status bar
 
-하단 상태바에서 Claude Code 플랜 사용량 확인:
-- **형식:** `5h: N% | 7d: N%`
-- **자동 갱신:** 5분마다
-- **색상:** 80%+ 노란색, 95%+ 빨간색
-- **조건:** Claude Code OAuth 로그인 상태 필요
-
----
-
-## 기술 스택
-
-| 구성요소 | 버전 | 역할 |
-|---------|------|------|
-| Electron | 34 | 앱 프레임워크 |
-| xterm.js | 6 | 터미널 에뮬레이터 (WebGL 렌더링) |
-| node-pty | — | PTY 프로세스 관리 |
-| tmux | 번들 | 세션 관리 |
-| TypeScript | 5 | 렌더러 + 메인 프로세스 |
+The bottom status bar shows Claude Code plan usage:
+- **Format:** `5h: N% | 7d: N%`
+- **Refresh:** every 5 minutes
+- **Color:** yellow at 80%+, red at 95%+
+- **Requires:** signed-in Claude Code OAuth session
 
 ---
 
-## 라이선스
+## Tech stack
+
+| Component | Version | Role |
+|-----------|---------|------|
+| Electron | 34 | App framework |
+| xterm.js | 6 | Terminal emulator (WebGL rendering) |
+| node-pty | — | PTY process management |
+| TypeScript | 5 | Renderer + main process |
+
+---
+
+## License
 
 MIT
