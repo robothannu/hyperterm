@@ -1,12 +1,12 @@
 {
-  "current_phase": "building",
+  "current_phase": "complete",
   "iteration": 1,
-  "current_sprint": 3,
-  "total_sprints": 3,
-  "feature_request": "사이드바 per-pane 상태 구분: pane별 서브행(git branch + Running/Waiting 상태) + per-pane git branch polling",
+  "current_sprint": 1,
+  "total_sprints": 1,
+  "feature_request": "멀티탭 세션 상태 감지 수정: pollAgentStatus 전체 탭 폴링 + findOrAssignLeaf active tab 우선 매핑",
   "project_type": "web",
-  "scale": "medium",
-  "feature_branch": "feature/per-pane-status",
+  "scale": "small",
+  "feature_branch": null,
   "max_iterations": 5,
-  "history": [{"sprint": 1, "score": 28, "verdict": "PASS"}, {"sprint": 2, "score": 28, "verdict": "PASS"}]
+  "history": [{"sprint": 1, "score": 28, "verdict": "PASS"}]
 }

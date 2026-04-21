@@ -490,6 +490,7 @@ html, body {
   flex: 1;
   overflow: hidden;
   padding: 4px;
+  background: var(--bg-1);
 }
 
 /* === Agent Status Markers === */
