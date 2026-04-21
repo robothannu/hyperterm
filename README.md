@@ -60,7 +60,29 @@ xterm.js + tmux 기반으로 세션이 앱 종료 후에도 유지되며, 재실
 
 ### 빌드된 앱 사용 (권장)
 
-[Releases](https://github.com/robothannu/hyperterm/releases)에서 DMG 다운로드 후 설치.
+1. [Releases](https://github.com/robothannu/hyperterm/releases) 페이지에서 최신 `HyperTerm-x.x.x-arm64.dmg` 다운로드
+2. DMG를 열고 `HyperTerm.app`을 `/Applications`로 드래그
+3. **첫 실행은 아래 우회 절차 필요** (앱이 Apple Developer ID로 서명되지 않음)
+
+#### 첫 실행 — Gatekeeper 우회
+
+**방법 1: Finder 우클릭 (권장)**
+
+1. `/Applications`에서 HyperTerm.app **우클릭 → 열기**
+2. 경고 창에서 **열기** 클릭
+3. 이후부터는 일반 앱처럼 실행 가능
+
+**방법 2: `"손상되었기 때문에 열 수 없습니다"` 메시지가 뜰 때**
+
+macOS Sequoia 이상에서 Quarantine 플래그 때문에 자주 발생. 터미널에서:
+
+```bash
+xattr -cr /Applications/HyperTerm.app
+open /Applications/HyperTerm.app
+```
+
+> **왜 이런 절차가 필요한가?**
+> HyperTerm은 Apple Developer ID($99/년)로 정식 서명되지 않아 macOS Gatekeeper가 기본적으로 차단합니다. 악성 소프트웨어가 아니며, 전체 소스코드는 이 저장소에서 확인할 수 있습니다. 무결성 확인은 Release 페이지의 SHA-256 체크섬으로 가능합니다.
 
 ### 직접 빌드
 
