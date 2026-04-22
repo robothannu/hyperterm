@@ -25,6 +25,7 @@ interface HookEvent {
   session_id?: string;
   tool_name?: string;
   message?: string;
+  hypert_pty_id?: string;
   payload?: unknown;
 }
 

@@ -288,18 +288,35 @@ function findLeafByPtyId(ptyId: number): { leaf: PaneLeaf; tabId: number } | nul
   return null;
 }
 
-function findOrAssignLeaf(sessionId: string): { leaf: PaneLeaf; tabId: number } | null {
+function findOrAssignLeaf(
+  sessionId: string,
+  hypertPtyId?: string
+): { leaf: PaneLeaf; tabId: number } | null {
+  // Preferred path: hook payload carries HYPERTERM_PTY_ID from the PTY that
+  // actually spawned Claude. This is deterministic — no heuristic needed.
+  if (hypertPtyId) {
+    const ptyId = parseInt(hypertPtyId, 10);
+    if (Number.isFinite(ptyId) && ptyId > 0) {
+      const found = findLeafByPtyId(ptyId);
+      if (found) {
+        if (sessionId && !hookSessionMap.has(sessionId)) {
+          hookSessionMap.set(sessionId, ptyId);
+          found.leaf.hookSessionId = sessionId;
+        }
+        return found;
+      }
+    }
+  }
+
   // Already mapped?
   if (hookSessionMap.has(sessionId)) {
     const ptyId = hookSessionMap.get(sessionId)!;
     return findLeafByPtyId(ptyId);
   }
 
-  // New session_id: search for an unmapped Claude-running pane.
-  // AC2: active tab is searched FIRST, then other tabs as fallback.
+  // Fallback for legacy PTYs without HYPERTERM_PTY_ID: search for an unmapped
+  // Claude-running pane. Active tab first, then the rest.
   const mappedPtyIds = new Set(hookSessionMap.values());
-
-  // Build ordered tab iteration: active tab first, then the rest
   const orderedTabIds: number[] = [];
   if (activeTabId !== null && tabMap.has(activeTabId)) {
     orderedTabIds.push(activeTabId);
@@ -322,7 +339,7 @@ function findOrAssignLeaf(sessionId: string): { leaf: PaneLeaf; tabId: number } 
     }
   }
 
-  // Fallback: no Claude-running pane found — assign to first pane of active tab
+  // Last-resort fallback: first pane of active tab
   if (activeTabId !== null) {
     const tab = tabMap.get(activeTabId);
     if (tab) {
@@ -351,8 +368,9 @@ function handleHookEvent(evt: HookEvent): void {
   }
 
   const sessionId = evt.session_id || "";
+  const hypertPtyId = evt.hypert_pty_id || undefined;
 
-  const found = findOrAssignLeaf(sessionId);
+  const found = findOrAssignLeaf(sessionId, hypertPtyId);
   if (!found) {
     console.warn("[hook-state] No pane found for session_id:", sessionId);
     return;

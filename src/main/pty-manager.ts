@@ -81,6 +81,7 @@ export function createSession(
       ...(process.env as { [key: string]: string }),
       LANG: process.env.LANG || "en_US.UTF-8",
       LC_ALL: process.env.LC_ALL || "en_US.UTF-8",
+      HYPERTERM_PTY_ID: String(id),
     },
   });
 
