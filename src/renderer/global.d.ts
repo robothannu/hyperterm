@@ -107,6 +107,22 @@ interface TerminalAPI {
 
   // --- Path existence ---
   checkPathExists(dirPath: string): Promise<boolean>;
+
+  // --- Subagent Watcher (Sprint 2) ---
+  onSubagentStatus(callback: (payload: SubagentStatusPayload) => void): void;
+  getSubagentSnapshot(): Promise<SubagentStatusPayload[]>;
+}
+
+interface SubagentAgent {
+  agent_type?: string;
+  task_description?: string;
+  started_at: number;
+}
+
+interface SubagentStatusPayload {
+  ptyId: string;
+  activeCount: number;
+  agents: SubagentAgent[];
 }
 
 interface Window {
@@ -159,3 +175,7 @@ declare function cleanupPaneGitCache(ptyId: number): void;
 declare function updateSidebarPaneRows(tabId: number): void;
 declare function refreshSidebarPaneRowBranch(tabId: number, ptyId: number): void;
 declare function setSidebarPaneRowState(tabId: number, ptyId: number, state: "idle" | "running" | "waiting" | "done"): void;
+
+// Subagent indicator (subagent-indicator.ts — Sprint 3)
+declare function initSubagentIndicator(): Promise<void>;
+declare function cleanupSubagentForPty(ptyId: number): void;

@@ -33,6 +33,18 @@ interface AppSettings {
   recentProjects?: string[];
 }
 
+export interface SubagentAgent {
+  agent_type?: string;
+  task_description?: string;
+  started_at: number;
+}
+
+export interface SubagentStatusPayload {
+  ptyId: string;
+  activeCount: number;
+  agents: SubagentAgent[];
+}
+
 export interface TerminalAPI {
   createPty(
     cols: number,
@@ -89,6 +101,10 @@ export interface TerminalAPI {
 
   // --- Path existence ---
   checkPathExists(dirPath: string): Promise<boolean>;
+
+  // --- Subagent Watcher (Sprint 2) ---
+  onSubagentStatus(callback: (payload: SubagentStatusPayload) => void): void;
+  getSubagentSnapshot(): Promise<SubagentStatusPayload[]>;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -216,5 +232,14 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   // --- Path existence ---
   checkPathExists: (dirPath: string): Promise<boolean> => {
     return ipcRenderer.invoke("path:checkExists", dirPath);
+  },
+
+  // --- Subagent Watcher (Sprint 2) ---
+  onSubagentStatus: (callback: (payload: SubagentStatusPayload) => void): void => {
+    ipcRenderer.removeAllListeners("subagent:status");
+    ipcRenderer.on("subagent:status", (_event, payload) => callback(payload));
+  },
+  getSubagentSnapshot: (): Promise<SubagentStatusPayload[]> => {
+    return ipcRenderer.invoke("subagent:snapshot");
   },
 } satisfies TerminalAPI);

@@ -8,6 +8,12 @@ import * as os from "os";
 
 const execFileAsync = promisify(execFile);
 import * as PtyManager from "./pty-manager";
+import { installSubagentHooks } from "./subagent-hook-installer";
+import {
+  startSubagentWatcher,
+  stopSubagentWatcher,
+  getSubagentSnapshot,
+} from "./subagent-watcher";
 
 interface Note {
   id: number;
@@ -611,6 +617,7 @@ ipcMain.on("app:quit-ready", () => {
     hookServer.close();
     hookServer = null;
   }
+  stopSubagentWatcher();
   if (mainWindow) {
     mainWindow.destroy();
   }
@@ -641,6 +648,10 @@ ipcMain.handle("settings:save", (_event, settings: Partial<AppSettings>) => {
 
 ipcMain.handle("hook:checkInstalled", () => isHookInstalled());
 ipcMain.handle("hook:install", () => installClaudeHooks());
+
+// --- Subagent Watcher IPC (Sprint 2) ---
+
+ipcMain.handle("subagent:snapshot", () => getSubagentSnapshot());
 
 // --- macOS Notification for waiting_approval ---
 
@@ -737,6 +748,9 @@ app.whenReady().then(() => {
   // even when settings.json already lists it. isHookInstalled() only checks
   // settings.json registration, not hook.sh content.
   installClaudeHooks();
+  installSubagentHooks();
+  // Start subagent file watcher (Sprint 2)
+  startSubagentWatcher(() => mainWindow);
   createWindow();
   createMenu();
 });

@@ -231,7 +231,7 @@ html, body {
 
 .terminal-entry-row {
   display: grid;
-  grid-template-columns: 14px 1fr auto auto auto;
+  grid-template-columns: 14px 1fr auto auto auto auto;
   align-items: center;
   column-gap: 8px;
   row-gap: 3px;
@@ -361,7 +361,7 @@ html, body {
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
-  grid-column: 5;
+  grid-column: 6;
   opacity: 0;
   transition: opacity 0.12s;
 }
@@ -2114,9 +2114,14 @@ body.theme-light .layout-btn.active {
   border-color: rgba(245,181,71,0.2);
 }
 
-/* tab-notif: keep as grid column 4 */
+/* tab-notif: column 4 */
 .terminal-entry-row .tab-notif {
   grid-column: 4;
+}
+
+/* subagent-indicator-slot: column 5 */
+.terminal-entry-row .subagent-indicator-slot {
+  grid-column: 5;
 }
 
 /* === Sidebar Card: Meta Row === */
@@ -2393,6 +2398,96 @@ body.theme-light .layout-btn.active {
 /* === sidebar-agent-dot hidden (legacy, we use card-dot-status now) === */
 .sidebar-agent-dot.hidden {
   display: none;
+}
+
+/* === Sprint 3: Subagent Indicator === */
+/* AC3.6: purple (#8b5cf6) — distinct from ok(green) and warn(orange) */
+
+.subagent-indicator-slot {
+  display: none; /* hidden by default; shown when count > 0 */
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  grid-column: 4; /* between tab-notif area and actions */
+  cursor: default;
+  /* Ensure it doesn't interfere with tab-notif column */
+  margin-left: 2px;
+}
+
+/* The purple dot */
+.sa-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8b5cf6;
+  box-shadow: 0 0 0 2px rgba(139,92,246,0.2);
+  flex-shrink: 0;
+  display: inline-block;
+  animation: saDotPulse 2s ease-in-out infinite;
+}
+
+@keyframes saDotPulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(139,92,246,0.2); }
+  50% { box-shadow: 0 0 4px rgba(139,92,246,0.6); }
+}
+
+/* Count badge (shown when count >= 2) */
+.sa-count {
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: #8b5cf6;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* Popover card */
+.sa-popover {
+  position: fixed;
+  z-index: 9999;
+  min-width: 180px;
+  max-width: 320px;
+  background: var(--bg-3);
+  border: 1px solid rgba(139,92,246,0.3);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  pointer-events: auto;
+}
+
+.sa-popover-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: #8b5cf6;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 6px;
+}
+
+.sa-popover-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.sa-popover-row:last-child {
+  margin-bottom: 0;
+}
+
+.sa-popover-bullet {
+  color: #8b5cf6;
+  font-size: 10px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.sa-popover-info {
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--fg-1);
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 /* === Sprint 3: Toolbar Row & Layout Presets === */

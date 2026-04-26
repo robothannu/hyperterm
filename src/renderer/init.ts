@@ -37,6 +37,8 @@ usageRefreshInterval = setInterval(() => {
     initSettingsModal();
     // Init Sidebar Resize
     initSidebarResize();
+    // Init Subagent Indicator (Sprint 3)
+    initSubagentIndicator();
   } catch (err) {
     console.error("Init error:", err);
   }
