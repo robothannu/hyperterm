@@ -274,8 +274,9 @@ function addSidebarEntryDOM(tabId: number, label: string): void {
     <div class="terminal-entry-row">
       <span class="card-dot-status" title="idle"></span>
       <span class="terminal-label">${escapeHtml(label)}</span>
-      <span class="tab-notif hidden"></span>
       <span class="card-count-pill">1</span>
+      <span class="tab-notif hidden"></span>
+      <span class="subagent-indicator-slot" style="display:none"></span>
       <div class="terminal-entry-actions">
         <button class="btn-notes" title="Notes">&#9998;</button>
         <button class="btn-close" title="Close terminal">&times;</button>

@@ -659,6 +659,10 @@ function closePaneByPtyId(ptyId: number): void {
   if (typeof cleanupPaneGitCache === "function") {
     cleanupPaneGitCache(ptyId);
   }
+  // Clean up subagent indicator state
+  if (typeof cleanupSubagentForPty === "function") {
+    cleanupSubagentForPty(ptyId);
+  }
 
   // Update sidebar count pill
   if (typeof updateSidebarCountPill === "function") {
@@ -714,6 +718,10 @@ function closeTab(tabId: number): void {
     // Clean up per-pane git cache
     if (typeof cleanupPaneGitCache === "function") {
       cleanupPaneGitCache(leaf.ptyId);
+    }
+    // Clean up subagent indicator state
+    if (typeof cleanupSubagentForPty === "function") {
+      cleanupSubagentForPty(leaf.ptyId);
     }
   }
 
