@@ -118,24 +118,27 @@ function ensureHookScript(): void {
     fs.mkdirSync(hookScriptDir, { recursive: true });
     const script = `#!/bin/bash
 # Claude Code hook → HyperTerm Unix socket
-# Claude Code passes event type inside JSON payload as hook_event_name (not via env var)
-# HYPERTERM_PTY_ID is injected by pty-manager when spawning the shell, and
-# inherited by Claude Code → this hook. It deterministically identifies the PTY.
+# Single python3 invocation to avoid macOS launcher crash dialogs.
+# Use Apple-signed /usr/bin/python3 explicitly (more stable than brew python).
+# HYPERTERM_PTY_ID is injected by pty-manager and inherited via Claude Code → this hook.
 PAYLOAD=$(cat)
 SOCK="$HOME/Library/Application Support/HyperTerm/agent.sock"
-EVENT_TYPE=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('hook_event_name','unknown'))" 2>/dev/null || echo "unknown")
-SESSION_ID=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null || echo "")
-TOOL_NAME=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
-MESSAGE=$(echo "$PAYLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message',''))" 2>/dev/null || echo "")
 PTY_ID="\${HYPERTERM_PTY_ID:-}"
-# Escape string values for JSON embedding
-esc() { printf '%s' "$1" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])" 2>/dev/null || echo ""; }
-SE=$(esc "$SESSION_ID")
-TE=$(esc "$TOOL_NAME")
-ME=$(esc "$MESSAGE")
-PE=$(esc "$PTY_ID")
-printf '%s\\n' "{\\"event\\":\\"$EVENT_TYPE\\",\\"session_id\\":\\"$SE\\",\\"tool_name\\":\\"$TE\\",\\"message\\":\\"$ME\\",\\"hypert_pty_id\\":\\"$PE\\"}" | \\
-  nc -U "$SOCK" 2>/dev/null || true
+echo "$PAYLOAD" | HYPERT_PTY_ID="$PTY_ID" /usr/bin/python3 -c '
+import sys, json, os
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+out = {
+    "event": d.get("hook_event_name", "unknown"),
+    "session_id": d.get("session_id", ""),
+    "tool_name": d.get("tool_name", ""),
+    "message": d.get("message", ""),
+    "hypert_pty_id": os.environ.get("HYPERT_PTY_ID", ""),
+}
+sys.stdout.write(json.dumps(out) + "\\n")
+' 2>/dev/null | nc -U "$SOCK" 2>/dev/null || true
 `;
     // Always overwrite to keep hook.sh up-to-date with the latest template
     fs.writeFileSync(hookScriptPath, script, { mode: 0o755, encoding: "utf8" });
@@ -730,10 +733,10 @@ function createMenu(): void {
 app.whenReady().then(() => {
   loadSettings();
   hookServer = startHookServer();
-  // Auto-install Claude hooks if not yet installed
-  if (!isHookInstalled()) {
-    installClaudeHooks();
-  }
+  // Always re-install hooks: ensures hook.sh is refreshed to the latest template
+  // even when settings.json already lists it. isHookInstalled() only checks
+  // settings.json registration, not hook.sh content.
+  installClaudeHooks();
   createWindow();
   createMenu();
 });
