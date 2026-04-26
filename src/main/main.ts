@@ -8,6 +8,7 @@ import * as os from "os";
 
 const execFileAsync = promisify(execFile);
 import * as PtyManager from "./pty-manager";
+import { installSubagentHooks } from "./subagent-hook-installer";
 
 interface Note {
   id: number;
@@ -737,6 +738,7 @@ app.whenReady().then(() => {
   // even when settings.json already lists it. isHookInstalled() only checks
   // settings.json registration, not hook.sh content.
   installClaudeHooks();
+  installSubagentHooks();
   createWindow();
   createMenu();
 });
