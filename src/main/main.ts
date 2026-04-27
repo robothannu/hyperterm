@@ -21,6 +21,7 @@ import {
   removeWorkspace,
   type Workspace,
 } from "./workspaces";
+import { getCardData } from "./workspace-reader";
 
 interface Note {
   id: number;
@@ -720,6 +721,12 @@ ipcMain.handle("workspace:add", async () => {
 ipcMain.handle("workspace:remove", (_event, id: string) => {
   workspaces = removeWorkspace(workspaces, id);
   return workspaces;
+});
+
+// --- Workspace Card Data IPC (Sprint 2) ---
+
+ipcMain.handle("workspace:cardData", async (_event, workspacePath: string) => {
+  return getCardData(workspacePath);
 });
 
 // --- Path Existence IPC ---

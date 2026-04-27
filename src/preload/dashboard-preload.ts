@@ -13,6 +13,24 @@ interface AddResult {
   cancelled: boolean;
 }
 
+interface GitLogEntry {
+  hash: string;
+  msg: string;
+  relTime: string;
+}
+
+interface CardData {
+  claude: string | null;
+  progress: string | null;
+  gitLog: GitLogEntry[] | null;
+  notAGitRepo: boolean;
+  errors: {
+    claude?: string;
+    progress?: string;
+    gitLog?: string;
+  };
+}
+
 contextBridge.exposeInMainWorld("dashboardAPI", {
   listWorkspaces: (): Promise<Workspace[]> => {
     return ipcRenderer.invoke("workspace:list");
@@ -28,5 +46,9 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
 
   checkPathExists: (p: string): Promise<boolean> => {
     return ipcRenderer.invoke("path:checkExists", p);
+  },
+
+  readCardData: (workspacePath: string): Promise<CardData | { error: string }> => {
+    return ipcRenderer.invoke("workspace:cardData", workspacePath);
   },
 });

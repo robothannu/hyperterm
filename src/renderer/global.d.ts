@@ -134,11 +134,30 @@ interface Window {
 }
 
 // Dashboard API (exposed only in dashboard.html window context)
+interface DashboardGitLogEntry {
+  hash: string;
+  msg: string;
+  relTime: string;
+}
+
+interface DashboardCardData {
+  claude: string | null;
+  progress: string | null;
+  gitLog: DashboardGitLogEntry[] | null;
+  notAGitRepo: boolean;
+  errors: {
+    claude?: string;
+    progress?: string;
+    gitLog?: string;
+  };
+}
+
 interface DashboardAPI {
   listWorkspaces(): Promise<WorkspaceEntry[]>;
   addWorkspace(): Promise<{ workspaces: WorkspaceEntry[]; duplicate: boolean; cancelled: boolean }>;
   removeWorkspace(id: string): Promise<WorkspaceEntry[]>;
   checkPathExists(p: string): Promise<boolean>;
+  readCardData(workspacePath: string): Promise<DashboardCardData | { error: string }>;
 }
 
 interface WorkspaceEntry {
