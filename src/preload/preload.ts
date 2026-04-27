@@ -105,6 +105,9 @@ export interface TerminalAPI {
   // --- Subagent Watcher (Sprint 2) ---
   onSubagentStatus(callback: (payload: SubagentStatusPayload) => void): void;
   getSubagentSnapshot(): Promise<SubagentStatusPayload[]>;
+
+  // --- Workspace Dashboard (Sprint 4) ---
+  openDashboard(): void;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -241,5 +244,10 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   },
   getSubagentSnapshot: (): Promise<SubagentStatusPayload[]> => {
     return ipcRenderer.invoke("subagent:snapshot");
+  },
+
+  // --- Workspace Dashboard (Sprint 4) ---
+  openDashboard: (): void => {
+    ipcRenderer.send("dashboard:open");
   },
 } satisfies TerminalAPI);

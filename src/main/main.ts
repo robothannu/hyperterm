@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, MenuItem, shell, Notification } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, MenuItem, shell, Notification, dialog } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { execFile } from "child_process";
@@ -14,6 +14,13 @@ import {
   stopSubagentWatcher,
   getSubagentSnapshot,
 } from "./subagent-watcher";
+import {
+  initWorkspaces,
+  loadWorkspaces,
+  addWorkspace,
+  removeWorkspace,
+  type Workspace,
+} from "./workspaces";
 
 interface Note {
   id: number;
@@ -33,9 +40,13 @@ process.on("unhandledRejection", (reason) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
+let dashboardWindow: BrowserWindow | null = null;
 let isQuitting = false;
 let forceQuitTimer: NodeJS.Timeout | null = null;
 let hookServer: net.Server | null = null;
+
+// In-memory workspace list (persisted via workspaces module)
+let workspaces: Workspace[] = [];
 
 const sessionsFilePath = path.join(app.getPath("userData"), "sessions.json");
 const notesFilePath = path.join(app.getPath("userData"), "notes.json");
@@ -269,6 +280,50 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+}
+
+// --- Dashboard Window ---
+
+function openDashboardWindow(): void {
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    // Singleton: bring to front
+    if (dashboardWindow.isMinimized()) dashboardWindow.restore();
+    dashboardWindow.focus();
+    console.log("[dashboard] focus: existing window brought to front");
+    return;
+  }
+
+  dashboardWindow = new BrowserWindow({
+    width: 800,
+    height: 560,
+    minWidth: 480,
+    minHeight: 360,
+    backgroundColor: "#0a0b0f",
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 12, y: 12 },
+    title: "Workspace Dashboard",
+    webPreferences: {
+      preload: path.join(__dirname, "..", "preload", "dashboard-preload.js"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+
+  dashboardWindow.loadFile(
+    path.join(__dirname, "..", "renderer", "dashboard.html")
+  );
+
+  if (!app.isPackaged) {
+    dashboardWindow.webContents.openDevTools({ mode: "detach" });
+  }
+
+  dashboardWindow.on("closed", () => {
+    dashboardWindow = null;
+    console.log("[dashboard] window closed");
+  });
+
+  console.log("[dashboard] open: new dashboard window created");
 }
 
 // --- IPC Handlers ---
@@ -624,6 +679,49 @@ ipcMain.on("app:quit-ready", () => {
   app.quit();
 });
 
+// --- Dashboard IPC ---
+
+ipcMain.on("dashboard:open", () => {
+  console.log("[dashboard] IPC: dashboard:open received");
+  openDashboardWindow();
+});
+
+// --- Workspace IPC ---
+
+ipcMain.handle("workspace:list", () => {
+  return workspaces;
+});
+
+ipcMain.handle("workspace:add", async () => {
+  const result = await dialog.showOpenDialog(
+    dashboardWindow ?? mainWindow!,
+    {
+      title: "Select Workspace Folder",
+      properties: ["openDirectory", "createDirectory"],
+    }
+  );
+
+  if (result.canceled || result.filePaths.length === 0) {
+    console.log("[workspace] add: dialog cancelled");
+    return { workspaces, duplicate: false, cancelled: true };
+  }
+
+  const chosen = result.filePaths[0];
+  const addResult = addWorkspace(workspaces, chosen);
+  workspaces = addResult.workspaces;
+
+  return {
+    workspaces,
+    duplicate: addResult.duplicate,
+    cancelled: false,
+  };
+});
+
+ipcMain.handle("workspace:remove", (_event, id: string) => {
+  workspaces = removeWorkspace(workspaces, id);
+  return workspaces;
+});
+
 // --- Path Existence IPC ---
 
 ipcMain.handle("path:checkExists", (_event, dirPath: string): boolean => {
@@ -743,6 +841,9 @@ function createMenu(): void {
 
 app.whenReady().then(() => {
   loadSettings();
+  // Initialize workspaces persistence
+  initWorkspaces(app.getPath("userData"));
+  workspaces = loadWorkspaces();
   hookServer = startHookServer();
   // Always re-install hooks: ensures hook.sh is refreshed to the latest template
   // even when settings.json already lists it. isHookInstalled() only checks

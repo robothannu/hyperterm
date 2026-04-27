@@ -111,6 +111,9 @@ interface TerminalAPI {
   // --- Subagent Watcher (Sprint 2) ---
   onSubagentStatus(callback: (payload: SubagentStatusPayload) => void): void;
   getSubagentSnapshot(): Promise<SubagentStatusPayload[]>;
+
+  // --- Workspace Dashboard (Sprint 4) ---
+  openDashboard(): void;
 }
 
 interface SubagentAgent {
@@ -127,6 +130,22 @@ interface SubagentStatusPayload {
 
 interface Window {
   terminalAPI: TerminalAPI;
+  dashboardAPI?: DashboardAPI;
+}
+
+// Dashboard API (exposed only in dashboard.html window context)
+interface DashboardAPI {
+  listWorkspaces(): Promise<WorkspaceEntry[]>;
+  addWorkspace(): Promise<{ workspaces: WorkspaceEntry[]; duplicate: boolean; cancelled: boolean }>;
+  removeWorkspace(id: string): Promise<WorkspaceEntry[]>;
+  checkPathExists(p: string): Promise<boolean>;
+}
+
+interface WorkspaceEntry {
+  id: string;
+  name: string;
+  absolutePath: string;
+  addedAt: string;
 }
 
 // Cross-module teardown helpers (defined in their respective modules,

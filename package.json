@@ -6,7 +6,7 @@
   "main": "dist/main/main.js",
   "scripts": {
     "rebuild": "electron-rebuild -f -w node-pty",
-    "copy-static": "cp src/renderer/index.html dist/renderer/index.html && cp src/renderer/styles.css dist/renderer/styles.css",
+    "copy-static": "cp src/renderer/index.html dist/renderer/index.html && cp src/renderer/styles.css dist/renderer/styles.css && cp src/renderer/dashboard.html dist/renderer/dashboard.html",
     "build": "tsc && npm run copy-static",
     "start": "npm run build && electron .",
     "dist": "npm run build && electron-builder"
