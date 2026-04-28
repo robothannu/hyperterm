@@ -19,6 +19,7 @@ import {
   loadWorkspaces,
   addWorkspace,
   removeWorkspace,
+  renameWorkspace,
   type Workspace,
 } from "./workspaces";
 import { getCardData } from "./workspace-reader";
@@ -727,6 +728,69 @@ ipcMain.handle("workspace:remove", (_event, id: string) => {
 
 ipcMain.handle("workspace:cardData", async (_event, workspacePath: string) => {
   return getCardData(workspacePath);
+});
+
+// --- Workspace Rename IPC (Sprint 3) ---
+
+ipcMain.handle("workspace:rename", (_event, id: string, newName: string) => {
+  const updated = renameWorkspace(workspaces, id, newName);
+  if (updated === null) {
+    console.warn(`[workspace] rename: failed for id=${id}`);
+    return { workspaces, success: false };
+  }
+  workspaces = updated;
+  console.log(`[workspace] rename: IPC success id=${id}`);
+  return { workspaces, success: true };
+});
+
+// --- workspace:openInMain IPC (Sprint 3) ---
+// Dashboard card "Open" → focus mainWindow + send group:openWithCwd
+
+ipcMain.handle("workspace:openInMain", async (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    console.warn("[workspace] openInMain: invalid path");
+    return { error: "invalid_path" };
+  }
+
+  // Verify path exists on disk
+  if (!fs.existsSync(workspacePath)) {
+    console.warn(`[workspace] openInMain: path does not exist: ${workspacePath}`);
+    return { error: "path_missing" };
+  }
+
+  // Ensure mainWindow exists; create it if needed
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    console.log("[workspace] openInMain: mainWindow does not exist, creating it");
+    // Cancel any in-flight quit sequence so the new window isn't destroyed
+    // by a stale forceQuitTimer or a late app:quit-ready callback.
+    if (forceQuitTimer !== null) {
+      clearTimeout(forceQuitTimer);
+      forceQuitTimer = null;
+    }
+    isQuitting = false;
+    createWindow();
+    // Give the window time to load before sending IPC
+    await new Promise<void>((resolve) => {
+      const win = mainWindow!;
+      if (win.webContents.isLoading()) {
+        win.webContents.once("did-finish-load", () => resolve());
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  // Bring mainWindow to front
+  if (mainWindow!.isMinimized()) mainWindow!.restore();
+  mainWindow!.focus();
+  mainWindow!.show();
+
+  // Send the open request to main renderer
+  const normalizedPath = path.resolve(workspacePath);
+  console.log(`[workspace] openInMain: sending group:openWithCwd for ${normalizedPath}`);
+  mainWindow!.webContents.send("group:openWithCwd", { path: normalizedPath });
+
+  return { success: true };
 });
 
 // --- Path Existence IPC ---

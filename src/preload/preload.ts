@@ -108,6 +108,9 @@ export interface TerminalAPI {
 
   // --- Workspace Dashboard (Sprint 4) ---
   openDashboard(): void;
+
+  // --- group:openWithCwd (Sprint 3 dashboard → main renderer) ---
+  onOpenGroupWithCwd(callback: (payload: { path: string }) => void): void;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -249,5 +252,11 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   // --- Workspace Dashboard (Sprint 4) ---
   openDashboard: (): void => {
     ipcRenderer.send("dashboard:open");
+  },
+
+  // --- group:openWithCwd (Sprint 3 dashboard → main renderer) ---
+  onOpenGroupWithCwd: (callback: (payload: { path: string }) => void): void => {
+    ipcRenderer.removeAllListeners("group:openWithCwd");
+    ipcRenderer.on("group:openWithCwd", (_event, payload) => callback(payload));
   },
 } satisfies TerminalAPI);

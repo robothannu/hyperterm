@@ -1042,6 +1042,57 @@ window.terminalAPI.onHelpAbout(() => {
   showAbout();
 });
 
+// --- group:openWithCwd (Sprint 3: Dashboard card → main window) ---
+//
+// Opens (or activates) a group whose initial cwd matches the requested path.
+// Duplicate check: compare path.resolve(requestedPath) against the CWD of the
+// FIRST leaf in each existing tab (the tab's "launch cwd").  This is a best-effort
+// heuristic — the user may have cd'd away, but avoids obvious duplicates.
+
+window.terminalAPI.onOpenGroupWithCwd(async (payload: { path: string }) => {
+  const requestedPath = payload?.path;
+  if (!requestedPath || typeof requestedPath !== "string") {
+    console.warn("[renderer] group:openWithCwd: invalid payload", payload);
+    return;
+  }
+
+  console.log(`[renderer] group:openWithCwd: requested path=${requestedPath}`);
+
+  // Normalize for comparison
+  const normalizeForCompare = (p: string) => p.replace(/\/+$/, "");
+  const normalized = normalizeForCompare(requestedPath);
+
+  // Check each existing tab's first pane CWD
+  // We get CWD from pty-manager asynchronously
+  for (const [tabId, tab] of tabMap.entries()) {
+    const firstLeaf = getAllLeaves(tab.root)[0];
+    if (!firstLeaf) continue;
+    try {
+      const cwd = await window.terminalAPI.getCwd(firstLeaf.ptyId);
+      if (cwd && normalizeForCompare(cwd) === normalized) {
+        console.log(`[renderer] group:openWithCwd: found existing tab ${tabId} with cwd=${cwd} — activating`);
+        switchToTab(tabId);
+        showToast("Switched to existing workspace terminal.", "ok");
+        return;
+      }
+    } catch {
+      // getCwd failed; skip this tab
+    }
+  }
+
+  // No matching tab found — create a new one
+  console.log(`[renderer] group:openWithCwd: no existing tab found, creating new tab with cwd=${requestedPath}`);
+  // Use folder basename as initial label
+  const folderName = requestedPath.split("/").filter(Boolean).pop() || "Workspace";
+  const tabId = await createNewTab(folderName, requestedPath);
+  if (tabId === null) {
+    showToast("Failed to open workspace terminal.", "error");
+    return;
+  }
+  console.log(`[renderer] group:openWithCwd: created tab ${tabId} with cwd=${requestedPath}`);
+  showToast(`Opened workspace: ${folderName}`, "ok");
+});
+
 // --- Init button ---
 // NOTE: app startup (restoreFromSaved, refreshUsage) is called from init.js
 // which loads last so all module functions are available.

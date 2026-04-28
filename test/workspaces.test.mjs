@@ -12,7 +12,7 @@ import os from "node:os";
 // We test the compiled JS in dist/main/workspaces.js
 // -------------------------------------------------------------------
 const distPath = new URL("../dist/main/workspaces.js", import.meta.url).pathname;
-const { initWorkspaces, loadWorkspaces, saveWorkspaces, addWorkspace, removeWorkspace } =
+const { initWorkspaces, loadWorkspaces, saveWorkspaces, addWorkspace, removeWorkspace, renameWorkspace } =
   await import(distPath);
 
 let passed = 0;
@@ -116,6 +116,86 @@ test("loadWorkspaces falls back to [] on corrupt JSON", () => {
   assert.deepEqual(loaded, []);
   // Restore clean state
   fs.unlinkSync(filePath);
+});
+
+// ---------------------------------------------------------------------------
+// Sprint 3: renameWorkspace TDD
+// ---------------------------------------------------------------------------
+
+console.log("\n=== Sprint 3: renameWorkspace tests ===\n");
+
+test("renameWorkspace: renames by id and persists", () => {
+  const r = addWorkspace([], "/tmp/rename-me");
+  const ws = r.workspaces[0];
+  const updated = renameWorkspace(r.workspaces, ws.id, "My Project");
+  assert.notEqual(updated, null, "renameWorkspace should return updated list");
+  assert.equal(updated.length, 1);
+  assert.equal(updated[0].name, "My Project");
+  assert.equal(updated[0].absolutePath, "/tmp/rename-me");
+  assert.equal(updated[0].id, ws.id, "id must not change");
+});
+
+test("renameWorkspace: trimmed whitespace", () => {
+  const r = addWorkspace([], "/tmp/trim-test");
+  const ws = r.workspaces[0];
+  const updated = renameWorkspace(r.workspaces, ws.id, "  Trimmed  ");
+  assert.notEqual(updated, null);
+  assert.equal(updated[0].name, "Trimmed");
+});
+
+test("renameWorkspace: empty name returns null (rejected)", () => {
+  const r = addWorkspace([], "/tmp/empty-name");
+  const ws = r.workspaces[0];
+  const result = renameWorkspace(r.workspaces, ws.id, "  ");
+  assert.equal(result, null, "empty name should be rejected");
+});
+
+test("renameWorkspace: unknown id returns null", () => {
+  const r = addWorkspace([], "/tmp/unknown-id");
+  const result = renameWorkspace(r.workspaces, "nonexistent-id", "New Name");
+  assert.equal(result, null);
+});
+
+test("renameWorkspace: does not change absolutePath", () => {
+  const r = addWorkspace([], "/tmp/path-unchanged");
+  const ws = r.workspaces[0];
+  const updated = renameWorkspace(r.workspaces, ws.id, "Different Name");
+  assert.notEqual(updated, null);
+  assert.equal(updated[0].absolutePath, "/tmp/path-unchanged");
+});
+
+test("renameWorkspace: persisted name survives loadWorkspaces", () => {
+  const r = addWorkspace([], "/tmp/persist-rename");
+  const ws = r.workspaces[0];
+  const updated = renameWorkspace(r.workspaces, ws.id, "Persisted Name");
+  assert.notEqual(updated, null);
+  // loadWorkspaces should now return the renamed workspace
+  const reloaded = loadWorkspaces();
+  const found = reloaded.find((w) => w.id === ws.id);
+  assert.ok(found, "workspace should be found after reload");
+  assert.equal(found.name, "Persisted Name");
+});
+
+// ---------------------------------------------------------------------------
+// Sprint 3: cwd normalization comparison TDD
+// ---------------------------------------------------------------------------
+
+console.log("\n=== Sprint 3: cwd normalization tests ===\n");
+
+test("cwd normalization: trailing slash stripped", () => {
+  const normalize = (p) => path.resolve(p);
+  assert.equal(normalize("/tmp/project/"), "/tmp/project");
+});
+
+test("cwd normalization: already normalized path unchanged", () => {
+  const normalize = (p) => path.resolve(p);
+  assert.equal(normalize("/tmp/project"), "/tmp/project");
+});
+
+test("cwd normalization: duplicate detection uses normalized compare", () => {
+  const r1 = addWorkspace([], "/tmp/dup-check");
+  const r2 = addWorkspace(r1.workspaces, "/tmp/dup-check/");  // trailing slash variant
+  assert.equal(r2.duplicate, true, "trailing slash should be detected as duplicate");
 });
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,16 @@ interface AddResult {
   cancelled: boolean;
 }
 
+interface RenameResult {
+  workspaces: Workspace[];
+  success: boolean;
+}
+
+interface OpenInMainResult {
+  success?: boolean;
+  error?: string;
+}
+
 interface GitLogEntry {
   hash: string;
   msg: string;
@@ -50,5 +60,13 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
 
   readCardData: (workspacePath: string): Promise<CardData | { error: string }> => {
     return ipcRenderer.invoke("workspace:cardData", workspacePath);
+  },
+
+  renameWorkspace: (id: string, newName: string): Promise<RenameResult> => {
+    return ipcRenderer.invoke("workspace:rename", id, newName);
+  },
+
+  openInMain: (workspacePath: string): Promise<OpenInMainResult> => {
+    return ipcRenderer.invoke("workspace:openInMain", workspacePath);
   },
 });

@@ -58,7 +58,8 @@
       border-bottom: 1px solid var(--line);
       display: flex;
       align-items: center;
-      padding: 0 80px 0 16px;
+      /* left padding clears macOS traffic lights (x=12, ~60px wide) */
+      padding: 0 16px 0 84px;
       -webkit-app-region: drag;
     }
 
@@ -139,6 +140,8 @@
 
     #toast.visible { opacity: 1; }
     #toast.warn { color: var(--warn); }
+    #toast.err { color: var(--err); }
+    #toast.ok { color: var(--ok); }
 
     /* === Card Grid === */
     #card-grid {
@@ -146,24 +149,6 @@
       grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
       gap: 16px;
       align-items: start;
-    }
-
-    /* === Empty state === */
-    #empty-state {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      padding: 48px 24px;
-      text-align: center;
-      color: var(--fg-3);
-      font-size: 13px;
-    }
-
-    #empty-state .empty-icon {
-      font-size: 32px;
-      opacity: 0.4;
     }
 
     /* === Workspace Card === */
@@ -181,31 +166,13 @@
       border-color: var(--line-2);
     }
 
-    /* Card header */
-    .card-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 14px 14px 10px;
-      border-bottom: 1px solid var(--line);
-    }
-
+    /* Card header-info */
     .card-header-info {
       display: flex;
       flex-direction: column;
       gap: 3px;
       min-width: 0;
       flex: 1;
-    }
-
-    .card-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--fg-0);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     .card-path {
@@ -452,6 +419,192 @@
       font-size: 12px;
       font-style: italic;
     }
+
+    /* === Refresh all button === */
+    #btn-refresh-all {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      background: var(--bg-3);
+      color: var(--fg-2);
+      border: 1px solid var(--line-2);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.12s, color 0.12s;
+      -webkit-app-region: no-drag;
+    }
+
+    #btn-refresh-all:hover {
+      background: var(--bg-4);
+      color: var(--fg-1);
+    }
+
+    /* === Card header actions === */
+    .card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 12px 14px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .card-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+      margin-top: -1px;
+    }
+
+    /* === Per-card refresh button === */
+    .btn-card-refresh {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--fg-3);
+      padding: 3px 5px;
+      border-radius: 4px;
+      transition: background 0.12s, color 0.12s;
+      display: flex;
+      align-items: center;
+    }
+
+    .btn-card-refresh:hover {
+      background: var(--glass-strong);
+      color: var(--accent);
+    }
+
+    /* === Open button === */
+    .btn-open-workspace {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+
+    .btn-open-workspace:hover:not(.disabled) { opacity: 0.85; }
+    .btn-open-workspace:active:not(.disabled) { opacity: 0.7; }
+    .btn-open-workspace.disabled,
+    .btn-open-workspace:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    /* === Inline name edit === */
+    .card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg-0);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: text;
+      border-radius: 3px;
+      transition: background 0.12s;
+    }
+
+    .card-name:hover {
+      background: var(--glass-strong);
+    }
+
+    .card-name-input {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg-0);
+      background: var(--bg-3);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      padding: 1px 6px;
+      outline: none;
+      width: 100%;
+      font-family: inherit;
+      min-width: 80px;
+    }
+
+    /* === Missing card actions (remove from list) === */
+    .card-missing-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn-remove-missing {
+      background: rgba(255, 107, 107, 0.1);
+      border: 1px solid rgba(255, 107, 107, 0.25);
+      color: var(--err);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 10px;
+      border-radius: 5px;
+      font-family: inherit;
+      transition: background 0.12s;
+    }
+
+    .btn-remove-missing:hover {
+      background: rgba(255, 107, 107, 0.2);
+    }
+
+    /* === Enhanced empty state === */
+    #empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 64px 24px;
+      text-align: center;
+    }
+
+    #empty-state .empty-icon {
+      font-size: 40px;
+      opacity: 0.3;
+    }
+
+    #empty-state .empty-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--fg-1);
+    }
+
+    #empty-state .empty-sub {
+      font-size: 13px;
+      color: var(--fg-3);
+      line-height: 1.5;
+    }
+
+    #btn-empty-add {
+      margin-top: 4px;
+      padding: 8px 20px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity 0.15s;
+    }
+
+    #btn-empty-add:hover { opacity: 0.85; }
+    #btn-empty-add:active { opacity: 0.7; }
   </style>
 </head>
 <body>
@@ -462,18 +615,34 @@
   <div id="content">
     <div class="section-header">
       <span class="section-title">Workspaces</span>
-      <button id="btn-add-workspace">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-          <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        </svg>
-        Add Workspace
-      </button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button id="btn-refresh-all" title="Refresh all cards">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.6 0 3 .68 4 1.76" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            <path d="M12 2v3h-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Refresh
+        </button>
+        <button id="btn-add-workspace">
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+            <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Add Workspace
+        </button>
+      </div>
     </div>
 
     <div id="card-grid"></div>
     <div id="empty-state" style="display:none">
       <span class="empty-icon">&#128193;</span>
-      <span>No workspaces yet.<br/>Click "Add Workspace" to add a folder.</span>
+      <span class="empty-title">No workspaces yet</span>
+      <span class="empty-sub">Add a folder to get started.<br/>HyperTerm will read CLAUDE.md and progress.md from each workspace.</span>
+      <button id="btn-empty-add">
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" style="margin-right:4px">
+          <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        Add Workspace
+      </button>
     </div>
   </div>
 

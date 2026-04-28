@@ -112,3 +112,32 @@ export function removeWorkspace(
   saveWorkspaces(updated);
   return updated;
 }
+
+/**
+ * Rename a workspace by id. Returns updated list, or null if id not found.
+ * Path is never changed by this function — only the display name.
+ */
+export function renameWorkspace(
+  existing: Workspace[],
+  id: string,
+  newName: string
+): Workspace[] | null {
+  const trimmed = newName.trim();
+  if (!trimmed) {
+    console.warn(`[workspaces] rename: empty name ignored for id=${id}`);
+    return null;
+  }
+
+  const index = existing.findIndex((w) => w.id === id);
+  if (index === -1) {
+    console.warn(`[workspaces] rename: id not found: ${id}`);
+    return null;
+  }
+
+  const updated = existing.map((w, i) =>
+    i === index ? { ...w, name: trimmed } : w
+  );
+  saveWorkspaces(updated);
+  console.log(`[workspaces] rename: renamed id=${id} to "${trimmed}"`);
+  return updated;
+}

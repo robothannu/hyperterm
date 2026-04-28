@@ -114,6 +114,9 @@ interface TerminalAPI {
 
   // --- Workspace Dashboard (Sprint 4) ---
   openDashboard(): void;
+
+  // --- group:openWithCwd (Sprint 3 dashboard → main renderer) ---
+  onOpenGroupWithCwd(callback: (payload: { path: string }) => void): void;
 }
 
 interface SubagentAgent {
@@ -158,6 +161,8 @@ interface DashboardAPI {
   removeWorkspace(id: string): Promise<WorkspaceEntry[]>;
   checkPathExists(p: string): Promise<boolean>;
   readCardData(workspacePath: string): Promise<DashboardCardData | { error: string }>;
+  renameWorkspace(id: string, newName: string): Promise<{ workspaces: WorkspaceEntry[]; success: boolean }>;
+  openInMain(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
 }
 
 interface WorkspaceEntry {
