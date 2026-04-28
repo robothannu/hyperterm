@@ -105,6 +105,12 @@ export interface TerminalAPI {
   // --- Subagent Watcher (Sprint 2) ---
   onSubagentStatus(callback: (payload: SubagentStatusPayload) => void): void;
   getSubagentSnapshot(): Promise<SubagentStatusPayload[]>;
+
+  // --- Workspace Dashboard (Sprint 4) ---
+  openDashboard(): void;
+
+  // --- group:openWithCwd (Sprint 3 dashboard → main renderer) ---
+  onOpenGroupWithCwd(callback: (payload: { path: string }) => void): void;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -241,5 +247,16 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   },
   getSubagentSnapshot: (): Promise<SubagentStatusPayload[]> => {
     return ipcRenderer.invoke("subagent:snapshot");
+  },
+
+  // --- Workspace Dashboard (Sprint 4) ---
+  openDashboard: (): void => {
+    ipcRenderer.send("dashboard:open");
+  },
+
+  // --- group:openWithCwd (Sprint 3 dashboard → main renderer) ---
+  onOpenGroupWithCwd: (callback: (payload: { path: string }) => void): void => {
+    ipcRenderer.removeAllListeners("group:openWithCwd");
+    ipcRenderer.on("group:openWithCwd", (_event, payload) => callback(payload));
   },
 } satisfies TerminalAPI);

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, MenuItem, shell, Notification } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, MenuItem, shell, Notification, dialog } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { execFile } from "child_process";
@@ -14,6 +14,15 @@ import {
   stopSubagentWatcher,
   getSubagentSnapshot,
 } from "./subagent-watcher";
+import {
+  initWorkspaces,
+  loadWorkspaces,
+  addWorkspace,
+  removeWorkspace,
+  renameWorkspace,
+  type Workspace,
+} from "./workspaces";
+import { getCardData } from "./workspace-reader";
 
 interface Note {
   id: number;
@@ -33,9 +42,13 @@ process.on("unhandledRejection", (reason) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
+let dashboardWindow: BrowserWindow | null = null;
 let isQuitting = false;
 let forceQuitTimer: NodeJS.Timeout | null = null;
 let hookServer: net.Server | null = null;
+
+// In-memory workspace list (persisted via workspaces module)
+let workspaces: Workspace[] = [];
 
 const sessionsFilePath = path.join(app.getPath("userData"), "sessions.json");
 const notesFilePath = path.join(app.getPath("userData"), "notes.json");
@@ -269,6 +282,50 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+}
+
+// --- Dashboard Window ---
+
+function openDashboardWindow(): void {
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    // Singleton: bring to front
+    if (dashboardWindow.isMinimized()) dashboardWindow.restore();
+    dashboardWindow.focus();
+    console.log("[dashboard] focus: existing window brought to front");
+    return;
+  }
+
+  dashboardWindow = new BrowserWindow({
+    width: 800,
+    height: 560,
+    minWidth: 480,
+    minHeight: 360,
+    backgroundColor: "#0a0b0f",
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 12, y: 12 },
+    title: "Workspace Dashboard",
+    webPreferences: {
+      preload: path.join(__dirname, "..", "preload", "dashboard-preload.js"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+
+  dashboardWindow.loadFile(
+    path.join(__dirname, "..", "renderer", "dashboard.html")
+  );
+
+  if (!app.isPackaged) {
+    dashboardWindow.webContents.openDevTools({ mode: "detach" });
+  }
+
+  dashboardWindow.on("closed", () => {
+    dashboardWindow = null;
+    console.log("[dashboard] window closed");
+  });
+
+  console.log("[dashboard] open: new dashboard window created");
 }
 
 // --- IPC Handlers ---
@@ -624,6 +681,118 @@ ipcMain.on("app:quit-ready", () => {
   app.quit();
 });
 
+// --- Dashboard IPC ---
+
+ipcMain.on("dashboard:open", () => {
+  console.log("[dashboard] IPC: dashboard:open received");
+  openDashboardWindow();
+});
+
+// --- Workspace IPC ---
+
+ipcMain.handle("workspace:list", () => {
+  return workspaces;
+});
+
+ipcMain.handle("workspace:add", async () => {
+  const result = await dialog.showOpenDialog(
+    dashboardWindow ?? mainWindow!,
+    {
+      title: "Select Workspace Folder",
+      properties: ["openDirectory", "createDirectory"],
+    }
+  );
+
+  if (result.canceled || result.filePaths.length === 0) {
+    console.log("[workspace] add: dialog cancelled");
+    return { workspaces, duplicate: false, cancelled: true };
+  }
+
+  const chosen = result.filePaths[0];
+  const addResult = addWorkspace(workspaces, chosen);
+  workspaces = addResult.workspaces;
+
+  return {
+    workspaces,
+    duplicate: addResult.duplicate,
+    cancelled: false,
+  };
+});
+
+ipcMain.handle("workspace:remove", (_event, id: string) => {
+  workspaces = removeWorkspace(workspaces, id);
+  return workspaces;
+});
+
+// --- Workspace Card Data IPC (Sprint 2) ---
+
+ipcMain.handle("workspace:cardData", async (_event, workspacePath: string) => {
+  return getCardData(workspacePath);
+});
+
+// --- Workspace Rename IPC (Sprint 3) ---
+
+ipcMain.handle("workspace:rename", (_event, id: string, newName: string) => {
+  const updated = renameWorkspace(workspaces, id, newName);
+  if (updated === null) {
+    console.warn(`[workspace] rename: failed for id=${id}`);
+    return { workspaces, success: false };
+  }
+  workspaces = updated;
+  console.log(`[workspace] rename: IPC success id=${id}`);
+  return { workspaces, success: true };
+});
+
+// --- workspace:openInMain IPC (Sprint 3) ---
+// Dashboard card "Open" → focus mainWindow + send group:openWithCwd
+
+ipcMain.handle("workspace:openInMain", async (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    console.warn("[workspace] openInMain: invalid path");
+    return { error: "invalid_path" };
+  }
+
+  // Verify path exists on disk
+  if (!fs.existsSync(workspacePath)) {
+    console.warn(`[workspace] openInMain: path does not exist: ${workspacePath}`);
+    return { error: "path_missing" };
+  }
+
+  // Ensure mainWindow exists; create it if needed
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    console.log("[workspace] openInMain: mainWindow does not exist, creating it");
+    // Cancel any in-flight quit sequence so the new window isn't destroyed
+    // by a stale forceQuitTimer or a late app:quit-ready callback.
+    if (forceQuitTimer !== null) {
+      clearTimeout(forceQuitTimer);
+      forceQuitTimer = null;
+    }
+    isQuitting = false;
+    createWindow();
+    // Give the window time to load before sending IPC
+    await new Promise<void>((resolve) => {
+      const win = mainWindow!;
+      if (win.webContents.isLoading()) {
+        win.webContents.once("did-finish-load", () => resolve());
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  // Bring mainWindow to front
+  if (mainWindow!.isMinimized()) mainWindow!.restore();
+  mainWindow!.focus();
+  mainWindow!.show();
+
+  // Send the open request to main renderer
+  const normalizedPath = path.resolve(workspacePath);
+  console.log(`[workspace] openInMain: sending group:openWithCwd for ${normalizedPath}`);
+  mainWindow!.webContents.send("group:openWithCwd", { path: normalizedPath });
+
+  return { success: true };
+});
+
 // --- Path Existence IPC ---
 
 ipcMain.handle("path:checkExists", (_event, dirPath: string): boolean => {
@@ -743,6 +912,9 @@ function createMenu(): void {
 
 app.whenReady().then(() => {
   loadSettings();
+  // Initialize workspaces persistence
+  initWorkspaces(app.getPath("userData"));
+  workspaces = loadWorkspaces();
   hookServer = startHookServer();
   // Always re-install hooks: ensures hook.sh is refreshed to the latest template
   // even when settings.json already lists it. isHookInstalled() only checks
