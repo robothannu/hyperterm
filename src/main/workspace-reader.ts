@@ -187,12 +187,21 @@ export interface FileTreeResult {
 
 /**
  * Extract the first occurrence of a markdown section (## Heading).
- * Returns the text content of the section up to the next ## heading.
+ * Returns the text content of the section up to the next same-or-higher-level heading.
+ * Supports prefix matching: "## Last Session" also matches "## Last Session (2026-04-28)".
  */
 function extractMdSection(md: string, heading: string): string | null {
-  // Match "## Heading" lines (case-insensitive, leading whitespace tolerant)
+  // Determine the heading level from the search heading
+  const levelMatch = heading.match(/^(#+)\s/);
+  const level = levelMatch ? levelMatch[1].length : 2;
+  // Strip the hashes to get the heading text
+  const headingText = heading.replace(/^#+\s+/, "").trim();
+  const escapedText = headingText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // Match "## HeadingText" or "## HeadingText <anything>" (prefix match)
+  // Use [^\S\r\n] (non-newline whitespace) so \s doesn't consume newlines in multiline mode
   const pattern = new RegExp(
-    `^#{1,6}\\s+${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`,
+    `^#{${level}}[^\\S\\r\\n]+${escapedText}(?:[^\\S\\r\\n]+.*)?$`,
     "im"
   );
   const match = pattern.exec(md);
@@ -200,10 +209,52 @@ function extractMdSection(md: string, heading: string): string | null {
 
   const start = match.index + match[0].length;
   const rest = md.slice(start);
-  // Find the next heading at same or higher level
-  const nextHeading = /^#{1,6}\s/m.exec(rest);
+  // Stop at the next heading at the same or higher level (fewer # signs)
+  const stopPattern = new RegExp(`^#{1,${level}}\\s`, "m");
+  const nextHeading = stopPattern.exec(rest);
   const section = nextHeading ? rest.slice(0, nextHeading.index) : rest;
   return section.trim() || null;
+}
+
+/**
+ * Extract the first paragraph after the first H1 heading.
+ * Skips blank lines, returns null if the next non-blank content is a heading.
+ * Trims to 200 chars.
+ */
+function extractFirstParagraphAfterH1(md: string): string | null {
+  const lines = md.split("\n");
+  let foundH1 = false;
+  const paragraphLines: string[] = [];
+
+  for (const line of lines) {
+    if (!foundH1) {
+      if (/^#\s/.test(line)) {
+        foundH1 = true;
+      }
+      continue;
+    }
+
+    // After H1: skip blank lines until we hit content
+    if (paragraphLines.length === 0 && line.trim() === "") {
+      continue;
+    }
+
+    // If first content is a heading, return null
+    if (paragraphLines.length === 0 && /^#+\s/.test(line)) {
+      return null;
+    }
+
+    // Collect paragraph lines until blank line or heading
+    if (line.trim() === "" || /^#+\s/.test(line)) {
+      break;
+    }
+
+    paragraphLines.push(line.trim());
+  }
+
+  const text = paragraphLines.join(" ").trim();
+  if (!text) return null;
+  return text.slice(0, 200);
 }
 
 /**
@@ -344,14 +395,36 @@ export async function summarizeOverview(
     notAGitRepo: false,
   };
 
-  // 1. CLAUDE.md → goal
+  // 1. CLAUDE.md → goal (fallback chain)
   try {
     const { content, error } = readClaudeMd(workspacePath);
     if (content) {
-      const overviewSection = extractMdSection(content, "Overview");
-      if (overviewSection) {
-        // Take first 200 chars of the section text
-        goal = overviewSection.slice(0, 200).trim() || null;
+      let goalSection: string | null = null;
+      let fallbackUsed = "none";
+
+      goalSection = extractMdSection(content, "## Overview");
+      if (goalSection) { fallbackUsed = "## Overview"; }
+
+      if (!goalSection) {
+        goalSection = extractMdSection(content, "## Project Overview");
+        if (goalSection) { fallbackUsed = "## Project Overview"; }
+      }
+
+      if (!goalSection) {
+        goalSection = extractMdSection(content, "## Project Background");
+        if (goalSection) { fallbackUsed = "## Project Background"; }
+      }
+
+      if (!goalSection) {
+        goalSection = extractFirstParagraphAfterH1(content);
+        if (goalSection) { fallbackUsed = "first-paragraph-after-h1"; }
+      }
+
+      if (goalSection) {
+        goal = goalSection.slice(0, 200).trim() || null;
+        if (fallbackUsed !== "none") {
+          console.log(`[workspace-reader] summarizeOverview: goal fallback used="${fallbackUsed}" for ${workspacePath}`);
+        }
       }
     } else if (error && error !== "not_found") {
       errors.claude = error;
@@ -360,20 +433,38 @@ export async function summarizeOverview(
     errors.claude = e instanceof Error ? e.message : String(e);
   }
 
-  // 2. progress.md → currentTask + nextSteps
+  // 2. progress.md → currentTask + nextSteps (fallback chain)
   try {
     const { content, error } = readProgressMd(workspacePath);
     if (content) {
-      const taskSection = extractMdSection(content, "Current Task");
+      // currentTask fallback chain
+      let taskSection: string | null = null;
+      let taskFallback = "none";
+
+      taskSection = extractMdSection(content, "## Current Task");
+      if (taskSection) { taskFallback = "## Current Task"; }
+
+      if (!taskSection) {
+        taskSection = extractMdSection(content, "## Current Status");
+        if (taskSection) { taskFallback = "## Current Status"; }
+      }
+
+      if (!taskSection) {
+        taskSection = extractMdSection(content, "## Status");
+        if (taskSection) { taskFallback = "## Status"; }
+      }
+
       if (taskSection) {
-        // First non-empty line
         const firstLine = taskSection.split("\n").find((l) => l.trim().length > 0);
         if (firstLine) {
-          // Strip leading - * bullet
           currentTask = firstLine.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s+)?/, "").trim() || null;
         }
+        if (taskFallback !== "## Current Task") {
+          console.log(`[workspace-reader] summarizeOverview: currentTask fallback used="${taskFallback}" for ${workspacePath}`);
+        }
       }
-      const nextSection = extractMdSection(content, "Next Steps");
+
+      const nextSection = extractMdSection(content, "## Next Steps");
       if (nextSection) {
         nextSteps = parseBulletItems(nextSection, 3);
       }

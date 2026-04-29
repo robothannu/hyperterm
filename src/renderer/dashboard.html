@@ -203,6 +203,261 @@
       text-overflow: ellipsis;
     }
 
+    /* === Collapsible section toggle header === */
+    .card-section--collapsible {
+      padding: 0;
+    }
+
+    .card-section--always-open {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .card-section--always-open:last-child {
+      border-bottom: none;
+    }
+
+    .card-section-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 14px;
+      cursor: pointer;
+      user-select: none;
+      border-bottom: 1px solid var(--line);
+      transition: background 0.12s;
+    }
+
+    .card-section-toggle:hover {
+      background: var(--glass);
+    }
+
+    .card-section--collapsible:last-child > .card-section-toggle {
+      border-bottom: none;
+    }
+
+    .card-section--collapsible:last-child > .card-section-content {
+      border-bottom: none;
+    }
+
+    .section-caret {
+      font-size: 9px;
+      color: var(--fg-3);
+      width: 12px;
+      text-align: center;
+      flex-shrink: 0;
+      transition: color 0.12s;
+    }
+
+    .card-section-toggle:hover .section-caret {
+      color: var(--fg-2);
+    }
+
+    .card-section-toggle .card-section-label {
+      margin-bottom: 0;
+    }
+
+    .card-section-content {
+      padding: 10px 14px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    /* Sub-label within collapsible content */
+    .card-sub-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--fg-3);
+      margin-top: 10px;
+      margin-bottom: 5px;
+    }
+
+    .card-sub-label:first-child {
+      margin-top: 0;
+    }
+
+    /* === Overview grid === */
+    .overview-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .overview-row {
+      display: grid;
+      grid-template-columns: 70px 1fr;
+      gap: 6px;
+      align-items: start;
+    }
+
+    .overview-row-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--fg-3);
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+
+    .overview-row-value {
+      font-size: 12px;
+      color: var(--fg-1);
+      line-height: 1.5;
+    }
+
+    .overview-row-value.md-content {
+      max-height: 100px;
+    }
+
+    .overview-list {
+      margin: 0;
+      padding-left: 16px;
+      font-size: 12px;
+      color: var(--fg-1);
+    }
+
+    .overview-list li {
+      margin-bottom: 2px;
+    }
+
+    .git-activity-meta {
+      font-size: 11px;
+      color: var(--fg-3);
+    }
+
+    /* === Status block === */
+    .status-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .status-line {
+      font-size: 12px;
+      color: var(--fg-1);
+      line-height: 1.5;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0;
+    }
+
+    .status-line--meta {
+      font-size: 11px;
+      color: var(--fg-3);
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      word-break: break-all;
+    }
+
+    .branch-name {
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      font-size: 11px;
+      background: var(--bg-4);
+      border: 1px solid var(--line-2);
+      border-radius: 3px;
+      padding: 1px 5px;
+      color: var(--accent);
+    }
+
+    .status-dirty {
+      color: var(--warn);
+      font-size: 12px;
+    }
+
+    .status-clean {
+      color: var(--ok);
+      font-size: 12px;
+    }
+
+    .status-counts {
+      font-size: 12px;
+      color: var(--fg-2);
+    }
+
+    .status-ahead-behind {
+      font-size: 12px;
+      color: var(--cyan);
+    }
+
+    /* === File tree === */
+    .tree-container {
+      font-size: 12px;
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      max-height: 260px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--bg-4) transparent;
+    }
+
+    .tree-container::-webkit-scrollbar {
+      width: 4px;
+    }
+    .tree-container::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .tree-container::-webkit-scrollbar-thumb {
+      background: var(--bg-4);
+      border-radius: 2px;
+    }
+
+    .tree-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.1s;
+      color: var(--fg-1);
+    }
+
+    .tree-row:hover {
+      background: var(--glass-strong);
+    }
+
+    .tree-caret {
+      font-size: 8px;
+      color: var(--fg-3);
+      width: 12px;
+      text-align: center;
+      flex-shrink: 0;
+      transition: color 0.1s;
+    }
+
+    .tree-row:hover .tree-caret {
+      color: var(--fg-2);
+    }
+
+    .tree-spacer {
+      width: 12px;
+      flex-shrink: 0;
+    }
+
+    .tree-icon {
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .tree-label {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 12px;
+    }
+
+    .tree-empty {
+      color: var(--fg-3);
+      font-style: italic;
+      font-size: 11px;
+      cursor: default;
+    }
+
+    .tree-empty:hover {
+      background: none;
+    }
+
     /* Missing marker */
     .ws-card.missing .card-name::after {
       content: " (missing)";
