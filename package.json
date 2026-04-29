@@ -6,7 +6,7 @@
   "main": "dist/main/main.js",
   "scripts": {
     "rebuild": "electron-rebuild -f -w node-pty",
-    "copy-static": "cp src/renderer/index.html dist/renderer/index.html && cp src/renderer/styles.css dist/renderer/styles.css && cp src/renderer/dashboard.html dist/renderer/dashboard.html && mkdir -p dist/renderer/vendor && cp src/renderer/vendor/marked.umd.js dist/renderer/vendor/marked.umd.js && cp src/renderer/vendor/purify.min.js dist/renderer/vendor/purify.min.js",
+    "copy-static": "cp src/renderer/index.html dist/renderer/index.html && cp src/renderer/styles.css dist/renderer/styles.css && cp src/renderer/dashboard.html dist/renderer/dashboard.html && cp src/renderer/commonjs-shim.js dist/renderer/commonjs-shim.js && mkdir -p dist/renderer/vendor && cp src/renderer/vendor/marked.umd.js dist/renderer/vendor/marked.umd.js && cp src/renderer/vendor/purify.min.js dist/renderer/vendor/purify.min.js",
     "build": "tsc && npm run copy-static",
     "start": "npm run build && electron .",
     "dist": "npm run build && electron-builder"

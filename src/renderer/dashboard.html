@@ -651,6 +651,8 @@
   <!-- Vendor libs (served from self origin — CSP: script-src 'self') -->
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/marked.umd.js"></script>
+  <!-- CommonJS shim must load before dashboard.js (compiled with module: commonjs) -->
+  <script src="commonjs-shim.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>
