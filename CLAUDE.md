@@ -1,5 +1,8 @@
 # HyperTerm
 
+## Objective
+Claude Code 멀티세션 워크플로우에 최적화된 macOS 전용 터미널 앱 — 여러 프로젝트를 하나의 윈도우에서 빠르게 오가며 작업하도록 한다.
+
 ## Overview
 HyperTerm — an Electron terminal app for macOS, built on xterm.js with direct `node-pty` shells (no tmux). Designed for multi-session work with Claude Code.
 

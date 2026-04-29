@@ -164,6 +164,7 @@ interface DashboardOverviewGit {
 }
 
 interface DashboardOverviewSummary {
+  objective: string | null;
   goal: string | null;
   currentTask: string | null;
   nextSteps: string[];

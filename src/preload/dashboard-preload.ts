@@ -50,6 +50,7 @@ interface OverviewGit {
 }
 
 interface OverviewSummary {
+  objective: string | null;
   goal: string | null;
   currentTask: string | null;
   nextSteps: string[];

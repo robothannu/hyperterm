@@ -150,6 +150,7 @@ export interface OverviewGit {
 }
 
 export interface OverviewSummary {
+  objective: string | null;
   goal: string | null;
   currentTask: string | null;
   nextSteps: string[];
@@ -255,6 +256,31 @@ function extractFirstParagraphAfterH1(md: string): string | null {
   const text = paragraphLines.join(" ").trim();
   if (!text) return null;
   return text.slice(0, 200);
+}
+
+/**
+ * Strip markdown emphasis/inline-code/heading-prefix and return first sentence
+ * (cut at . / 。 / ! / ? / newline). Bounded to maxLen chars.
+ */
+function firstSentenceClean(src: string, maxLen = 140): string | null {
+  if (!src) return null;
+  // drop markdown heading lines (### Foo) entirely; keep body lines
+  const cleaned = src
+    .split("\n")
+    .filter((l) => !/^#+\s/.test(l))
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .join(" ")
+    // strip bold/italic/inline code markers
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1");
+  if (!cleaned) return null;
+  // sentence boundary
+  const m = cleaned.match(/^[\s\S]*?[.。!?](?:\s|$)/);
+  let sentence = m ? m[0].trim() : cleaned;
+  if (sentence.length > maxLen) sentence = sentence.slice(0, maxLen).trim() + "…";
+  return sentence || null;
 }
 
 /**
@@ -385,6 +411,7 @@ export async function summarizeOverview(
   console.log(`[workspace-reader] summarizeOverview start: ${workspacePath}`);
 
   const errors: OverviewSummary["errors"] = {};
+  let objective: string | null = null;
   let goal: string | null = null;
   let currentTask: string | null = null;
   let nextSteps: string[] = [];
@@ -425,6 +452,17 @@ export async function summarizeOverview(
         if (fallbackUsed !== "none") {
           console.log(`[workspace-reader] summarizeOverview: goal fallback used="${fallbackUsed}" for ${workspacePath}`);
         }
+      }
+
+      // Objective: explicit ## Objective / ## Goal / ## 목적, else first sentence of goal
+      let objectiveSection: string | null =
+        extractMdSection(content, "## Objective") ??
+        extractMdSection(content, "## Goal") ??
+        extractMdSection(content, "## 목적");
+      if (objectiveSection) {
+        objective = firstSentenceClean(objectiveSection, 140);
+      } else if (goal) {
+        objective = firstSentenceClean(goal, 140);
       }
     } else if (error && error !== "not_found") {
       errors.claude = error;
@@ -527,7 +565,7 @@ export async function summarizeOverview(
   }
 
   console.log(`[workspace-reader] summarizeOverview done: ${workspacePath}`);
-  return { goal, currentTask, nextSteps, git, errors };
+  return { objective, goal, currentTask, nextSteps, git, errors };
 }
 
 /**

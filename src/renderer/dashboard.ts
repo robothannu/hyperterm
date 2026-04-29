@@ -213,6 +213,14 @@ function buildOverviewSectionEl(summary: DashboardOverviewSummary | { error: str
     return section;
   }
 
+  // Objective callout (single-sentence essence) — sits above the grid
+  if (summary.objective) {
+    const objEl = document.createElement("div");
+    objEl.className = "overview-objective";
+    objEl.textContent = summary.objective;
+    section.appendChild(objEl);
+  }
+
   const grid = document.createElement("div");
   grid.className = "overview-grid";
 
