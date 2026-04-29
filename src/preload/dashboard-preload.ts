@@ -41,6 +41,48 @@ interface CardData {
   };
 }
 
+// Sprint 4 types
+interface OverviewGit {
+  branch: string | null;
+  commitsLast7d: number | null;
+  dirty: boolean | null;
+  notAGitRepo: boolean;
+}
+
+interface OverviewSummary {
+  goal: string | null;
+  currentTask: string | null;
+  nextSteps: string[];
+  git: OverviewGit;
+  errors: { claude?: string; progress?: string; git?: string };
+}
+
+interface StatusInfo {
+  notAGitRepo: boolean;
+  branch: string | null;
+  dirty: boolean | null;
+  staged: number | null;
+  unstaged: number | null;
+  untracked: number | null;
+  ahead: number | null;
+  behind: number | null;
+  remoteUrl: string | null;
+  lastCommitRelTime: string | null;
+  error?: string;
+}
+
+interface FileTreeNode {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  children?: FileTreeNode[];
+}
+
+interface FileTreeResult {
+  tree: FileTreeNode[] | null;
+  error?: string;
+}
+
 contextBridge.exposeInMainWorld("dashboardAPI", {
   listWorkspaces: (): Promise<Workspace[]> => {
     return ipcRenderer.invoke("workspace:list");
@@ -68,5 +110,18 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
 
   openInMain: (workspacePath: string): Promise<OpenInMainResult> => {
     return ipcRenderer.invoke("workspace:openInMain", workspacePath);
+  },
+
+  // Sprint 4: card revamp data sources
+  overviewSummary: (workspacePath: string): Promise<OverviewSummary | { error: string }> => {
+    return ipcRenderer.invoke("workspace:overviewSummary", workspacePath);
+  },
+
+  statusInfo: (workspacePath: string): Promise<StatusInfo | { error: string }> => {
+    return ipcRenderer.invoke("workspace:statusInfo", workspacePath);
+  },
+
+  fileTree: (workspacePath: string): Promise<FileTreeResult> => {
+    return ipcRenderer.invoke("workspace:fileTree", workspacePath);
   },
 });

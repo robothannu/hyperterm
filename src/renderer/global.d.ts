@@ -155,6 +155,48 @@ interface DashboardCardData {
   };
 }
 
+// Sprint 4: card revamp types
+interface DashboardOverviewGit {
+  branch: string | null;
+  commitsLast7d: number | null;
+  dirty: boolean | null;
+  notAGitRepo: boolean;
+}
+
+interface DashboardOverviewSummary {
+  goal: string | null;
+  currentTask: string | null;
+  nextSteps: string[];
+  git: DashboardOverviewGit;
+  errors: { claude?: string; progress?: string; git?: string };
+}
+
+interface DashboardStatusInfo {
+  notAGitRepo: boolean;
+  branch: string | null;
+  dirty: boolean | null;
+  staged: number | null;
+  unstaged: number | null;
+  untracked: number | null;
+  ahead: number | null;
+  behind: number | null;
+  remoteUrl: string | null;
+  lastCommitRelTime: string | null;
+  error?: string;
+}
+
+interface DashboardFileTreeNode {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  children?: DashboardFileTreeNode[];
+}
+
+interface DashboardFileTreeResult {
+  tree: DashboardFileTreeNode[] | null;
+  error?: string;
+}
+
 interface DashboardAPI {
   listWorkspaces(): Promise<WorkspaceEntry[]>;
   addWorkspace(): Promise<{ workspaces: WorkspaceEntry[]; duplicate: boolean; cancelled: boolean }>;
@@ -163,6 +205,10 @@ interface DashboardAPI {
   readCardData(workspacePath: string): Promise<DashboardCardData | { error: string }>;
   renameWorkspace(id: string, newName: string): Promise<{ workspaces: WorkspaceEntry[]; success: boolean }>;
   openInMain(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  // Sprint 4
+  overviewSummary(workspacePath: string): Promise<DashboardOverviewSummary | { error: string }>;
+  statusInfo(workspacePath: string): Promise<DashboardStatusInfo | { error: string }>;
+  fileTree(workspacePath: string): Promise<DashboardFileTreeResult>;
 }
 
 interface WorkspaceEntry {
