@@ -22,7 +22,7 @@ import {
   renameWorkspace,
   type Workspace,
 } from "./workspaces";
-import { getCardData } from "./workspace-reader";
+import { getCardData, summarizeOverview, getStatusInfo, getFileTree } from "./workspace-reader";
 
 interface Note {
   id: number;
@@ -728,6 +728,23 @@ ipcMain.handle("workspace:remove", (_event, id: string) => {
 
 ipcMain.handle("workspace:cardData", async (_event, workspacePath: string) => {
   return getCardData(workspacePath);
+});
+
+// --- Workspace Card Revamp IPC (Sprint 4) ---
+
+ipcMain.handle("workspace:overviewSummary", async (_event, workspacePath: string) => {
+  console.log(`[main] workspace:overviewSummary IPC for: ${workspacePath}`);
+  return summarizeOverview(workspacePath);
+});
+
+ipcMain.handle("workspace:statusInfo", async (_event, workspacePath: string) => {
+  console.log(`[main] workspace:statusInfo IPC for: ${workspacePath}`);
+  return getStatusInfo(workspacePath);
+});
+
+ipcMain.handle("workspace:fileTree", async (_event, workspacePath: string) => {
+  console.log(`[main] workspace:fileTree IPC for: ${workspacePath}`);
+  return getFileTree(workspacePath);
 });
 
 // --- Workspace Rename IPC (Sprint 3) ---
