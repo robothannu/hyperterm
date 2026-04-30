@@ -165,7 +165,7 @@
     /* === Card Grid === */
     #card-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
       gap: 16px;
       align-items: start;
     }
@@ -179,10 +179,41 @@
       transition: border-color 0.15s;
       display: flex;
       flex-direction: column;
+      cursor: pointer;
     }
 
     .ws-card:hover {
       border-color: var(--line-2);
+    }
+
+    .ws-card.missing {
+      cursor: not-allowed;
+    }
+
+    /* === Compact mode: hide all sections except Overview (card-section--always-open first child) === */
+    .ws-card.compact .card-body > .card-section--always-open ~ .card-section--always-open,
+    .ws-card.compact .card-body > .card-section--collapsible {
+      display: none;
+    }
+
+    /* === Card expand/collapse toggle button === */
+    .btn-card-expand {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--fg-3);
+      padding: 3px 5px;
+      border-radius: 4px;
+      transition: background 0.12s, color 0.12s;
+      display: flex;
+      align-items: center;
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    .btn-card-expand:hover {
+      background: var(--glass-strong);
+      color: var(--fg-1);
     }
 
     /* Card header-info */
@@ -277,19 +308,6 @@
       margin-top: 0;
     }
 
-    /* === Overview objective callout (single-sentence essence) === */
-    .overview-objective {
-      font-size: 12.5px;
-      line-height: 1.45;
-      color: var(--fg-0);
-      font-weight: 500;
-      padding: 8px 10px;
-      margin-bottom: 10px;
-      background: linear-gradient(90deg, rgba(124,140,255,0.08), rgba(167,139,250,0.04));
-      border-left: 2px solid var(--accent);
-      border-radius: 4px;
-    }
-
     /* === Overview grid === */
     .overview-grid {
       display: flex;
@@ -333,11 +351,6 @@
 
     .overview-list li {
       margin-bottom: 2px;
-    }
-
-    .git-activity-meta {
-      font-size: 11px;
-      color: var(--fg-3);
     }
 
     /* === Status block === */

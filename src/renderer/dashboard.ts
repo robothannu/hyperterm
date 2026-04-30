@@ -104,6 +104,32 @@ let workspaces: WorkspaceEntry[] = [];
 const fileTreeCache = new Map<string, DashboardFileTreeResult | null>();
 
 // ---------------------------------------------------------------------------
+// Per-card compact state (localStorage persist)
+// ---------------------------------------------------------------------------
+
+const COMPACT_KEY_PREFIX = "dashboard.cardExpanded.";
+
+/** Get compact state for a card. Default: compact (true = compact). */
+function getCardCompact(wsId: string): boolean {
+  try {
+    const stored = localStorage.getItem(COMPACT_KEY_PREFIX + wsId);
+    if (stored === null) return true; // default compact
+    return stored !== "expanded";
+  } catch {
+    return true;
+  }
+}
+
+/** Persist compact state for a card. */
+function setCardCompact(wsId: string, compact: boolean): void {
+  try {
+    localStorage.setItem(COMPACT_KEY_PREFIX + wsId, compact ? "compact" : "expanded");
+  } catch {
+    // ignore storage errors
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Toast helper
 // ---------------------------------------------------------------------------
 
@@ -792,9 +818,17 @@ function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: bool
   infoDiv.appendChild(pathEl);
   infoDiv.appendChild(badgesEl);
 
-  // Actions (right side): Refresh + Open + Remove
+  // Actions (right side): Expand toggle + Refresh + Open + Remove
   const actionsDiv = document.createElement("div");
   actionsDiv.className = "card-header-actions";
+
+  // Compact/expand toggle button
+  const isCompact = getCardCompact(ws.id);
+  const expandBtn = document.createElement("button");
+  expandBtn.className = "btn-card-expand";
+  expandBtn.setAttribute("aria-expanded", isCompact ? "false" : "true");
+  expandBtn.title = isCompact ? "Expand card" : "Collapse card";
+  expandBtn.textContent = isCompact ? "▸" : "▾";
 
   const refreshBtn = document.createElement("button");
   refreshBtn.className = "btn-card-refresh";
@@ -820,6 +854,7 @@ function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: bool
   removeBtn.title = "Remove workspace";
   removeBtn.textContent = "×";
 
+  actionsDiv.appendChild(expandBtn);
   actionsDiv.appendChild(refreshBtn);
   actionsDiv.appendChild(openBtn);
   actionsDiv.appendChild(removeBtn);
@@ -834,6 +869,26 @@ function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: bool
   nameEl.addEventListener("click", (e) => {
     e.stopPropagation();
     startNameEdit(card, ws, nameEl);
+  });
+
+  // Compact/expand toggle
+  expandBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const nowCompact = card.classList.contains("compact");
+    const nextCompact = !nowCompact;
+    if (nextCompact) {
+      card.classList.add("compact");
+      expandBtn.textContent = "▸";
+      expandBtn.setAttribute("aria-expanded", "false");
+      expandBtn.title = "Expand card";
+    } else {
+      card.classList.remove("compact");
+      expandBtn.textContent = "▾";
+      expandBtn.setAttribute("aria-expanded", "true");
+      expandBtn.title = "Collapse card";
+    }
+    setCardCompact(ws.id, nextCompact);
+    console.log(`[dashboard] card-expand ws=${ws.id} compact=${nextCompact}`);
   });
 
   // Refresh button — invalidate file tree cache + reload
@@ -917,8 +972,37 @@ function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: bool
 
 async function renderCard(ws: WorkspaceEntry, isMissing: boolean): Promise<HTMLElement> {
   const card = document.createElement("div");
-  card.className = "ws-card" + (isMissing ? " missing" : "");
+  const isCompact = getCardCompact(ws.id);
+  card.className = "ws-card" + (isMissing ? " missing" : "") + (isCompact ? " compact" : "");
   card.dataset.id = ws.id;
+
+  // Card-level click = Open workspace (unless missing)
+  card.addEventListener("click", async (e) => {
+    // Only trigger on direct card clicks (not child interactive elements)
+    // Child elements call e.stopPropagation() so this handler only fires for unhandled clicks
+    if (isMissing) {
+      showDashboardToast("Folder not found on disk.", "warn");
+      return;
+    }
+    console.log(`[dashboard] card-click open path=${ws.absolutePath}`);
+    try {
+      const result = await window.dashboardAPI!.openInMain(ws.absolutePath);
+      if (result.error) {
+        if (result.error === "path_missing") {
+          showDashboardToast("Folder not found on disk. Refresh the card.", "warn");
+        } else {
+          showDashboardToast(`Error: ${result.error}`, "err");
+        }
+        console.warn(`[dashboard] card-click open: error=${result.error}`);
+      } else {
+        console.log(`[dashboard] card-click open: success for ${ws.absolutePath}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showDashboardToast(`Failed to open: ${msg}`, "err");
+      console.error(`[dashboard] card-click open: IPC failed:`, err);
+    }
+  });
 
   renderCardHeader(card, ws, isMissing);
   await populateCardBody(card, ws, isMissing);

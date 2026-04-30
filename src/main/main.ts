@@ -828,7 +828,7 @@ function getOpenCwds(): Set<string> {
     function collectLeafCwds(layout: unknown): void {
       if (!layout || typeof layout !== "object") return;
       const node = layout as { type?: string; cwd?: string; children?: unknown[] };
-      if (node.type === "leaf" && typeof node.cwd === "string") {
+      if (node.type === "leaf" && typeof node.cwd === "string" && node.cwd.length > 0) {
         cwds.add(path.resolve(node.cwd));
       }
       if (Array.isArray(node.children)) {
