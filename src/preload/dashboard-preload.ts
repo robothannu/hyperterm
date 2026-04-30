@@ -125,4 +125,9 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   fileTree: (workspacePath: string): Promise<FileTreeResult> => {
     return ipcRenderer.invoke("workspace:fileTree", workspacePath);
   },
+
+  // Sprint 5: session state badges
+  sessionState: (workspacePath: string): Promise<{ open: boolean; harnessPhase: string | null }> => {
+    return ipcRenderer.invoke("workspace:sessionState", workspacePath);
+  },
 });

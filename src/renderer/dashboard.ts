@@ -213,14 +213,6 @@ function buildOverviewSectionEl(summary: DashboardOverviewSummary | { error: str
     return section;
   }
 
-  // Objective callout (single-sentence essence) — sits above the grid
-  if (summary.objective) {
-    const objEl = document.createElement("div");
-    objEl.className = "overview-objective";
-    objEl.textContent = summary.objective;
-    section.appendChild(objEl);
-  }
-
   const grid = document.createElement("div");
   grid.className = "overview-grid";
 
@@ -278,29 +270,6 @@ function buildOverviewSectionEl(summary: DashboardOverviewSummary | { error: str
   nextRow.appendChild(nextLabel);
   nextRow.appendChild(nextValue);
   grid.appendChild(nextRow);
-
-  // Git activity
-  const actRow = document.createElement("div");
-  actRow.className = "overview-row";
-  const actLabel = document.createElement("span");
-  actLabel.className = "overview-row-label";
-  actLabel.textContent = "활동도";
-  const actValue = document.createElement("div");
-  actValue.className = "overview-row-value";
-  if (summary.git.notAGitRepo) {
-    actValue.innerHTML = `<span class="card-absent">not a git repo</span>`;
-  } else if (summary.git.branch !== null) {
-    const dirty = summary.git.dirty ? " · dirty" : " · clean";
-    const commits = summary.git.commitsLast7d !== null
-      ? ` · ${summary.git.commitsLast7d} commits (7d)`
-      : "";
-    actValue.innerHTML = `<code class="branch-name">${escapeHtml(summary.git.branch)}</code><span class="git-activity-meta">${escapeHtml(dirty + commits)}</span>`;
-  } else {
-    actValue.innerHTML = `<span class="card-absent">—</span>`;
-  }
-  actRow.appendChild(actLabel);
-  actRow.appendChild(actValue);
-  grid.appendChild(actRow);
 
   section.appendChild(grid);
   return section;
@@ -813,10 +782,15 @@ function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: bool
   pathEl.className = "card-path";
   pathEl.textContent = ws.absolutePath;
 
+  // Badge container (populated async below)
+  const badgesEl = document.createElement("div");
+  badgesEl.className = "ws-badges";
+
   const infoDiv = document.createElement("div");
   infoDiv.className = "card-header-info";
   infoDiv.appendChild(nameEl);
   infoDiv.appendChild(pathEl);
+  infoDiv.appendChild(badgesEl);
 
   // Actions (right side): Refresh + Open + Remove
   const actionsDiv = document.createElement("div");
@@ -913,6 +887,32 @@ function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: bool
     e.stopPropagation();
     void handleRemove(ws.id);
   });
+
+  // Load session state badges asynchronously (non-blocking)
+  if (!isMissing) {
+    void (async () => {
+      try {
+        const state = await window.dashboardAPI!.sessionState(ws.absolutePath);
+        // Clear badges first (re-render case)
+        badgesEl.innerHTML = "";
+        if (state.open) {
+          const badge = document.createElement("span");
+          badge.className = "ws-badge ws-badge--open";
+          badge.textContent = "OPEN";
+          badgesEl.appendChild(badge);
+        }
+        if (state.harnessPhase) {
+          const badge = document.createElement("span");
+          badge.className = "ws-badge ws-badge--harness";
+          badge.textContent = "HARNESS";
+          badgesEl.appendChild(badge);
+        }
+      } catch (err) {
+        console.warn(`[dashboard] session-state badges: failed for ${ws.absolutePath}:`, err);
+        // No badge shown on error — card renders normally
+      }
+    })();
+  }
 }
 
 async function renderCard(ws: WorkspaceEntry, isMissing: boolean): Promise<HTMLElement> {

@@ -810,6 +810,73 @@ ipcMain.handle("workspace:openInMain", async (_event, workspacePath: string) => 
   return { success: true };
 });
 
+// --- Session State IPC (Sprint 5: badges) ---
+// Returns { open: boolean, harnessPhase: string | null } for a given workspace path.
+// - open: true if sessions.json has any tab leaf with cwd matching workspacePath
+// - harnessPhase: current_phase from .claude/harness/state.json (null if idle/complete/missing)
+
+function getOpenCwds(): Set<string> {
+  try {
+    if (!fs.existsSync(sessionsFilePath)) return new Set();
+    const raw = fs.readFileSync(sessionsFilePath, "utf8");
+    const parsed = JSON.parse(raw) as {
+      tabs?: Array<{ layout?: unknown }>;
+    };
+    if (!Array.isArray(parsed.tabs)) return new Set();
+
+    const cwds = new Set<string>();
+    function collectLeafCwds(layout: unknown): void {
+      if (!layout || typeof layout !== "object") return;
+      const node = layout as { type?: string; cwd?: string; children?: unknown[] };
+      if (node.type === "leaf" && typeof node.cwd === "string") {
+        cwds.add(path.resolve(node.cwd));
+      }
+      if (Array.isArray(node.children)) {
+        for (const child of node.children) collectLeafCwds(child);
+      }
+    }
+    for (const tab of parsed.tabs) {
+      collectLeafCwds(tab.layout);
+    }
+    return cwds;
+  } catch (err) {
+    console.warn("[dashboard] getOpenCwds: failed to read sessions.json:", err);
+    return new Set();
+  }
+}
+
+function getHarnessPhase(workspacePath: string): string | null {
+  const stateFile = path.join(workspacePath, ".claude", "harness", "state.json");
+  try {
+    if (!fs.existsSync(stateFile)) return null;
+    const raw = fs.readFileSync(stateFile, "utf8");
+    const parsed = JSON.parse(raw) as { current_phase?: string };
+    const phase = parsed.current_phase ?? null;
+    if (!phase || phase === "idle" || phase === "complete") return null;
+    return phase;
+  } catch (err) {
+    console.warn(`[dashboard] getHarnessPhase: failed to parse state.json for ${workspacePath}:`, err);
+    return null;
+  }
+}
+
+ipcMain.handle("workspace:sessionState", (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    return { open: false, harnessPhase: null };
+  }
+  const normalized = path.resolve(workspacePath);
+  let open = false;
+  try {
+    const openCwds = getOpenCwds();
+    open = openCwds.has(normalized);
+  } catch (err) {
+    console.warn(`[dashboard] session-state: open check failed for ${normalized}:`, err);
+  }
+  const harnessPhase = getHarnessPhase(normalized);
+  console.log(`[dashboard] session-state ws=${normalized} open=${open} harness=${harnessPhase ?? "null"}`);
+  return { open, harnessPhase };
+});
+
 // --- Path Existence IPC ---
 
 ipcMain.handle("path:checkExists", (_event, dirPath: string): boolean => {

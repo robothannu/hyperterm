@@ -210,6 +210,8 @@ interface DashboardAPI {
   overviewSummary(workspacePath: string): Promise<DashboardOverviewSummary | { error: string }>;
   statusInfo(workspacePath: string): Promise<DashboardStatusInfo | { error: string }>;
   fileTree(workspacePath: string): Promise<DashboardFileTreeResult>;
+  // Sprint 5: session state badges
+  sessionState(workspacePath: string): Promise<{ open: boolean; harnessPhase: string | null }>;
 }
 
 interface WorkspaceEntry {
