@@ -104,6 +104,66 @@ let workspaces: WorkspaceEntry[] = [];
 const fileTreeCache = new Map<string, DashboardFileTreeResult | null>();
 
 // ---------------------------------------------------------------------------
+// Per-card compact state (localStorage persist)
+// ---------------------------------------------------------------------------
+
+const COMPACT_KEY_PREFIX = "dashboard.cardExpanded.";
+
+// ---------------------------------------------------------------------------
+// Global show-files state (localStorage persist)
+// ---------------------------------------------------------------------------
+
+const SHOW_FILES_KEY = "dashboard.showFiles";
+
+/** Get global show-files state. Default: false (off). */
+function getShowFiles(): boolean {
+  try {
+    const stored = localStorage.getItem(SHOW_FILES_KEY);
+    return stored === "on";
+  } catch {
+    return false;
+  }
+}
+
+/** Persist global show-files state. */
+function setShowFiles(value: boolean): void {
+  try {
+    localStorage.setItem(SHOW_FILES_KEY, value ? "on" : "off");
+  } catch {
+    console.warn("[dashboard] setShowFiles: localStorage write failed, toggle still active for this session");
+  }
+}
+
+/** Sync the toolbar toggle button visual state to match current getShowFiles(). */
+function syncFilesToggleButton(): void {
+  const btn = document.getElementById("btn-toggle-files") as HTMLButtonElement | null;
+  if (!btn) return;
+  const on = getShowFiles();
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.classList.toggle("active", on);
+}
+
+/** Get compact state for a card. Default: compact (true = compact). */
+function getCardCompact(wsId: string): boolean {
+  try {
+    const stored = localStorage.getItem(COMPACT_KEY_PREFIX + wsId);
+    if (stored === null) return true; // default compact
+    return stored !== "expanded";
+  } catch {
+    return true;
+  }
+}
+
+/** Persist compact state for a card. */
+function setCardCompact(wsId: string, compact: boolean): void {
+  try {
+    localStorage.setItem(COMPACT_KEY_PREFIX + wsId, compact ? "compact" : "expanded");
+  } catch {
+    // ignore storage errors
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Toast helper
 // ---------------------------------------------------------------------------
 
@@ -213,14 +273,6 @@ function buildOverviewSectionEl(summary: DashboardOverviewSummary | { error: str
     return section;
   }
 
-  // Objective callout (single-sentence essence) — sits above the grid
-  if (summary.objective) {
-    const objEl = document.createElement("div");
-    objEl.className = "overview-objective";
-    objEl.textContent = summary.objective;
-    section.appendChild(objEl);
-  }
-
   const grid = document.createElement("div");
   grid.className = "overview-grid";
 
@@ -278,29 +330,6 @@ function buildOverviewSectionEl(summary: DashboardOverviewSummary | { error: str
   nextRow.appendChild(nextLabel);
   nextRow.appendChild(nextValue);
   grid.appendChild(nextRow);
-
-  // Git activity
-  const actRow = document.createElement("div");
-  actRow.className = "overview-row";
-  const actLabel = document.createElement("span");
-  actLabel.className = "overview-row-label";
-  actLabel.textContent = "활동도";
-  const actValue = document.createElement("div");
-  actValue.className = "overview-row-value";
-  if (summary.git.notAGitRepo) {
-    actValue.innerHTML = `<span class="card-absent">not a git repo</span>`;
-  } else if (summary.git.branch !== null) {
-    const dirty = summary.git.dirty ? " · dirty" : " · clean";
-    const commits = summary.git.commitsLast7d !== null
-      ? ` · ${summary.git.commitsLast7d} commits (7d)`
-      : "";
-    actValue.innerHTML = `<code class="branch-name">${escapeHtml(summary.git.branch)}</code><span class="git-activity-meta">${escapeHtml(dirty + commits)}</span>`;
-  } else {
-    actValue.innerHTML = `<span class="card-absent">—</span>`;
-  }
-  actRow.appendChild(actLabel);
-  actRow.appendChild(actValue);
-  grid.appendChild(actRow);
 
   section.appendChild(grid);
   return section;
@@ -769,15 +798,17 @@ async function populateCardBody(
       body.appendChild(sec);
     }
 
-    // 5. Files section (collapsible, lazy-load)
-    try {
-      body.appendChild(buildFilesSectionEl(ws));
-    } catch (err) {
-      console.error("[dashboard] files section render error:", err);
-      const sec = document.createElement("div");
-      sec.className = "card-section";
-      sec.innerHTML = `<div class="card-section-label">Files</div><span class="card-absent">render error</span>`;
-      body.appendChild(sec);
+    // 5. Files section (collapsible, lazy-load) — only if global show-files is on
+    if (getShowFiles()) {
+      try {
+        body.appendChild(buildFilesSectionEl(ws));
+      } catch (err) {
+        console.error("[dashboard] files section render error:", err);
+        const sec = document.createElement("div");
+        sec.className = "card-section";
+        sec.innerHTML = `<div class="card-section-label">Files</div><span class="card-absent">render error</span>`;
+        body.appendChild(sec);
+      }
     }
 
     card.appendChild(body);
@@ -813,14 +844,27 @@ function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: bool
   pathEl.className = "card-path";
   pathEl.textContent = ws.absolutePath;
 
+  // Badge container (populated async below)
+  const badgesEl = document.createElement("div");
+  badgesEl.className = "ws-badges";
+
   const infoDiv = document.createElement("div");
   infoDiv.className = "card-header-info";
   infoDiv.appendChild(nameEl);
   infoDiv.appendChild(pathEl);
+  infoDiv.appendChild(badgesEl);
 
-  // Actions (right side): Refresh + Open + Remove
+  // Actions (right side): Expand toggle + Refresh + Open + Remove
   const actionsDiv = document.createElement("div");
   actionsDiv.className = "card-header-actions";
+
+  // Compact/expand toggle button
+  const isCompact = getCardCompact(ws.id);
+  const expandBtn = document.createElement("button");
+  expandBtn.className = "btn-card-expand";
+  expandBtn.setAttribute("aria-expanded", isCompact ? "false" : "true");
+  expandBtn.title = isCompact ? "Expand card" : "Collapse card";
+  expandBtn.textContent = isCompact ? "▸" : "▾";
 
   const refreshBtn = document.createElement("button");
   refreshBtn.className = "btn-card-refresh";
@@ -846,6 +890,7 @@ function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: bool
   removeBtn.title = "Remove workspace";
   removeBtn.textContent = "×";
 
+  actionsDiv.appendChild(expandBtn);
   actionsDiv.appendChild(refreshBtn);
   actionsDiv.appendChild(openBtn);
   actionsDiv.appendChild(removeBtn);
@@ -860,6 +905,26 @@ function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: bool
   nameEl.addEventListener("click", (e) => {
     e.stopPropagation();
     startNameEdit(card, ws, nameEl);
+  });
+
+  // Compact/expand toggle
+  expandBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const nowCompact = card.classList.contains("compact");
+    const nextCompact = !nowCompact;
+    if (nextCompact) {
+      card.classList.add("compact");
+      expandBtn.textContent = "▸";
+      expandBtn.setAttribute("aria-expanded", "false");
+      expandBtn.title = "Expand card";
+    } else {
+      card.classList.remove("compact");
+      expandBtn.textContent = "▾";
+      expandBtn.setAttribute("aria-expanded", "true");
+      expandBtn.title = "Collapse card";
+    }
+    setCardCompact(ws.id, nextCompact);
+    console.log(`[dashboard] card-expand ws=${ws.id} compact=${nextCompact}`);
   });
 
   // Refresh button — invalidate file tree cache + reload
@@ -913,12 +978,67 @@ function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: bool
     e.stopPropagation();
     void handleRemove(ws.id);
   });
+
+  // Load session state badges asynchronously (non-blocking)
+  if (!isMissing) {
+    void (async () => {
+      try {
+        const state = await window.dashboardAPI!.sessionState(ws.absolutePath);
+        // Clear badges first (re-render case)
+        badgesEl.innerHTML = "";
+        if (state.open) {
+          const badge = document.createElement("span");
+          badge.className = "ws-badge ws-badge--open";
+          badge.textContent = "OPEN";
+          badgesEl.appendChild(badge);
+        }
+        if (state.harnessPhase) {
+          const badge = document.createElement("span");
+          badge.className = "ws-badge ws-badge--harness";
+          badge.textContent = "HARNESS";
+          badgesEl.appendChild(badge);
+        }
+      } catch (err) {
+        console.warn(`[dashboard] session-state badges: failed for ${ws.absolutePath}:`, err);
+        // No badge shown on error — card renders normally
+      }
+    })();
+  }
 }
 
 async function renderCard(ws: WorkspaceEntry, isMissing: boolean): Promise<HTMLElement> {
   const card = document.createElement("div");
-  card.className = "ws-card" + (isMissing ? " missing" : "");
+  const isCompact = getCardCompact(ws.id);
+  card.className = "ws-card" + (isMissing ? " missing" : "") + (isCompact ? " compact" : "");
   card.dataset.id = ws.id;
+
+  // Card-level click = Open workspace (unless missing)
+  card.addEventListener("click", async (e) => {
+    // Only trigger on direct card clicks (not child interactive elements)
+    // Child elements call e.stopPropagation() so this handler only fires for unhandled clicks
+    if (isMissing) {
+      showDashboardToast("Folder not found on disk.", "warn");
+      return;
+    }
+    console.log(`[dashboard] card-click open path=${ws.absolutePath}`);
+    try {
+      const result = await window.dashboardAPI!.openInMain(ws.absolutePath);
+      if (result.error) {
+        if (result.error === "path_missing") {
+          showDashboardToast("Folder not found on disk. Refresh the card.", "warn");
+        } else {
+          showDashboardToast(`Error: ${result.error}`, "err");
+        }
+        console.warn(`[dashboard] card-click open: error=${result.error}`);
+      } else {
+        console.log(`[dashboard] card-click open: success for ${ws.absolutePath}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showDashboardToast(`Failed to open: ${msg}`, "err");
+      console.error(`[dashboard] card-click open: IPC failed:`, err);
+    }
+  });
 
   renderCardHeader(card, ws, isMissing);
   await populateCardBody(card, ws, isMissing);
@@ -1101,6 +1221,21 @@ if (typeof window !== "undefined") {
   const refreshAllBtn = document.getElementById("btn-refresh-all") as HTMLButtonElement | null;
   if (refreshAllBtn) {
     refreshAllBtn.addEventListener("click", () => { void handleRefreshAll(); });
+  }
+
+  const toggleFilesBtn = document.getElementById("btn-toggle-files") as HTMLButtonElement | null;
+  if (toggleFilesBtn) {
+    // Sync initial visual state from persisted value
+    syncFilesToggleButton();
+    toggleFilesBtn.addEventListener("click", async () => {
+      const nextValue = !getShowFiles();
+      setShowFiles(nextValue);
+      console.log(`[dashboard] files-toggle on=${nextValue}`);
+      syncFilesToggleButton();
+      await renderWorkspaces();
+    });
+  } else {
+    console.error("[dashboard] boot: #btn-toggle-files not found in DOM");
   }
 
   const emptyAddBtn = document.getElementById("btn-empty-add") as HTMLButtonElement | null;
