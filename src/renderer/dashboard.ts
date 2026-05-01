@@ -109,6 +109,40 @@ const fileTreeCache = new Map<string, DashboardFileTreeResult | null>();
 
 const COMPACT_KEY_PREFIX = "dashboard.cardExpanded.";
 
+// ---------------------------------------------------------------------------
+// Global show-files state (localStorage persist)
+// ---------------------------------------------------------------------------
+
+const SHOW_FILES_KEY = "dashboard.showFiles";
+
+/** Get global show-files state. Default: false (off). */
+function getShowFiles(): boolean {
+  try {
+    const stored = localStorage.getItem(SHOW_FILES_KEY);
+    return stored === "on";
+  } catch {
+    return false;
+  }
+}
+
+/** Persist global show-files state. */
+function setShowFiles(value: boolean): void {
+  try {
+    localStorage.setItem(SHOW_FILES_KEY, value ? "on" : "off");
+  } catch {
+    console.warn("[dashboard] setShowFiles: localStorage write failed, toggle still active for this session");
+  }
+}
+
+/** Sync the toolbar toggle button visual state to match current getShowFiles(). */
+function syncFilesToggleButton(): void {
+  const btn = document.getElementById("btn-toggle-files") as HTMLButtonElement | null;
+  if (!btn) return;
+  const on = getShowFiles();
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.classList.toggle("active", on);
+}
+
 /** Get compact state for a card. Default: compact (true = compact). */
 function getCardCompact(wsId: string): boolean {
   try {
@@ -764,15 +798,17 @@ async function populateCardBody(
       body.appendChild(sec);
     }
 
-    // 5. Files section (collapsible, lazy-load)
-    try {
-      body.appendChild(buildFilesSectionEl(ws));
-    } catch (err) {
-      console.error("[dashboard] files section render error:", err);
-      const sec = document.createElement("div");
-      sec.className = "card-section";
-      sec.innerHTML = `<div class="card-section-label">Files</div><span class="card-absent">render error</span>`;
-      body.appendChild(sec);
+    // 5. Files section (collapsible, lazy-load) — only if global show-files is on
+    if (getShowFiles()) {
+      try {
+        body.appendChild(buildFilesSectionEl(ws));
+      } catch (err) {
+        console.error("[dashboard] files section render error:", err);
+        const sec = document.createElement("div");
+        sec.className = "card-section";
+        sec.innerHTML = `<div class="card-section-label">Files</div><span class="card-absent">render error</span>`;
+        body.appendChild(sec);
+      }
     }
 
     card.appendChild(body);
@@ -1185,6 +1221,21 @@ if (typeof window !== "undefined") {
   const refreshAllBtn = document.getElementById("btn-refresh-all") as HTMLButtonElement | null;
   if (refreshAllBtn) {
     refreshAllBtn.addEventListener("click", () => { void handleRefreshAll(); });
+  }
+
+  const toggleFilesBtn = document.getElementById("btn-toggle-files") as HTMLButtonElement | null;
+  if (toggleFilesBtn) {
+    // Sync initial visual state from persisted value
+    syncFilesToggleButton();
+    toggleFilesBtn.addEventListener("click", async () => {
+      const nextValue = !getShowFiles();
+      setShowFiles(nextValue);
+      console.log(`[dashboard] files-toggle on=${nextValue}`);
+      syncFilesToggleButton();
+      await renderWorkspaces();
+    });
+  } else {
+    console.error("[dashboard] boot: #btn-toggle-files not found in DOM");
   }
 
   const emptyAddBtn = document.getElementById("btn-empty-add") as HTMLButtonElement | null;

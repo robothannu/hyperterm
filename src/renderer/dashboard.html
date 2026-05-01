@@ -775,6 +775,39 @@
       color: var(--fg-1);
     }
 
+    /* === Show Files toggle button === */
+    #btn-toggle-files {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      background: var(--bg-3);
+      color: var(--fg-2);
+      border: 1px solid var(--line-2);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      -webkit-app-region: no-drag;
+    }
+
+    #btn-toggle-files:hover {
+      background: var(--bg-4);
+      color: var(--fg-1);
+    }
+
+    #btn-toggle-files.active {
+      background: rgba(124, 140, 255, 0.15);
+      color: var(--accent);
+      border-color: rgba(124, 140, 255, 0.4);
+    }
+
+    #btn-toggle-files.active:hover {
+      background: rgba(124, 140, 255, 0.22);
+    }
+
     /* === Card header actions === */
     .card-header {
       display: flex;
@@ -948,6 +981,12 @@
     <div class="section-header">
       <span class="section-title">Workspaces</span>
       <div style="display:flex;align-items:center;gap:8px;">
+        <button id="btn-toggle-files" title="Toggle Files section visibility" aria-pressed="false">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+            <path d="M2 4h12M2 8h8M2 12h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+          Show Files
+        </button>
         <button id="btn-refresh-all" title="Refresh all cards">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
             <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.6 0 3 .68 4 1.76" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
