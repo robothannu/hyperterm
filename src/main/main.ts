@@ -296,10 +296,10 @@ function openDashboardWindow(): void {
   }
 
   dashboardWindow = new BrowserWindow({
-    width: 800,
-    height: 560,
-    minWidth: 480,
-    minHeight: 360,
+    width: 1340,
+    height: 840,
+    minWidth: 640,
+    minHeight: 480,
     backgroundColor: "#0a0b0f",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 12, y: 12 },

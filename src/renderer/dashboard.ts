@@ -1,10 +1,9 @@
 /// <reference path="./global.d.ts" />
-// Dashboard renderer — Sprint 4 (card revamp): Overview + Status + Collapsible sections + Files tree
-// Loaded only in dashboard.html context (separate BrowserWindow).
-// Communicates with main via window.dashboardAPI (exposed by dashboard-preload.ts).
+// Dashboard renderer — Phase A Sprint 1: design-v2 layout
+// Vanilla TS + DOM API, no import/export (compiled to CommonJS, loaded via <script>).
 
 // ---------------------------------------------------------------------------
-// Vendor lib type declarations (loaded via <script src="vendor/..."> in HTML)
+// Vendor lib declarations
 // ---------------------------------------------------------------------------
 
 declare const marked: {
@@ -12,80 +11,88 @@ declare const marked: {
 };
 
 declare const DOMPurify: {
-  sanitize(
-    dirty: string,
-    config?: {
-      FORBID_TAGS?: string[];
-      FORBID_ATTR?: string[];
-      USE_PROFILES?: { html?: boolean };
-    }
-  ): string;
+  sanitize(dirty: string, config?: { FORBID_TAGS?: string[]; FORBID_ATTR?: string[] }): string;
 };
 
 // ---------------------------------------------------------------------------
-// Markdown helpers
+// Types
 // ---------------------------------------------------------------------------
 
-const DOMPURIFY_CONFIG = {
-  FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "link"],
-  FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onmouseout", "onkeydown", "onkeyup", "onfocus", "onblur"],
-};
+interface CardMeta {
+  ws: WorkspaceEntry;
+  // Derived from IPC calls — populated async
+  gitBranch: string | null;
+  gitAhead: number;
+  gitBehind: number;
+  gitChanged: number;
+  gitUntracked: number;
+  gitLastCommit: string | null;
+  gitDirty: boolean;
+  isRunning: boolean;    // harnessPhase != null
+  isOpen: boolean;       // sessions.json has open cwd
+  isMissing: boolean;
+  goal: string | null;
+  currentTask: string | null;
+  nextSteps: string[];
+  tags: string[];
+  group: "active" | "recent" | "archived";
+  updatedLabel: string;
+}
 
-/**
- * Render markdown to safe HTML. Falls back to escaped plain text if library throws.
- */
-function renderMarkdown(src: string): string {
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+var _workspaces: WorkspaceEntry[] = [];
+var _cardMetas: CardMeta[] = [];
+var _view: "grid" | "list" = "grid";
+var _filter: string = "all";
+var _search: string = "";
+var _toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ---------------------------------------------------------------------------
+// Persist view/filter to localStorage
+// ---------------------------------------------------------------------------
+
+var PREF_VIEW = "dashboard.v2.view";
+var PREF_FILTER = "dashboard.v2.filter";
+
+function loadPrefs(): void {
   try {
-    const rawHtml = marked.parse(src, { gfm: true, breaks: false });
-    return DOMPurify.sanitize(rawHtml, DOMPURIFY_CONFIG);
-  } catch (err) {
-    console.error("[dashboard] markdown parse error, falling back to plain text:", err);
-    return `<pre>${escapeHtml(src)}</pre>`;
-  }
+    var v = localStorage.getItem(PREF_VIEW);
+    if (v === "list" || v === "grid") _view = v;
+    var f = localStorage.getItem(PREF_FILTER);
+    if (f) _filter = f;
+  } catch (_) { /* ignore */ }
 }
 
-/**
- * Extract a section from markdown: from "## Heading" until the next same-level heading.
- * Exported for unit tests.
- */
-export function extractSection(md: string, heading: string): string {
-  const lines = md.split("\n");
-
-  // Determine heading level (count leading #)
-  const levelMatch = heading.match(/^(#+)\s/);
-  const level = levelMatch ? levelMatch[1].length : 2;
-  const headingRegex = new RegExp(`^#{${level}}\\s`);
-
-  let inSection = false;
-  const result: string[] = [];
-
-  for (const line of lines) {
-    if (!inSection) {
-      // Check if this line matches our target heading (normalize whitespace)
-      const normalizedLine = line.replace(/\s+/g, " ").trim();
-      const normalizedHeading = heading.replace(/\s+/g, " ").trim();
-      if (normalizedLine === normalizedHeading || normalizedLine.startsWith(normalizedHeading + " ")) {
-        inSection = true;
-        // Don't include the heading itself in the body
-        continue;
-      }
-    } else {
-      // Stop at next same-or-higher level heading
-      if (headingRegex.test(line)) {
-        break;
-      }
-      result.push(line);
-    }
-  }
-
-  return result.join("\n").trim();
+function savePrefs(): void {
+  try {
+    localStorage.setItem(PREF_VIEW, _view);
+    localStorage.setItem(PREF_FILTER, _filter);
+  } catch (_) { /* ignore */ }
 }
 
 // ---------------------------------------------------------------------------
-// HTML escape (for raw user strings like name, path — NOT for markdown content)
+// Toast
 // ---------------------------------------------------------------------------
 
-function escapeHtml(str: string): string {
+function showDashboardToast(msg: string, variant: "ok" | "warn" | "err" = "ok"): void {
+  var el = document.getElementById("toast") as HTMLElement;
+  el.textContent = msg;
+  el.className = "visible " + variant;
+  if (_toastTimer !== null) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => {
+    el.className = "";
+    _toastTimer = null;
+  }, 2800);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function dashEsc(str: string): string {
   return str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -94,1073 +101,547 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#39;");
 }
 
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
+function mdInline(s: string | null): string {
+  if (!s) return "";
+  return s
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+}
 
-let workspaces: WorkspaceEntry[] = [];
+// Returns icon letter + color class for a workspace name
+function wsIconInfo(name: string): { letter: string; color: string } {
+  var colors = ["purple", "cyan", "pink", "green", "yellow"];
+  var letter = name.charAt(0).toUpperCase() || "W";
+  var hash = 0;
+  for (var i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) & 0xffffffff;
+  var color = colors[Math.abs(hash) % colors.length];
+  return { letter, color };
+}
 
-// Per-card file tree cache: cardId → tree data (null = needs load, false = error)
-const fileTreeCache = new Map<string, DashboardFileTreeResult | null>();
-
-// ---------------------------------------------------------------------------
-// Per-card compact state (localStorage persist)
-// ---------------------------------------------------------------------------
-
-const COMPACT_KEY_PREFIX = "dashboard.cardExpanded.";
-
-// ---------------------------------------------------------------------------
-// Global show-files state (localStorage persist)
-// ---------------------------------------------------------------------------
-
-const SHOW_FILES_KEY = "dashboard.showFiles";
-
-/** Get global show-files state. Default: false (off). */
-function getShowFiles(): boolean {
+// Relative time from ISO string
+function relTime(isoStr: string): string {
   try {
-    const stored = localStorage.getItem(SHOW_FILES_KEY);
-    return stored === "on";
-  } catch {
-    return false;
+    var d = new Date(isoStr);
+    var diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return "just now";
+    if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    if (diff < 86400 * 7) return Math.floor(diff / 86400) + "d ago";
+    return d.toLocaleDateString();
+  } catch (_) {
+    return "";
   }
 }
 
-/** Persist global show-files state. */
-function setShowFiles(value: boolean): void {
-  try {
-    localStorage.setItem(SHOW_FILES_KEY, value ? "on" : "off");
-  } catch {
-    console.warn("[dashboard] setShowFiles: localStorage write failed, toggle still active for this session");
+// ---------------------------------------------------------------------------
+// Count helpers for filter chips
+// ---------------------------------------------------------------------------
+
+function computeCounts(metas: CardMeta[]): Record<string, number> {
+  var counts: Record<string, number> = { all: 0, active: 0, dirty: 0, running: 0, archived: 0 };
+  for (var m of metas) {
+    counts.all++;
+    if (m.isOpen || m.group === "active") counts.active++;
+    if (m.gitDirty || m.gitChanged > 0) counts.dirty++;
+    if (m.isRunning) counts.running++;
+    if (m.group === "archived") counts.archived++;
   }
+  return counts;
 }
 
-/** Sync the toolbar toggle button visual state to match current getShowFiles(). */
-function syncFilesToggleButton(): void {
-  const btn = document.getElementById("btn-toggle-files") as HTMLButtonElement | null;
-  if (!btn) return;
-  const on = getShowFiles();
-  btn.setAttribute("aria-pressed", on ? "true" : "false");
-  btn.classList.toggle("active", on);
-}
+// ---------------------------------------------------------------------------
+// Filter logic
+// ---------------------------------------------------------------------------
 
-/** Get compact state for a card. Default: compact (true = compact). */
-function getCardCompact(wsId: string): boolean {
-  try {
-    const stored = localStorage.getItem(COMPACT_KEY_PREFIX + wsId);
-    if (stored === null) return true; // default compact
-    return stored !== "expanded";
-  } catch {
+function filterMetas(metas: CardMeta[]): CardMeta[] {
+  return metas.filter((m) => {
+    // Status filter
+    if (_filter === "active" && !m.isOpen && m.group !== "active") return false;
+    if (_filter === "dirty" && !m.gitDirty && m.gitChanged === 0) return false;
+    if (_filter === "running" && !m.isRunning) return false;
+    if (_filter === "archived" && m.group !== "archived") return false;
+
+    // Search filter
+    if (_search) {
+      var s = _search.toLowerCase();
+      var blob = [
+        m.ws.name,
+        m.ws.absolutePath,
+        m.gitBranch || "",
+        m.goal || "",
+        m.currentTask || "",
+        m.tags.join(" "),
+        m.nextSteps.join(" "),
+      ].join(" ").toLowerCase();
+      if (!blob.includes(s)) return false;
+    }
+
     return true;
-  }
-}
-
-/** Persist compact state for a card. */
-function setCardCompact(wsId: string, compact: boolean): void {
-  try {
-    localStorage.setItem(COMPACT_KEY_PREFIX + wsId, compact ? "compact" : "expanded");
-  } catch {
-    // ignore storage errors
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Toast helper
-// ---------------------------------------------------------------------------
-
-let toastTimer: ReturnType<typeof setTimeout> | null = null;
-
-function showDashboardToast(message: string, variant: "ok" | "warn" | "err" = "ok"): void {
-  const el = document.getElementById("toast") as HTMLElement;
-  el.textContent = message;
-  el.className = "visible " + variant;
-  if (toastTimer !== null) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    el.className = "";
-    toastTimer = null;
-  }, 2800);
-}
-
-// ---------------------------------------------------------------------------
-// Collapsible section builder
-// ---------------------------------------------------------------------------
-
-/**
- * Build a collapsible section element.
- * @param label - Display label for the header
- * @param sectionId - Unique CSS class/id suffix for this section instance
- * @param initiallyOpen - Whether expanded on first render
- * @param contentBuilder - Function that fills the content div
- */
-function buildCollapsibleSection(
-  label: string,
-  sectionId: string,
-  initiallyOpen: boolean,
-  contentBuilder: (contentEl: HTMLDivElement) => void
-): HTMLDivElement {
-  const section = document.createElement("div");
-  section.className = "card-section card-section--collapsible";
-  section.dataset.sectionId = sectionId;
-
-  const header = document.createElement("div");
-  header.className = "card-section-toggle";
-  header.setAttribute("role", "button");
-  header.setAttribute("tabindex", "0");
-  header.setAttribute("aria-expanded", initiallyOpen ? "true" : "false");
-
-  const caret = document.createElement("span");
-  caret.className = "section-caret";
-  caret.setAttribute("aria-hidden", "true");
-  caret.textContent = initiallyOpen ? "▼" : "▶";
-
-  const labelEl = document.createElement("span");
-  labelEl.className = "card-section-label";
-  labelEl.textContent = label;
-
-  header.appendChild(caret);
-  header.appendChild(labelEl);
-
-  const content = document.createElement("div");
-  content.className = "card-section-content";
-  content.style.display = initiallyOpen ? "" : "none";
-
-  contentBuilder(content);
-
-  section.appendChild(header);
-  section.appendChild(content);
-
-  const toggle = () => {
-    const isOpen = content.style.display !== "none";
-    const nextOpen = !isOpen;
-    content.style.display = nextOpen ? "" : "none";
-    caret.textContent = nextOpen ? "▼" : "▶";
-    header.setAttribute("aria-expanded", nextOpen ? "true" : "false");
-    console.log(`[dashboard] toggle ${sectionId}=${nextOpen ? "open" : "closed"}`);
-  };
-
-  header.addEventListener("click", (e) => {
-    e.stopPropagation();
-    toggle();
-  });
-  header.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      toggle();
-    }
-  });
-
-  return section;
-}
-
-// ---------------------------------------------------------------------------
-// Section builders
-// ---------------------------------------------------------------------------
-
-/** Build Overview section (always open, no toggle) */
-function buildOverviewSectionEl(summary: DashboardOverviewSummary | { error: string }): HTMLDivElement {
-  const section = document.createElement("div");
-  section.className = "card-section card-section--always-open";
-
-  const labelEl = document.createElement("div");
-  labelEl.className = "card-section-label";
-  labelEl.textContent = "Overview";
-  section.appendChild(labelEl);
-
-  if ("error" in summary) {
-    const err = document.createElement("span");
-    err.className = "card-absent";
-    err.textContent = `error: ${summary.error}`;
-    section.appendChild(err);
-    return section;
-  }
-
-  const grid = document.createElement("div");
-  grid.className = "overview-grid";
-
-  // Goal
-  const goalRow = document.createElement("div");
-  goalRow.className = "overview-row";
-  const goalLabel = document.createElement("span");
-  goalLabel.className = "overview-row-label";
-  goalLabel.textContent = "목표";
-  const goalValue = document.createElement("div");
-  goalValue.className = "overview-row-value md-content";
-  if (summary.goal) {
-    goalValue.innerHTML = renderMarkdown(summary.goal);
-  } else {
-    goalValue.innerHTML = `<span class="card-absent">—</span>`;
-  }
-  goalRow.appendChild(goalLabel);
-  goalRow.appendChild(goalValue);
-  grid.appendChild(goalRow);
-
-  // Current task
-  const taskRow = document.createElement("div");
-  taskRow.className = "overview-row";
-  const taskLabel = document.createElement("span");
-  taskLabel.className = "overview-row-label";
-  taskLabel.textContent = "현재 작업";
-  const taskValue = document.createElement("div");
-  taskValue.className = "overview-row-value";
-  taskValue.textContent = summary.currentTask ?? "—";
-  if (!summary.currentTask) taskValue.classList.add("card-absent");
-  taskRow.appendChild(taskLabel);
-  taskRow.appendChild(taskValue);
-  grid.appendChild(taskRow);
-
-  // Next steps
-  const nextRow = document.createElement("div");
-  nextRow.className = "overview-row";
-  const nextLabel = document.createElement("span");
-  nextLabel.className = "overview-row-label";
-  nextLabel.textContent = "다음 할 일";
-  const nextValue = document.createElement("div");
-  nextValue.className = "overview-row-value";
-  if (summary.nextSteps.length > 0) {
-    const ul = document.createElement("ul");
-    ul.className = "overview-list";
-    for (const step of summary.nextSteps) {
-      const li = document.createElement("li");
-      li.textContent = step;
-      ul.appendChild(li);
-    }
-    nextValue.appendChild(ul);
-  } else {
-    nextValue.innerHTML = `<span class="card-absent">—</span>`;
-  }
-  nextRow.appendChild(nextLabel);
-  nextRow.appendChild(nextValue);
-  grid.appendChild(nextRow);
-
-  section.appendChild(grid);
-  return section;
-}
-
-/** Build Status section (always open, no toggle) */
-function buildStatusSectionEl(status: DashboardStatusInfo | { error: string }): HTMLDivElement {
-  const section = document.createElement("div");
-  section.className = "card-section card-section--always-open";
-
-  const labelEl = document.createElement("div");
-  labelEl.className = "card-section-label";
-  labelEl.textContent = "Status";
-  section.appendChild(labelEl);
-
-  if ("error" in status) {
-    const err = document.createElement("span");
-    err.className = "card-absent";
-    err.textContent = `error: ${status.error}`;
-    section.appendChild(err);
-    return section;
-  }
-
-  if (status.notAGitRepo) {
-    const msg = document.createElement("span");
-    msg.className = "card-absent";
-    msg.textContent = "not a git repo";
-    section.appendChild(msg);
-    return section;
-  }
-
-  const statusBlock = document.createElement("div");
-  statusBlock.className = "status-block";
-
-  // Line 1: branch · dirty/clean · staged · unstaged · untracked
-  const line1 = document.createElement("div");
-  line1.className = "status-line";
-
-  if (status.branch) {
-    const branchEl = document.createElement("code");
-    branchEl.className = "branch-name";
-    branchEl.textContent = status.branch;
-    line1.appendChild(branchEl);
-    line1.appendChild(document.createTextNode(" · "));
-  }
-
-  const dirtyEl = document.createElement("span");
-  if (status.dirty) {
-    dirtyEl.className = "status-dirty";
-    dirtyEl.textContent = "dirty";
-  } else {
-    dirtyEl.className = "status-clean";
-    dirtyEl.textContent = "clean";
-  }
-  line1.appendChild(dirtyEl);
-
-  if (status.dirty) {
-    const counts: string[] = [];
-    if (status.staged !== null && status.staged > 0) counts.push(`${status.staged} staged`);
-    if (status.unstaged !== null && status.unstaged > 0) counts.push(`${status.unstaged} unstaged`);
-    if (status.untracked !== null && status.untracked > 0) counts.push(`${status.untracked} untracked`);
-    if (counts.length > 0) {
-      const countsEl = document.createElement("span");
-      countsEl.className = "status-counts";
-      countsEl.textContent = ` (${counts.join(" · ")})`;
-      line1.appendChild(countsEl);
-    }
-  }
-
-  if (status.ahead !== null || status.behind !== null) {
-    const aheadBehind: string[] = [];
-    if ((status.ahead ?? 0) > 0) aheadBehind.push(`↑${status.ahead}`);
-    if ((status.behind ?? 0) > 0) aheadBehind.push(`↓${status.behind}`);
-    if (aheadBehind.length > 0) {
-      const abEl = document.createElement("span");
-      abEl.className = "status-ahead-behind";
-      abEl.textContent = " · " + aheadBehind.join(" ");
-      line1.appendChild(abEl);
-    }
-  }
-
-  statusBlock.appendChild(line1);
-
-  // Line 2: origin URL · last commit time
-  const line2Parts: string[] = [];
-  if (status.remoteUrl) line2Parts.push(`origin: ${status.remoteUrl}`);
-  if (status.lastCommitRelTime) line2Parts.push(`last commit ${status.lastCommitRelTime}`);
-
-  if (line2Parts.length > 0) {
-    const line2 = document.createElement("div");
-    line2.className = "status-line status-line--meta";
-    line2.textContent = line2Parts.join(" · ");
-    statusBlock.appendChild(line2);
-  }
-
-  section.appendChild(statusBlock);
-  return section;
-}
-
-/** Build Progress section (collapsible) */
-function buildProgressSectionEl(progressMd: string | null, progressError: string | undefined): HTMLDivElement {
-  return buildCollapsibleSection("Progress", "progress", false, (content) => {
-    if (progressMd === null) {
-      const msg = progressError
-        ? `error reading progress.md: ${escapeHtml(progressError)}`
-        : "no progress.md found";
-      content.innerHTML = `<span class="card-absent">${msg}</span>`;
-      return;
-    }
-
-    const SECTIONS: { key: string; heading: string }[] = [
-      { key: "Current Task", heading: "## Current Task" },
-      { key: "Last Session", heading: "## Last Session" },
-      { key: "Next Steps", heading: "## Next Steps" },
-      { key: "Harness State", heading: "## Harness State" },
-    ];
-
-    for (const { key, heading } of SECTIONS) {
-      const body = extractSection(progressMd, heading);
-      const subLabel = document.createElement("div");
-      subLabel.className = "card-sub-label";
-      subLabel.textContent = key;
-      content.appendChild(subLabel);
-
-      if (body) {
-        const mdEl = document.createElement("div");
-        mdEl.className = "md-content progress-content";
-        mdEl.innerHTML = renderMarkdown(body);
-        content.appendChild(mdEl);
-      } else {
-        const absent = document.createElement("span");
-        absent.className = "card-absent";
-        absent.textContent = "—";
-        content.appendChild(absent);
-      }
-    }
-  });
-}
-
-/** Build Recent Commits section (collapsible) */
-function buildCommitsSectionEl(
-  gitLog: DashboardGitLogEntry[] | null,
-  notAGitRepo: boolean,
-  gitError: string | undefined
-): HTMLDivElement {
-  return buildCollapsibleSection("Recent Commits", "commits", false, (content) => {
-    if (notAGitRepo) {
-      content.innerHTML = `<span class="card-absent">not a git repository</span>`;
-    } else if (gitLog === null) {
-      const msg = gitError
-        ? `error running git log: ${escapeHtml(gitError)}`
-        : "git log unavailable";
-      content.innerHTML = `<span class="card-absent">${msg}</span>`;
-    } else if (gitLog.length === 0) {
-      content.innerHTML = `<span class="card-absent">no commits yet</span>`;
-    } else {
-      const table = document.createElement("table");
-      table.className = "git-log-table";
-      const tbody = document.createElement("tbody");
-      for (const entry of gitLog) {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td class="git-log-hash">${escapeHtml(entry.hash)}</td>
-          <td class="git-log-msg">${escapeHtml(entry.msg)}</td>
-          <td class="git-log-time">${escapeHtml(entry.relTime)}</td>
-        `;
-        tbody.appendChild(tr);
-      }
-      table.appendChild(tbody);
-      content.appendChild(table);
-    }
   });
 }
 
 // ---------------------------------------------------------------------------
-// Files tree
+// Card rendering (design-v2 structure)
 // ---------------------------------------------------------------------------
 
-function buildFileTreeNode(
-  node: DashboardFileTreeNode,
-  depth: number
-): HTMLDivElement {
-  const container = document.createElement("div");
-  container.className = "tree-node";
-  container.dataset.nodePath = node.path;
-  container.dataset.nodeType = node.type;
+function renderCard(m: CardMeta): HTMLElement {
+  var card = document.createElement("div");
 
-  const row = document.createElement("div");
-  row.className = "tree-row";
-  row.style.paddingLeft = `${depth * 13 + 6}px`;
+  // Color strip class
+  var stripClass = "";
+  if (m.gitChanged > 0 || m.gitDirty) stripClass = "dirty";
+  else if (m.isRunning) stripClass = "running";
+  else if (m.gitBehind > 0) stripClass = "behind";
 
-  if (node.type === "dir") {
-    const caret = document.createElement("span");
-    caret.className = "tree-caret";
-    caret.setAttribute("aria-hidden", "true");
-    caret.textContent = "▶";
+  card.className = "ws-card" + (stripClass ? " " + stripClass : "") + (m.isMissing ? " missing" : "");
+  card.dataset.id = m.ws.id;
 
-    const icon = document.createElement("span");
-    icon.className = "tree-icon tree-icon--dir";
-    icon.textContent = "📁";
+  var iconInfo = wsIconInfo(m.ws.name);
 
-    const label = document.createElement("span");
-    label.className = "tree-label";
-    label.textContent = node.name;
+  // === Card head ===
+  var quickActionsHTML = `
+    <div class="card-quick">
+      <button class="qbtn" title="Open in terminal" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 5l3 3-3 3M8 11h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="qbtn" title="Reveal in Finder" data-action="reveal" data-path="${dashEsc(m.ws.absolutePath)}">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/></svg>
+      </button>
+      <button class="qbtn btn-remove" title="Remove workspace" data-action="remove" data-id="${dashEsc(m.ws.id)}">
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  `;
 
-    row.appendChild(caret);
-    row.appendChild(icon);
-    row.appendChild(label);
-
-    // Children container (lazy — we already have children from the tree)
-    const childrenEl = document.createElement("div");
-    childrenEl.className = "tree-children";
-    childrenEl.style.display = "none";
-
-    if (node.children && node.children.length > 0) {
-      for (const child of node.children) {
-        childrenEl.appendChild(buildFileTreeNode(child, depth + 1));
-      }
-    } else {
-      const empty = document.createElement("div");
-      empty.className = "tree-row tree-empty";
-      empty.style.paddingLeft = `${(depth + 1) * 13 + 6}px`;
-      empty.textContent = "(empty)";
-      childrenEl.appendChild(empty);
-    }
-
-    container.appendChild(row);
-    container.appendChild(childrenEl);
-
-    row.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const isOpen = childrenEl.style.display !== "none";
-      const nextOpen = !isOpen;
-      childrenEl.style.display = nextOpen ? "" : "none";
-      caret.textContent = nextOpen ? "▼" : "▶";
-    });
-  } else {
-    const spacer = document.createElement("span");
-    spacer.className = "tree-spacer";
-
-    const icon = document.createElement("span");
-    icon.className = "tree-icon tree-icon--file";
-    icon.textContent = "📄";
-
-    const label = document.createElement("span");
-    label.className = "tree-label";
-    label.textContent = node.name;
-
-    row.appendChild(spacer);
-    row.appendChild(icon);
-    row.appendChild(label);
-
-    container.appendChild(row);
-
-    row.addEventListener("click", (e) => {
-      e.stopPropagation();
-      console.log(`[dashboard] file clicked: ${node.path}`);
-    });
-  }
-
-  return container;
-}
-
-/** Build Files section (collapsible, lazy-load IPC on first open) */
-function buildFilesSectionEl(ws: WorkspaceEntry): HTMLDivElement {
-  let loaded = false;
-
-  const section = buildCollapsibleSection("Files", `files-${ws.id}`, false, (_content) => {
-    // content is empty initially — filled on first toggle
-  });
-
-  // Get the content div and header
-  const content = section.querySelector(".card-section-content") as HTMLDivElement;
-  const header = section.querySelector(".card-section-toggle") as HTMLDivElement;
-  const caret = section.querySelector(".section-caret") as HTMLSpanElement;
-
-  // Override toggle to do lazy-load
-  const originalClick = header.onclick;
-  void originalClick; // suppress unused warning
-
-  // Remove existing click listener by cloning, then re-add custom one
-  const newHeader = header.cloneNode(true) as HTMLDivElement;
-  const newCaret = newHeader.querySelector(".section-caret") as HTMLSpanElement;
-  header.replaceWith(newHeader);
-
-  const toggle = async () => {
-    const isOpen = content.style.display !== "none";
-    const nextOpen = !isOpen;
-
-    if (nextOpen && !loaded) {
-      console.log(`[dashboard] Files lazy-load start: ${ws.absolutePath}`);
-      content.style.display = "";
-      newCaret.textContent = "▼";
-      newHeader.setAttribute("aria-expanded", "true");
-
-      // Show loading state
-      content.innerHTML = `<span class="card-absent" style="padding:8px 0;display:block;">Loading…</span>`;
-
-      try {
-        // Check cache first
-        const cached = fileTreeCache.get(ws.id);
-        let treeResult: DashboardFileTreeResult;
-
-        if (cached !== undefined && cached !== null) {
-          treeResult = cached;
-          console.log(`[dashboard] Files using cached tree for ${ws.absolutePath}`);
-        } else {
-          treeResult = await window.dashboardAPI!.fileTree(ws.absolutePath);
-          fileTreeCache.set(ws.id, treeResult);
-          console.log(`[dashboard] Files lazy-load complete: ${ws.absolutePath}, nodes: ${treeResult.tree?.length ?? 0}`);
-        }
-
-        content.innerHTML = "";
-
-        if (treeResult.error) {
-          content.innerHTML = `<span class="card-absent">Error loading files: ${escapeHtml(treeResult.error)}</span>`;
-        } else if (!treeResult.tree || treeResult.tree.length === 0) {
-          content.innerHTML = `<span class="card-absent">No files found.</span>`;
-        } else {
-          const treeContainer = document.createElement("div");
-          treeContainer.className = "tree-container";
-          for (const node of treeResult.tree) {
-            treeContainer.appendChild(buildFileTreeNode(node, 0));
-          }
-          content.appendChild(treeContainer);
-        }
-
-        loaded = true;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[dashboard] Files lazy-load error for ${ws.absolutePath}:`, err);
-        content.innerHTML = `<span class="card-absent">Failed to load files: ${escapeHtml(msg)}</span>`;
-        loaded = true;
-      }
-    } else {
-      content.style.display = nextOpen ? "" : "none";
-      newCaret.textContent = nextOpen ? "▼" : "▶";
-      newHeader.setAttribute("aria-expanded", nextOpen ? "true" : "false");
-      console.log(`[dashboard] toggle files-${ws.id}=${nextOpen ? "open" : "closed"}`);
-    }
-  };
-
-  newHeader.addEventListener("click", (e) => {
-    e.stopPropagation();
-    void toggle();
-  });
-  newHeader.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      void toggle();
-    }
-  });
-
-  // Also suppress the stale caret reference
-  void caret;
-
-  return section;
-}
-
-// ---------------------------------------------------------------------------
-// Card body loading: load data and populate into a pre-existing card element
-// ---------------------------------------------------------------------------
-
-async function populateCardBody(
-  card: HTMLElement,
-  ws: WorkspaceEntry,
-  isMissing: boolean
-): Promise<void> {
-  // Remove any existing body/loading
-  card.querySelectorAll(".card-body, .card-loading").forEach((el) => el.remove());
-
-  if (isMissing) {
-    // Missing: show inline message + remove button (no content load)
-    const missingBody = document.createElement("div");
-    missingBody.className = "card-body";
-    missingBody.innerHTML = `
-      <div class="card-section card-missing-actions">
-        <span class="card-absent">Folder not found on disk.</span>
-        <button class="btn-remove-missing" data-id="${escapeHtml(ws.id)}">Remove from list</button>
+  card.innerHTML = `
+    <div class="card-head">
+      <div class="ws-icon ${dashEsc(iconInfo.color)}">${dashEsc(iconInfo.letter)}</div>
+      <div class="card-titlewrap">
+        <div class="card-title">${dashEsc(m.ws.name)}</div>
+        <div class="card-path" title="${dashEsc(m.ws.absolutePath)}">${dashEsc(m.ws.absolutePath)}</div>
       </div>
-    `;
-    card.appendChild(missingBody);
+      ${quickActionsHTML}
+    </div>
+    <div class="status-strip" id="ss-${dashEsc(m.ws.id)}">
+      <span class="card-absent" style="font-style:italic">Loading…</span>
+    </div>
+    <div class="card-body" id="cb-${dashEsc(m.ws.id)}">
+      <span class="card-absent">Loading…</span>
+    </div>
+    <div class="card-foot">
+      <span class="updated">${dashEsc(m.updatedLabel)}</span>
+      <button class="open-btn primary" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""}>
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3H3v10h10V10M9 3h4v4M13 3L7 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Open
+      </button>
+    </div>
+  `;
 
-    const removeBtn = missingBody.querySelector(".btn-remove-missing") as HTMLButtonElement | null;
-    if (removeBtn) {
-      removeBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        void handleRemove(ws.id);
-      });
-    }
-    return;
-  }
-
-  const loadingEl = document.createElement("div");
-  loadingEl.className = "card-loading";
-  loadingEl.textContent = "Loading…";
-  card.appendChild(loadingEl);
-
-  const api = window.dashboardAPI!;
-
-  try {
-    // Load old card data (progress + gitLog) + new data in parallel
-    const [cardData, summaryResult, statusResult] = await Promise.all([
-      api.readCardData(ws.absolutePath),
-      api.overviewSummary(ws.absolutePath),
-      api.statusInfo(ws.absolutePath),
-    ]);
-
-    // Remove loading placeholder
-    if (loadingEl.parentElement === card) card.removeChild(loadingEl);
-
-    const body = document.createElement("div");
-    body.className = "card-body";
-
-    if ("error" in cardData) {
-      body.innerHTML = `
-        <div class="card-section">
-          <span class="card-absent">Error loading data: ${escapeHtml(cardData.error)}</span>
-        </div>
-      `;
-      card.appendChild(body);
-      return;
-    }
-
-    // 1. Overview section (always open)
-    try {
-      body.appendChild(buildOverviewSectionEl(summaryResult));
-    } catch (err) {
-      console.error("[dashboard] overview section render error:", err);
-      const sec = document.createElement("div");
-      sec.className = "card-section card-section--always-open";
-      sec.innerHTML = `<div class="card-section-label">Overview</div><span class="card-absent">render error</span>`;
-      body.appendChild(sec);
-    }
-
-    // 2. Status section (always open)
-    try {
-      body.appendChild(buildStatusSectionEl(statusResult));
-    } catch (err) {
-      console.error("[dashboard] status section render error:", err);
-      const sec = document.createElement("div");
-      sec.className = "card-section card-section--always-open";
-      sec.innerHTML = `<div class="card-section-label">Status</div><span class="card-absent">render error</span>`;
-      body.appendChild(sec);
-    }
-
-    // 3. Progress section (collapsible, initially closed)
-    try {
-      body.appendChild(buildProgressSectionEl(cardData.progress, cardData.errors.progress));
-    } catch (err) {
-      console.error("[dashboard] progress section render error:", err);
-      const sec = document.createElement("div");
-      sec.className = "card-section";
-      sec.innerHTML = `<div class="card-section-label">Progress</div><span class="card-absent">render error</span>`;
-      body.appendChild(sec);
-    }
-
-    // 4. Recent Commits section (collapsible, initially closed)
-    try {
-      body.appendChild(buildCommitsSectionEl(cardData.gitLog, cardData.notAGitRepo, cardData.errors.gitLog));
-    } catch (err) {
-      console.error("[dashboard] commits section render error:", err);
-      const sec = document.createElement("div");
-      sec.className = "card-section";
-      sec.innerHTML = `<div class="card-section-label">Recent Commits</div><span class="card-absent">render error</span>`;
-      body.appendChild(sec);
-    }
-
-    // 5. Files section (collapsible, lazy-load) — only if global show-files is on
-    if (getShowFiles()) {
-      try {
-        body.appendChild(buildFilesSectionEl(ws));
-      } catch (err) {
-        console.error("[dashboard] files section render error:", err);
-        const sec = document.createElement("div");
-        sec.className = "card-section";
-        sec.innerHTML = `<div class="card-section-label">Files</div><span class="card-absent">render error</span>`;
-        body.appendChild(sec);
+  // Wire quick action buttons
+  card.querySelectorAll("[data-action]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      var btn = e.currentTarget as HTMLElement;
+      var action = btn.getAttribute("data-action");
+      if (action === "open") {
+        var p = btn.getAttribute("data-path");
+        if (p) void handleOpen(p);
+      } else if (action === "reveal") {
+        showDashboardToast("Reveal in Finder — coming in Sprint 2", "warn");
+      } else if (action === "remove") {
+        var id = btn.getAttribute("data-id");
+        if (id) void handleRemove(id);
       }
-    }
-
-    card.appendChild(body);
-  } catch (err) {
-    console.error(`[dashboard] card data IPC error for ${ws.absolutePath}:`, err);
-    if (loadingEl.parentElement === card) card.removeChild(loadingEl);
-    const errorEl = document.createElement("div");
-    errorEl.className = "card-section";
-    errorEl.innerHTML = `<span class="card-absent">Failed to load card data.</span>`;
-    card.appendChild(errorEl);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Card rendering — builds the full card element (header + async body)
-// ---------------------------------------------------------------------------
-
-function renderCardHeader(card: HTMLElement, ws: WorkspaceEntry, isMissing: boolean): void {
-  const existing = card.querySelector(".card-header");
-  if (existing) existing.remove();
-
-  const header = document.createElement("div");
-  header.className = "card-header";
-
-  // Name (editable inline)
-  const nameEl = document.createElement("div");
-  nameEl.className = "card-name";
-  nameEl.textContent = ws.name;
-  nameEl.title = "Click to rename";
-
-  // Path
-  const pathEl = document.createElement("div");
-  pathEl.className = "card-path";
-  pathEl.textContent = ws.absolutePath;
-
-  // Badge container (populated async below)
-  const badgesEl = document.createElement("div");
-  badgesEl.className = "ws-badges";
-
-  const infoDiv = document.createElement("div");
-  infoDiv.className = "card-header-info";
-  infoDiv.appendChild(nameEl);
-  infoDiv.appendChild(pathEl);
-  infoDiv.appendChild(badgesEl);
-
-  // Actions (right side): Expand toggle + Refresh + Open + Remove
-  const actionsDiv = document.createElement("div");
-  actionsDiv.className = "card-header-actions";
-
-  // Compact/expand toggle button
-  const isCompact = getCardCompact(ws.id);
-  const expandBtn = document.createElement("button");
-  expandBtn.className = "btn-card-expand";
-  expandBtn.setAttribute("aria-expanded", isCompact ? "false" : "true");
-  expandBtn.title = isCompact ? "Expand card" : "Collapse card";
-  expandBtn.textContent = isCompact ? "▸" : "▾";
-
-  const refreshBtn = document.createElement("button");
-  refreshBtn.className = "btn-card-refresh";
-  refreshBtn.title = "Refresh card data";
-  refreshBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-    <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.6 0 3 .68 4 1.76" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-    <path d="M12 2v3h-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>`;
-
-  const openBtn = document.createElement("button");
-  openBtn.className = "btn-open-workspace" + (isMissing ? " disabled" : "");
-  openBtn.disabled = isMissing;
-  openBtn.title = isMissing ? "Folder not found" : "Open in terminal";
-  openBtn.dataset.path = ws.absolutePath;
-  openBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-    <path d="M6 3H3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-    <path d="M9 2h5v5M14 2l-6 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg> Open`;
-
-  const removeBtn = document.createElement("button");
-  removeBtn.className = "btn-remove";
-  removeBtn.dataset.id = ws.id;
-  removeBtn.title = "Remove workspace";
-  removeBtn.textContent = "×";
-
-  actionsDiv.appendChild(expandBtn);
-  actionsDiv.appendChild(refreshBtn);
-  actionsDiv.appendChild(openBtn);
-  actionsDiv.appendChild(removeBtn);
-
-  header.appendChild(infoDiv);
-  header.appendChild(actionsDiv);
-
-  // Insert at top of card (before other children)
-  card.insertBefore(header, card.firstChild);
-
-  // Inline name edit on click
-  nameEl.addEventListener("click", (e) => {
-    e.stopPropagation();
-    startNameEdit(card, ws, nameEl);
+    });
   });
 
-  // Compact/expand toggle
-  expandBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const nowCompact = card.classList.contains("compact");
-    const nextCompact = !nowCompact;
-    if (nextCompact) {
-      card.classList.add("compact");
-      expandBtn.textContent = "▸";
-      expandBtn.setAttribute("aria-expanded", "false");
-      expandBtn.title = "Expand card";
-    } else {
-      card.classList.remove("compact");
-      expandBtn.textContent = "▾";
-      expandBtn.setAttribute("aria-expanded", "true");
-      expandBtn.title = "Collapse card";
-    }
-    setCardCompact(ws.id, nextCompact);
-    console.log(`[dashboard] card-expand ws=${ws.id} compact=${nextCompact}`);
+  // Card-level click = open
+  card.addEventListener("click", () => {
+    if (m.isMissing) { showDashboardToast("Folder not found on disk.", "warn"); return; }
+    void handleOpen(m.ws.absolutePath);
   });
-
-  // Refresh button — invalidate file tree cache + reload
-  refreshBtn.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    console.log(`[dashboard] refresh: card for ${ws.absolutePath}`);
-    // Invalidate file tree cache so next Files open re-fetches
-    fileTreeCache.delete(ws.id);
-
-    const exists = await window.dashboardAPI!.checkPathExists(ws.absolutePath);
-    const nowMissing = !exists;
-    if (nowMissing) {
-      card.classList.add("missing");
-    } else {
-      card.classList.remove("missing");
-    }
-    renderCardHeader(card, ws, nowMissing);
-    await populateCardBody(card, ws, nowMissing);
-    console.log(`[dashboard] refresh: complete for ${ws.absolutePath}, missing=${nowMissing}`);
-  });
-
-  // Open button
-  openBtn.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    if (isMissing) {
-      showDashboardToast("Folder not found on disk.", "warn");
-      return;
-    }
-    console.log(`[dashboard] open: sending openInMain for ${ws.absolutePath}`);
-    try {
-      const result = await window.dashboardAPI!.openInMain(ws.absolutePath);
-      if (result.error) {
-        if (result.error === "path_missing") {
-          showDashboardToast("Folder not found on disk. Refresh the card.", "warn");
-        } else {
-          showDashboardToast(`Error: ${result.error}`, "err");
-        }
-        console.warn(`[dashboard] open: error=${result.error}`);
-      } else {
-        console.log(`[dashboard] open: success for ${ws.absolutePath}`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showDashboardToast(`Failed to open: ${msg}`, "err");
-      console.error(`[dashboard] open: IPC failed:`, err);
-    }
-  });
-
-  // Remove button
-  removeBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    void handleRemove(ws.id);
-  });
-
-  // Load session state badges asynchronously (non-blocking)
-  if (!isMissing) {
-    void (async () => {
-      try {
-        const state = await window.dashboardAPI!.sessionState(ws.absolutePath);
-        // Clear badges first (re-render case)
-        badgesEl.innerHTML = "";
-        if (state.open) {
-          const badge = document.createElement("span");
-          badge.className = "ws-badge ws-badge--open";
-          badge.textContent = "OPEN";
-          badgesEl.appendChild(badge);
-        }
-        if (state.harnessPhase) {
-          const badge = document.createElement("span");
-          badge.className = "ws-badge ws-badge--harness";
-          badge.textContent = "HARNESS";
-          badgesEl.appendChild(badge);
-        }
-      } catch (err) {
-        console.warn(`[dashboard] session-state badges: failed for ${ws.absolutePath}:`, err);
-        // No badge shown on error — card renders normally
-      }
-    })();
-  }
-}
-
-async function renderCard(ws: WorkspaceEntry, isMissing: boolean): Promise<HTMLElement> {
-  const card = document.createElement("div");
-  const isCompact = getCardCompact(ws.id);
-  card.className = "ws-card" + (isMissing ? " missing" : "") + (isCompact ? " compact" : "");
-  card.dataset.id = ws.id;
-
-  // Card-level click = Open workspace (unless missing)
-  card.addEventListener("click", async (e) => {
-    // Only trigger on direct card clicks (not child interactive elements)
-    // Child elements call e.stopPropagation() so this handler only fires for unhandled clicks
-    if (isMissing) {
-      showDashboardToast("Folder not found on disk.", "warn");
-      return;
-    }
-    console.log(`[dashboard] card-click open path=${ws.absolutePath}`);
-    try {
-      const result = await window.dashboardAPI!.openInMain(ws.absolutePath);
-      if (result.error) {
-        if (result.error === "path_missing") {
-          showDashboardToast("Folder not found on disk. Refresh the card.", "warn");
-        } else {
-          showDashboardToast(`Error: ${result.error}`, "err");
-        }
-        console.warn(`[dashboard] card-click open: error=${result.error}`);
-      } else {
-        console.log(`[dashboard] card-click open: success for ${ws.absolutePath}`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showDashboardToast(`Failed to open: ${msg}`, "err");
-      console.error(`[dashboard] card-click open: IPC failed:`, err);
-    }
-  });
-
-  renderCardHeader(card, ws, isMissing);
-  await populateCardBody(card, ws, isMissing);
 
   return card;
 }
 
-// ---------------------------------------------------------------------------
-// Inline name edit (Sprint 3 AC6)
-// ---------------------------------------------------------------------------
+// Populate status strip + card body once IPC data is available
+function populateCardData(m: CardMeta): void {
+  var ssEl = document.getElementById("ss-" + m.ws.id);
+  var cbEl = document.getElementById("cb-" + m.ws.id);
+  if (!ssEl || !cbEl) return;
 
-function startNameEdit(card: HTMLElement, ws: WorkspaceEntry, nameEl: HTMLElement): void {
-  if (card.querySelector(".card-name-input")) return; // already editing
+  // Status strip
+  var statusItems: string[] = [];
 
-  const currentName = ws.name;
-  const input = document.createElement("input");
-  input.type = "text";
-  input.className = "card-name-input";
-  input.value = currentName;
-  input.title = "Press Enter to save, Esc to cancel";
+  if (m.isRunning) {
+    statusItems.push(`<span class="ss-item live"><span class="dot"></span>harness running</span>`);
+  }
+  if (m.isOpen) {
+    statusItems.push(`<span class="ss-item"><span style="color:var(--accent)">&#9679;</span> open</span>`);
+  }
+  if (m.gitBranch) {
+    statusItems.push(`<span class="ss-item"><span class="branch">&#10567; ${dashEsc(m.gitBranch)}</span></span>`);
+  }
+  if (m.gitAhead > 0) {
+    statusItems.push(`<span class="ss-item"><span class="ahead">&#8593;${m.gitAhead}</span></span>`);
+  }
+  if (m.gitBehind > 0) {
+    statusItems.push(`<span class="ss-item"><span class="behind">&#8595;${m.gitBehind}</span></span>`);
+  }
+  if (m.gitChanged > 0) {
+    statusItems.push(`<span class="ss-item"><span class="changed">&#9679;${m.gitChanged}</span></span>`);
+  }
+  if (!m.gitBranch || (!m.gitDirty && m.gitChanged === 0 && m.gitUntracked === 0)) {
+    statusItems.push(`<span class="ss-item"><span class="clean">&#10003; clean</span></span>`);
+  }
+  if (m.gitLastCommit) {
+    statusItems.push(`<span class="ss-item ago" style="margin-left:auto">${dashEsc(m.gitLastCommit)}</span>`);
+  }
 
-  nameEl.style.display = "none";
-  nameEl.insertAdjacentElement("afterend", input);
-  input.focus();
-  input.select();
+  ssEl.innerHTML = statusItems.length ? statusItems.join("") : `<span class="card-absent">no git info</span>`;
 
-  let committed = false;
+  // Tags row (before card body) — insert if tags exist
+  var existingTags = document.getElementById("tr-" + m.ws.id);
+  if (existingTags) existingTags.remove();
 
-  const commit = async () => {
-    if (committed) return;
-    committed = true;
-
-    const newName = input.value.trim();
-    input.remove();
-    nameEl.style.display = "";
-
-    if (!newName || newName === currentName) {
-      return;
+  if (m.tags.length > 0) {
+    var tagsRow = document.createElement("div");
+    tagsRow.className = "tags-row";
+    tagsRow.id = "tr-" + m.ws.id;
+    for (var tag of m.tags) {
+      var cls = tag === "archived" ? "gray" : tag === "harness" || tag === "open" ? "cyan" : "";
+      tagsRow.innerHTML += `<span class="tag ${cls}">${dashEsc(tag)}</span>`;
     }
-
-    try {
-      const result = await window.dashboardAPI!.renameWorkspace(ws.id, newName);
-      if (result.success) {
-        ws.name = newName;
-        workspaces = result.workspaces;
-        nameEl.textContent = newName;
-        console.log(`[dashboard] rename: success id=${ws.id} name=${newName}`);
-        showDashboardToast("Workspace renamed.", "ok");
-      } else {
-        showDashboardToast("Failed to rename workspace.", "err");
-      }
-    } catch (err) {
-      console.error("[dashboard] rename IPC error:", err);
-      showDashboardToast("Failed to rename workspace.", "err");
+    // Insert tags-row after status-strip
+    var ssEl2 = document.getElementById("ss-" + m.ws.id);
+    if (ssEl2 && ssEl2.nextSibling) {
+      ssEl2.parentElement!.insertBefore(tagsRow, ssEl2.nextSibling);
     }
-  };
+  }
 
-  const cancel = () => {
-    if (committed) return;
-    committed = true;
-    input.remove();
-    nameEl.style.display = "";
-  };
+  // Card body
+  if (m.isMissing) {
+    cbEl.innerHTML = `<span class="card-absent">Folder not found on disk.</span>`;
+    return;
+  }
 
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); void commit(); }
-    else if (e.key === "Escape") { e.preventDefault(); cancel(); }
-  });
-  input.addEventListener("blur", () => { void commit(); });
-  input.addEventListener("click", (e) => e.stopPropagation());
+  var bodyParts: string[] = [];
+
+  if (m.goal) {
+    bodyParts.push(`
+      <div class="field">
+        <div class="field-label">Goal</div>
+        <div class="field-value">${mdInline(m.goal)}</div>
+      </div>
+    `);
+  }
+
+  if (m.currentTask) {
+    bodyParts.push(`
+      <div class="field">
+        <div class="field-label">Current</div>
+        <div class="field-value">${mdInline(m.currentTask)}</div>
+      </div>
+    `);
+  }
+
+  if (m.nextSteps.length > 0) {
+    var todosHTML = m.nextSteps.slice(0, 2).map((step) => `
+      <li class="todo-item">
+        <span class="todo-checkbox"></span>
+        <span>${mdInline(step)}</span>
+      </li>
+    `).join("");
+    var moreCount = m.nextSteps.length - 2;
+    bodyParts.push(`
+      <div class="field">
+        <div class="field-label">Next</div>
+        <div class="field-value">
+          <ul class="todo-list">${todosHTML}</ul>
+          ${moreCount > 0 ? `<div style="font-size:11px;color:var(--fg-2);padding-top:4px;cursor:pointer">+ ${moreCount} more</div>` : ""}
+        </div>
+      </div>
+    `);
+  }
+
+  if (bodyParts.length === 0) {
+    bodyParts.push(`<span class="card-absent">No overview data — add CLAUDE.md or progress.md</span>`);
+  }
+
+  cbEl.innerHTML = bodyParts.join("");
 }
 
 // ---------------------------------------------------------------------------
-// Render all workspaces
+// List row rendering
 // ---------------------------------------------------------------------------
 
-async function renderWorkspaces(): Promise<void> {
-  const grid = document.getElementById("card-grid") as HTMLDivElement;
-  const emptyState = document.getElementById("empty-state") as HTMLDivElement;
+function renderListRow(m: CardMeta): HTMLElement {
+  var row = document.createElement("div");
+  row.className = "list-row";
+  row.dataset.id = m.ws.id;
 
-  grid.innerHTML = "";
+  var iconInfo = wsIconInfo(m.ws.name);
 
-  if (workspaces.length === 0) {
+  var gitCells: string[] = [];
+  if (m.gitBranch) gitCells.push(`<span class="branch">&#10567; ${dashEsc(m.gitBranch)}</span>`);
+  if (m.gitAhead > 0) gitCells.push(`<span style="color:var(--warn)">&#8593;${m.gitAhead}</span>`);
+  if (m.gitBehind > 0) gitCells.push(`<span style="color:var(--cyan)">&#8595;${m.gitBehind}</span>`);
+  if (m.gitChanged > 0) gitCells.push(`<span class="changed">&#9679;${m.gitChanged}</span>`);
+  if (!m.gitBranch || (!m.gitDirty && m.gitChanged === 0)) gitCells.push(`<span style="color:var(--ok)">&#10003;</span>`);
+
+  row.innerHTML = `
+    <div class="ws-icon ${dashEsc(iconInfo.color)}" style="width:24px;height:24px;font-size:11px;border-radius:5px">${dashEsc(iconInfo.letter)}</div>
+    <div class="lr-name">${dashEsc(m.ws.name)}<span class="lr-path">${dashEsc(m.ws.absolutePath)}</span></div>
+    <div class="lr-summary">${dashEsc(m.currentTask || m.goal || "—")}</div>
+    <div class="lr-git">${gitCells.join(" ")}</div>
+    <div class="lr-updated">${dashEsc(m.updatedLabel)}</div>
+    <div class="lr-actions">
+      <button class="qbtn" title="Open" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 5l3 3-3 3M8 11h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="open-btn primary" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}">Open</button>
+    </div>
+  `;
+
+  row.querySelectorAll("[data-action]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      var p = (e.currentTarget as HTMLElement).getAttribute("data-path");
+      if (p) void handleOpen(p);
+    });
+  });
+
+  row.addEventListener("click", () => {
+    if (m.isMissing) { showDashboardToast("Folder not found on disk.", "warn"); return; }
+    void handleOpen(m.ws.absolutePath);
+  });
+
+  return row;
+}
+
+// ---------------------------------------------------------------------------
+// Render (main)
+// ---------------------------------------------------------------------------
+
+function render(): void {
+  var content = document.getElementById("content") as HTMLDivElement;
+  var emptyState = document.getElementById("empty-state") as HTMLDivElement;
+
+  if (_cardMetas.length === 0) {
     emptyState.style.display = "";
-    console.log("[dashboard] renderWorkspaces: empty state shown");
+    // Clear previous content except empty-state
+    content.querySelectorAll(":not(#empty-state)").forEach((el) => el.remove());
     return;
   }
 
   emptyState.style.display = "none";
+  // Remove all previous rendered nodes
+  content.querySelectorAll(".ws-grid,.ws-list,.group-header,#no-match").forEach((el) => el.remove());
 
-  // Check path existence for all workspaces in parallel
-  const api = window.dashboardAPI!;
-  const existsResults = await Promise.all(
-    workspaces.map((ws) => api.checkPathExists(ws.absolutePath))
-  );
+  // Update chip counts
+  var counts = computeCounts(_cardMetas);
+  var countAll = document.getElementById("count-all");
+  var countActive = document.getElementById("count-active");
+  var countDirty = document.getElementById("count-dirty");
+  var countRunning = document.getElementById("count-running");
+  var countArchived = document.getElementById("count-archived");
+  if (countAll) countAll.textContent = String(counts.all);
+  if (countActive) countActive.textContent = String(counts.active);
+  if (countDirty) countDirty.textContent = String(counts.dirty);
+  if (countRunning) countRunning.textContent = String(counts.running);
+  if (countArchived) countArchived.textContent = String(counts.archived);
 
-  console.log(`[dashboard] renderWorkspaces: rendering ${workspaces.length} card(s)`);
+  var visible = filterMetas(_cardMetas);
+  var filterName = _filter;
+  console.log(`[dashboard] view=${_view} filter=${filterName} count=${visible.length}`);
 
-  // Render cards in parallel (each card loads its data independently)
-  const cardPromises = workspaces.map((ws, i) =>
-    renderCard(ws, !existsResults[i]).catch((err) => {
-      console.error(`[dashboard] fatal renderCard error for ${ws.absolutePath}:`, err);
-      const fallback = document.createElement("div");
-      fallback.className = "ws-card";
-      fallback.dataset.id = ws.id;
-      fallback.innerHTML = `
-        <div class="card-header">
-          <div class="card-header-info">
-            <div class="card-name">${escapeHtml(ws.name)}</div>
-            <div class="card-path">${escapeHtml(ws.absolutePath)}</div>
-          </div>
-        </div>
-        <div class="card-section"><span class="card-absent">Card failed to render.</span></div>
-      `;
-      return fallback;
-    })
-  );
-
-  const cards = await Promise.all(cardPromises);
-  for (const card of cards) {
-    grid.appendChild(card);
+  if (visible.length === 0) {
+    var noMatch = document.createElement("div");
+    noMatch.id = "no-match";
+    noMatch.innerHTML = `<div class="nm-title">No workspaces match</div><div>Try a different filter or search term.</div>`;
+    content.appendChild(noMatch);
+    return;
   }
+
+  if (_view === "grid") {
+    renderGrid(content, visible);
+    // Populate card bodies after DOM is built — runs on every render() call
+    // (covers chip click, view toggle, search, and initial load)
+    for (var i = 0; i < visible.length; i++) {
+      populateCardData(visible[i]);
+    }
+  } else {
+    renderList(content, visible);
+  }
+}
+
+function renderGrid(container: HTMLElement, metas: CardMeta[]): void {
+  var grouped: Record<string, CardMeta[]> = { active: [], recent: [], archived: [] };
+  for (var m of metas) {
+    grouped[m.group] = grouped[m.group] || [];
+    grouped[m.group].push(m);
+  }
+
+  if (grouped.active && grouped.active.length > 0) {
+    container.appendChild(makeGroupHeader("Active", grouped.active.length, "var(--ok)"));
+    container.appendChild(makeGrid(grouped.active));
+  }
+  if (grouped.recent && grouped.recent.length > 0) {
+    container.appendChild(makeGroupHeader("Recent", grouped.recent.length, "var(--fg-3)"));
+    container.appendChild(makeGrid(grouped.recent));
+  }
+  if (grouped.archived && grouped.archived.length > 0) {
+    container.appendChild(makeGroupHeader("Archived", grouped.archived.length, "var(--fg-3)"));
+    var g = makeGrid(grouped.archived);
+    g.style.opacity = "0.65";
+    container.appendChild(g);
+  }
+}
+
+function makeGroupHeader(label: string, count: number, dotColor: string): HTMLElement {
+  var h = document.createElement("div");
+  h.className = "group-header";
+  h.innerHTML = `<span style="color:${dotColor}">&#9679;</span> ${dashEsc(label)} <span class="count">${count}</span><span class="line"></span>`;
+  return h;
+}
+
+function makeGrid(metas: CardMeta[]): HTMLDivElement {
+  var grid = document.createElement("div");
+  grid.className = "ws-grid";
+  for (var m of metas) {
+    grid.appendChild(renderCard(m));
+  }
+  return grid;
+}
+
+function renderList(container: HTMLElement, metas: CardMeta[]): void {
+  var listEl = document.createElement("div");
+  listEl.className = "ws-list";
+
+  var header = document.createElement("div");
+  header.className = "list-header";
+  header.innerHTML = `<span></span><span>Workspace</span><span>Current task</span><span>Git</span><span>Updated</span><span></span>`;
+  listEl.appendChild(header);
+
+  for (var m of metas) {
+    listEl.appendChild(renderListRow(m));
+  }
+
+  container.appendChild(listEl);
+}
+
+// ---------------------------------------------------------------------------
+// Async data loading: build CardMeta from WorkspaceEntry + IPC
+// ---------------------------------------------------------------------------
+
+async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
+  var api = window.dashboardAPI!;
+  var meta: CardMeta = {
+    ws,
+    gitBranch: null,
+    gitAhead: 0,
+    gitBehind: 0,
+    gitChanged: 0,
+    gitUntracked: 0,
+    gitLastCommit: null,
+    gitDirty: false,
+    isRunning: false,
+    isOpen: false,
+    isMissing: false,
+    goal: null,
+    currentTask: null,
+    nextSteps: [],
+    tags: [],
+    group: "recent",
+    updatedLabel: relTime(ws.addedAt),
+  };
+
+  // Check existence
+  try {
+    var exists = await api.checkPathExists(ws.absolutePath);
+    meta.isMissing = !exists;
+  } catch (_) {
+    meta.isMissing = true;
+  }
+
+  if (meta.isMissing) return meta;
+
+  // Load git status + overview + session state in parallel
+  try {
+    var [statusResult, overviewResult, sessionResult] = await Promise.all([
+      api.statusInfo(ws.absolutePath).catch(() => null),
+      api.overviewSummary(ws.absolutePath).catch(() => null),
+      api.sessionState(ws.absolutePath).catch(() => ({ open: false, harnessPhase: null })),
+    ]);
+
+    // Git status
+    if (statusResult && !("error" in statusResult)) {
+      meta.gitBranch = statusResult.branch;
+      meta.gitAhead = statusResult.ahead ?? 0;
+      meta.gitBehind = statusResult.behind ?? 0;
+      meta.gitChanged = (statusResult.staged ?? 0) + (statusResult.unstaged ?? 0);
+      meta.gitUntracked = statusResult.untracked ?? 0;
+      meta.gitDirty = statusResult.dirty ?? false;
+      meta.gitLastCommit = statusResult.lastCommitRelTime;
+    }
+
+    // Overview
+    if (overviewResult && !("error" in overviewResult)) {
+      meta.goal = overviewResult.goal;
+      meta.currentTask = overviewResult.currentTask;
+      meta.nextSteps = overviewResult.nextSteps || [];
+    }
+
+    // Session state
+    if (sessionResult) {
+      meta.isOpen = sessionResult.open;
+      meta.isRunning = !!sessionResult.harnessPhase;
+    }
+
+    // Tags: derive from session state
+    var tags: string[] = [];
+    if (meta.isOpen) tags.push("open");
+    if (meta.isRunning) tags.push("harness");
+    meta.tags = tags;
+
+    // Group classification
+    if (meta.isOpen || meta.isRunning) {
+      meta.group = "active";
+    } else if (meta.gitDirty || meta.gitChanged > 0) {
+      meta.group = "active";
+    } else {
+      meta.group = "recent";
+    }
+
+  } catch (err) {
+    console.error(`[dashboard] buildCardMeta error for ${ws.absolutePath}:`, err);
+  }
+
+  return meta;
+}
+
+// ---------------------------------------------------------------------------
+// Init / load workspaces
+// ---------------------------------------------------------------------------
+
+async function loadAndRender(): Promise<void> {
+  var api = window.dashboardAPI!;
+  _workspaces = await api.listWorkspaces();
+
+  console.log(`[dashboard] init: loaded ${_workspaces.length} workspace(s)`);
+
+  if (_workspaces.length === 0) {
+    _cardMetas = [];
+    render();
+    return;
+  }
+
+  // Build metas in parallel
+  _cardMetas = await Promise.all(_workspaces.map((ws) => buildCardMeta(ws)));
+
+  // render() internally calls populateCardData() for all visible cards
+  render();
 }
 
 // ---------------------------------------------------------------------------
@@ -1168,93 +649,151 @@ async function renderWorkspaces(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function handleAdd(): Promise<void> {
-  const result = await window.dashboardAPI!.addWorkspace();
+  var api = window.dashboardAPI!;
+  var result = await api.addWorkspace();
   if (result.cancelled) return;
-
   if (result.duplicate) {
     showDashboardToast("This folder is already in your workspace list.", "warn");
     return;
   }
-
-  workspaces = result.workspaces;
-  await renderWorkspaces();
+  _workspaces = result.workspaces;
+  await loadAndRender();
   showDashboardToast("Workspace added.", "ok");
 }
 
 async function handleRemove(id: string): Promise<void> {
-  const ws = workspaces.find((w) => w.id === id);
+  var ws = _workspaces.find((w) => w.id === id);
   if (!ws) return;
-
-  const confirmed = window.confirm(
-    `Remove "${ws.name}" from workspaces?\n\nThe original folder will not be deleted.`
-  );
+  var confirmed = window.confirm(`Remove "${ws.name}" from workspaces?\n\nThe original folder will not be deleted.`);
   if (!confirmed) return;
-
-  workspaces = await window.dashboardAPI!.removeWorkspace(id);
-  fileTreeCache.delete(id);
-  await renderWorkspaces();
+  _workspaces = await window.dashboardAPI!.removeWorkspace(id);
+  await loadAndRender();
   showDashboardToast("Workspace removed.", "ok");
 }
 
+async function handleOpen(workspacePath: string): Promise<void> {
+  try {
+    var result = await window.dashboardAPI!.openInMain(workspacePath);
+    if (result.error) {
+      if (result.error === "path_missing") {
+        showDashboardToast("Folder not found on disk.", "warn");
+      } else {
+        showDashboardToast(`Error: ${result.error}`, "err");
+      }
+    }
+  } catch (err) {
+    var msg = err instanceof Error ? err.message : String(err);
+    showDashboardToast(`Failed to open: ${msg}`, "err");
+    console.error("[dashboard] handleOpen error:", err);
+  }
+}
+
 async function handleRefreshAll(): Promise<void> {
-  console.log("[dashboard] refresh all cards");
-  // Clear all file tree caches
-  fileTreeCache.clear();
-  await renderWorkspaces();
+  console.log("[dashboard] refresh all");
+  await loadAndRender();
   showDashboardToast("Refreshed.", "ok");
 }
 
 // ---------------------------------------------------------------------------
-// Boot (guard: skip in Node.js unit test environment)
+// Sync UI controls to state
+// ---------------------------------------------------------------------------
+
+function syncChips(): void {
+  document.querySelectorAll("#status-chips .chip").forEach((el) => {
+    var c = el as HTMLElement;
+    c.classList.toggle("active", c.dataset.filter === _filter);
+  });
+}
+
+function syncViewToggle(): void {
+  document.querySelectorAll("#view-toggle .vt").forEach((el) => {
+    var b = el as HTMLElement;
+    b.classList.toggle("active", b.dataset.view === _view);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard shortcut: Cmd+F to focus search
+// ---------------------------------------------------------------------------
+
+function initKeyboardShortcuts(): void {
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+      e.preventDefault();
+      var inp = document.getElementById("search-input") as HTMLInputElement | null;
+      if (inp) inp.focus();
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Boot
 // ---------------------------------------------------------------------------
 
 if (typeof window !== "undefined") {
-  // Wire up button handlers FIRST (synchronously) so clicks always work
-  // even if the initial workspace list load fails.
-  const addBtn = document.getElementById("btn-add-workspace") as HTMLButtonElement | null;
-  if (addBtn) {
-    addBtn.addEventListener("click", () => { void handleAdd(); });
-  } else {
-    console.error("[dashboard] boot: #btn-add-workspace not found in DOM");
-  }
+  loadPrefs();
+  initKeyboardShortcuts();
 
-  const refreshAllBtn = document.getElementById("btn-refresh-all") as HTMLButtonElement | null;
-  if (refreshAllBtn) {
-    refreshAllBtn.addEventListener("click", () => { void handleRefreshAll(); });
-  }
+  // Wire toolbar buttons
+  var addBtn = document.getElementById("btn-add-workspace") as HTMLButtonElement | null;
+  if (addBtn) addBtn.addEventListener("click", () => { void handleAdd(); });
 
-  const toggleFilesBtn = document.getElementById("btn-toggle-files") as HTMLButtonElement | null;
-  if (toggleFilesBtn) {
-    // Sync initial visual state from persisted value
-    syncFilesToggleButton();
-    toggleFilesBtn.addEventListener("click", async () => {
-      const nextValue = !getShowFiles();
-      setShowFiles(nextValue);
-      console.log(`[dashboard] files-toggle on=${nextValue}`);
-      syncFilesToggleButton();
-      await renderWorkspaces();
+  var refreshBtn = document.getElementById("btn-refresh-all") as HTMLButtonElement | null;
+  if (refreshBtn) refreshBtn.addEventListener("click", () => { void handleRefreshAll(); });
+
+  var emptyAddBtn = document.getElementById("btn-empty-add") as HTMLButtonElement | null;
+  if (emptyAddBtn) emptyAddBtn.addEventListener("click", () => { void handleAdd(); });
+
+  // Wire filter chips
+  document.querySelectorAll("#status-chips .chip").forEach((el) => {
+    el.addEventListener("click", () => {
+      var f = (el as HTMLElement).dataset.filter || "all";
+      _filter = f;
+      savePrefs();
+      syncChips();
+      console.log(`[dashboard] view=${_view} filter=${_filter} count=${filterMetas(_cardMetas).length}`);
+      render();
     });
-  } else {
-    console.error("[dashboard] boot: #btn-toggle-files not found in DOM");
+  });
+
+  // Wire view toggle
+  document.querySelectorAll("#view-toggle .vt").forEach((el) => {
+    el.addEventListener("click", () => {
+      var v = (el as HTMLElement).dataset.view as "grid" | "list";
+      if (!v) return;
+      _view = v;
+      savePrefs();
+      syncViewToggle();
+      console.log(`[dashboard] view=${_view} filter=${_filter} count=${filterMetas(_cardMetas).length}`);
+      render();
+    });
+  });
+
+  // Wire search
+  var searchInput = document.getElementById("search-input") as HTMLInputElement | null;
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      _search = searchInput!.value;
+      render();
+    });
   }
 
-  const emptyAddBtn = document.getElementById("btn-empty-add") as HTMLButtonElement | null;
-  if (emptyAddBtn) {
-    emptyAddBtn.addEventListener("click", () => { void handleAdd(); });
-  }
+  // Sync initial visual states
+  syncChips();
+  syncViewToggle();
 
+  // Load workspaces
   (async () => {
     try {
       if (!window.dashboardAPI) {
         throw new Error("window.dashboardAPI is undefined — preload script failed to load");
       }
-      workspaces = await window.dashboardAPI.listWorkspaces();
-      await renderWorkspaces();
+      await loadAndRender();
     } catch (err) {
       console.error("[dashboard] boot failed:", err);
-      const grid = document.getElementById("card-grid") as HTMLDivElement | null;
+      var grid = document.getElementById("content") as HTMLDivElement | null;
       if (grid) {
-        grid.innerHTML = `<div class="card-section"><span class="card-absent">Failed to load workspaces: ${escapeHtml(err instanceof Error ? err.message : String(err))}</span></div>`;
+        grid.innerHTML = `<div style="padding:24px;color:var(--err)">Failed to load dashboard: ${dashEsc(err instanceof Error ? err.message : String(err))}</div>`;
       }
     }
   })();
