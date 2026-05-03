@@ -43,19 +43,32 @@ interface CardMeta {
 // State
 // ---------------------------------------------------------------------------
 
+type SortKey = "recent" | "name" | "lastCommit";
+
 var _workspaces: WorkspaceEntry[] = [];
 var _cardMetas: CardMeta[] = [];
 var _view: "grid" | "list" = "grid";
 var _filter: string = "all";
+var _sort: SortKey = "recent";
 var _search: string = "";
 var _toastTimer: ReturnType<typeof setTimeout> | null = null;
+var _homeDir: string = "";
+var _expandedIds: Set<string> = new Set();
 
 // ---------------------------------------------------------------------------
-// Persist view/filter to localStorage
+// Persist view/filter/sort/expand to localStorage
 // ---------------------------------------------------------------------------
 
 var PREF_VIEW = "dashboard.v2.view";
 var PREF_FILTER = "dashboard.v2.filter";
+var PREF_SORT = "dashboard.v2.sort";
+var PREF_EXPANDED = "dashboard.v2.expandedIds";
+
+var SORT_LABELS: Record<SortKey, string> = {
+  recent: "Recently active",
+  name: "Name (A→Z)",
+  lastCommit: "Last commit",
+};
 
 function loadPrefs(): void {
   try {
@@ -63,6 +76,15 @@ function loadPrefs(): void {
     if (v === "list" || v === "grid") _view = v;
     var f = localStorage.getItem(PREF_FILTER);
     if (f) _filter = f;
+    var s = localStorage.getItem(PREF_SORT);
+    if (s === "recent" || s === "name" || s === "lastCommit") _sort = s;
+    var ex = localStorage.getItem(PREF_EXPANDED);
+    if (ex) {
+      try {
+        var arr = JSON.parse(ex);
+        if (Array.isArray(arr)) _expandedIds = new Set(arr.filter((x) => typeof x === "string"));
+      } catch (_) { /* ignore */ }
+    }
   } catch (_) { /* ignore */ }
 }
 
@@ -70,6 +92,13 @@ function savePrefs(): void {
   try {
     localStorage.setItem(PREF_VIEW, _view);
     localStorage.setItem(PREF_FILTER, _filter);
+    localStorage.setItem(PREF_SORT, _sort);
+  } catch (_) { /* ignore */ }
+}
+
+function saveExpandedState(): void {
+  try {
+    localStorage.setItem(PREF_EXPANDED, JSON.stringify(Array.from(_expandedIds)));
   } catch (_) { /* ignore */ }
 }
 
@@ -210,6 +239,65 @@ function parseGitRelTimeMs(rel: string): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Abbreviate a path under the user's home directory to `~/...` form.
+ * Returns the original absolute path if it does not live under home.
+ *
+ * Examples (homeDir = "/Users/alice"):
+ *   /Users/alice/code/app  -> ~/code/app
+ *   /Users/alice           -> ~
+ *   /tmp/foo               -> /tmp/foo
+ *   /Volumes/X             -> /Volumes/X
+ */
+function abbreviateHomePath(absPath: string, homeDir: string): string {
+  if (!homeDir) return absPath;
+  if (absPath === homeDir) return "~";
+  // Ensure we only match a true subdirectory, not e.g. /Users/aliceN/...
+  var prefix = homeDir.endsWith("/") ? homeDir : homeDir + "/";
+  if (absPath.indexOf(prefix) === 0) {
+    return "~/" + absPath.slice(prefix.length);
+  }
+  return absPath;
+}
+
+// ---------------------------------------------------------------------------
+// Sort
+// ---------------------------------------------------------------------------
+
+function sortMetas(metas: CardMeta[]): CardMeta[] {
+  var copy = metas.slice();
+  if (_sort === "name") {
+    copy.sort((a, b) => a.ws.name.localeCompare(b.ws.name, undefined, { sensitivity: "base" }));
+  } else if (_sort === "lastCommit") {
+    // Smaller age (more recent) first; null/unparseable → last.
+    copy.sort((a, b) => {
+      var ageA = a.gitLastCommit ? parseGitRelTimeMs(a.gitLastCommit) : null;
+      var ageB = b.gitLastCommit ? parseGitRelTimeMs(b.gitLastCommit) : null;
+      if (ageA === null && ageB === null) return 0;
+      if (ageA === null) return 1;
+      if (ageB === null) return -1;
+      return ageA - ageB;
+    });
+  } else {
+    // recent: open/running first, then by lastCommit age, then by addedAt age
+    copy.sort((a, b) => {
+      var ra = (a.isOpen ? 0 : 1) + (a.isRunning ? 0 : 1);
+      var rb = (b.isOpen ? 0 : 1) + (b.isRunning ? 0 : 1);
+      if (ra !== rb) return ra - rb;
+      var ageA = a.gitLastCommit ? parseGitRelTimeMs(a.gitLastCommit) : null;
+      var ageB = b.gitLastCommit ? parseGitRelTimeMs(b.gitLastCommit) : null;
+      var ax = ageA !== null ? ageA : ageMs(a.ws.addedAt);
+      var bx = ageB !== null ? ageB : ageMs(b.ws.addedAt);
+      return ax - bx;
+    });
+  }
+  return copy;
+}
+
+// ---------------------------------------------------------------------------
 // Count helpers for filter chips
 // ---------------------------------------------------------------------------
 
@@ -269,24 +357,38 @@ function renderCard(m: CardMeta): HTMLElement {
   else if (m.isRunning) stripClass = "running";
   else if (m.gitBehind > 0) stripClass = "behind";
 
-  card.className = "ws-card" + (stripClass ? " " + stripClass : "") + (m.isMissing ? " missing" : "");
+  var isExpanded = _expandedIds.has(m.ws.id);
+  card.className = "ws-card"
+    + (stripClass ? " " + stripClass : "")
+    + (m.isMissing ? " missing" : "")
+    + (isExpanded ? "" : " collapsed");
   card.dataset.id = m.ws.id;
 
   var iconInfo = wsIconInfo(m.ws.name);
+  var displayPath = abbreviateHomePath(m.ws.absolutePath, _homeDir);
 
-  // === Card head ===
+  // === Card head: quick actions + more menu ===
   var archiveLabel = m.ws.archived ? "Unarchive" : "Archive";
   var quickActionsHTML = `
     <div class="card-quick">
-      <button class="qbtn" title="Open in terminal" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}">
+      <button class="qbtn" title="Open in terminal" data-action="open-terminal" data-path="${dashEsc(m.ws.absolutePath)}">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 5l3 3-3 3M8 11h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button class="qbtn" title="${archiveLabel}" data-action="archive-toggle" data-id="${dashEsc(m.ws.id)}" data-archived="${m.ws.archived ? "true" : "false"}">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M5 5V3.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V5" stroke="currentColor" stroke-width="1.3"/><path d="M6 9h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      <button class="qbtn" title="Open in IDE (Cursor)" data-action="open-ide" data-path="${dashEsc(m.ws.absolutePath)}">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 3h12v10H2zM2 6h12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="4" cy="4.5" r="0.6" fill="currentColor"/></svg>
       </button>
-      <button class="qbtn btn-remove" title="Remove workspace" data-action="remove" data-id="${dashEsc(m.ws.id)}">
-        <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <button class="qbtn" title="Reveal in Finder" data-action="reveal-finder" data-path="${dashEsc(m.ws.absolutePath)}">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 5l1.5-2h3l1 1.5h6.5V13H2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
       </button>
+      <div class="card-more-wrap">
+        <button class="qbtn more-btn" title="More" data-action="open-more" data-id="${dashEsc(m.ws.id)}">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg>
+        </button>
+        <div class="card-menu" id="cm-${dashEsc(m.ws.id)}" role="menu">
+          <button class="card-menu-item" role="menuitem" data-action="archive-toggle" data-id="${dashEsc(m.ws.id)}" data-archived="${m.ws.archived ? "true" : "false"}">${dashEsc(archiveLabel)}</button>
+          <button class="card-menu-item danger" role="menuitem" data-action="remove" data-id="${dashEsc(m.ws.id)}">Remove workspace</button>
+        </div>
+      </div>
     </div>
   `;
 
@@ -295,7 +397,7 @@ function renderCard(m: CardMeta): HTMLElement {
       <div class="ws-icon ${dashEsc(iconInfo.color)}">${dashEsc(iconInfo.letter)}</div>
       <div class="card-titlewrap">
         <div class="card-title">${dashEsc(m.ws.name)}</div>
-        <div class="card-path" title="${dashEsc(m.ws.absolutePath)}">${dashEsc(m.ws.absolutePath)}</div>
+        <div class="card-path" title="${dashEsc(m.ws.absolutePath)}">${dashEsc(displayPath)}</div>
       </div>
       ${quickActionsHTML}
     </div>
@@ -308,41 +410,52 @@ function renderCard(m: CardMeta): HTMLElement {
       <span class="skeleton-block" style="width:90%"></span>
       <span class="skeleton-block" style="width:70%"></span>
     </div>
+    <div class="card-expand" id="ce-${dashEsc(m.ws.id)}"></div>
     <div class="card-foot">
       <span class="updated" id="upd-${dashEsc(m.ws.id)}">${dashEsc(m.updatedLabel)}</span>
-      <button class="open-btn primary" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""}>
+      <button class="open-btn primary" data-action="open-main" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""}>
         <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3H3v10h10V10M9 3h4v4M13 3L7 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Open
       </button>
     </div>
   `;
 
-  // Wire quick action buttons
+  // Wire action buttons. All [data-action] clicks stop propagation so they
+  // never trigger the card-level expand toggle.
   card.querySelectorAll("[data-action]").forEach((el) => {
     el.addEventListener("click", (e) => {
       e.stopPropagation();
       var btn = e.currentTarget as HTMLElement;
       var action = btn.getAttribute("data-action");
-      if (action === "open") {
-        var p = btn.getAttribute("data-path");
+      var p = btn.getAttribute("data-path");
+      if (action === "open-terminal") {
+        if (p) void handleOpenInTerminal(p);
+      } else if (action === "open-main") {
         if (p) void handleOpen(p);
-      } else if (action === "reveal") {
-        showDashboardToast("Reveal in Finder — coming in Sprint 3", "warn");
+      } else if (action === "open-ide") {
+        if (p) void handleOpenInIDE(p);
+      } else if (action === "reveal-finder") {
+        if (p) void handleRevealInFinder(p);
+      } else if (action === "open-more") {
+        var moreId = btn.getAttribute("data-id");
+        if (moreId) toggleCardMenu(moreId);
       } else if (action === "remove") {
         var id = btn.getAttribute("data-id");
+        closeAllCardMenus();
         if (id) void handleRemove(id);
       } else if (action === "archive-toggle") {
         var toggleId = btn.getAttribute("data-id");
         var currentArchived = btn.getAttribute("data-archived") === "true";
+        closeAllCardMenus();
         if (toggleId) void handleArchiveToggle(toggleId, !currentArchived);
       }
     });
   });
 
-  // Card-level click = open
+  // Card-level click = expand/collapse toggle.
+  // Footer Open and quick-actions stop propagation above, so they won't trigger this.
   card.addEventListener("click", () => {
-    if (m.isMissing) { showDashboardToast("Folder not found on disk.", "warn"); return; }
-    void handleOpen(m.ws.absolutePath);
+    toggleCardExpand(m.ws.id);
   });
 
   return card;
@@ -507,9 +620,10 @@ function renderListRow(m: CardMeta): HTMLElement {
   if (m.gitChanged > 0) gitCells.push(`<span class="changed">&#9679;${m.gitChanged}</span>`);
   if (!m.gitBranch || (!m.gitDirty && m.gitChanged === 0)) gitCells.push(`<span style="color:var(--ok)">&#10003;</span>`);
 
+  var listDisplayPath = abbreviateHomePath(m.ws.absolutePath, _homeDir);
   row.innerHTML = `
     <div class="ws-icon ${dashEsc(iconInfo.color)}" style="width:24px;height:24px;font-size:11px;border-radius:5px">${dashEsc(iconInfo.letter)}</div>
-    <div class="lr-name">${dashEsc(m.ws.name)}<span class="lr-path">${dashEsc(m.ws.absolutePath)}</span></div>
+    <div class="lr-name">${dashEsc(m.ws.name)}<span class="lr-path" title="${dashEsc(m.ws.absolutePath)}">${dashEsc(listDisplayPath)}</span></div>
     <div class="lr-summary">${dashEsc(m.currentTask || m.goal || "—")}</div>
     <div class="lr-git">${gitCells.join(" ")}</div>
     <div class="lr-updated">${dashEsc(m.updatedLabel)}</div>
@@ -575,9 +689,9 @@ function render(): void {
   var gArchived = _cardMetas.filter((m) => m.group === "archived").length;
   console.log(`[dashboard] grouped active=${gActive} recent=${gRecent} archived=${gArchived}`);
 
-  var visible = filterMetas(_cardMetas);
+  var visible = sortMetas(filterMetas(_cardMetas));
   var filterName = _filter;
-  console.log(`[dashboard] view=${_view} filter=${filterName} count=${visible.length}`);
+  console.log(`[dashboard] view=${_view} filter=${filterName} sort=${_sort} count=${visible.length}`);
 
   if (visible.length === 0) {
     var noMatch = document.createElement("div");
@@ -849,6 +963,147 @@ async function handleRefreshAll(): Promise<void> {
   showDashboardToast("Refreshed.", "ok");
 }
 
+// Sprint 1 UX Polish — Open in terminal / IDE / Finder split apart.
+// `handleOpen` (above) opens the workspace as a group inside the HyperTerm
+// main window. It is invoked only by the footer "Open" button so that a
+// stray card click never opens the main window (A8/A9).
+async function handleOpenInTerminal(workspacePath: string): Promise<void> {
+  try {
+    var result = await window.dashboardAPI!.openInTerminal(workspacePath);
+    if (result.error) {
+      if (result.error === "path_missing") {
+        showDashboardToast("Folder not found on disk.", "warn");
+      } else {
+        showDashboardToast(`Terminal open failed: ${result.error}`, "err");
+      }
+    }
+  } catch (err) {
+    var msg = err instanceof Error ? err.message : String(err);
+    showDashboardToast(`Terminal open failed: ${msg}`, "err");
+    console.error("[dashboard] handleOpenInTerminal error:", err);
+  }
+}
+
+async function handleOpenInIDE(workspacePath: string): Promise<void> {
+  try {
+    var result = await window.dashboardAPI!.openInIDE(workspacePath);
+    if (result.error) {
+      if (result.error === "path_missing") {
+        showDashboardToast("Folder not found on disk.", "warn");
+      } else if (result.error === "cursor_unavailable") {
+        showDashboardToast("Cursor not installed or failed to open.", "warn");
+      } else {
+        showDashboardToast(`IDE open failed: ${result.error}`, "err");
+      }
+    }
+  } catch (err) {
+    var msg = err instanceof Error ? err.message : String(err);
+    showDashboardToast(`IDE open failed: ${msg}`, "err");
+    console.error("[dashboard] handleOpenInIDE error:", err);
+  }
+}
+
+async function handleRevealInFinder(workspacePath: string): Promise<void> {
+  try {
+    var result = await window.dashboardAPI!.revealInFinder(workspacePath);
+    if (result.error) {
+      if (result.error === "path_missing") {
+        showDashboardToast("Folder not found on disk.", "warn");
+      } else {
+        showDashboardToast(`Reveal failed: ${result.error}`, "err");
+      }
+    }
+  } catch (err) {
+    var msg = err instanceof Error ? err.message : String(err);
+    showDashboardToast(`Reveal failed: ${msg}`, "err");
+    console.error("[dashboard] handleRevealInFinder error:", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Card expand / collapse
+// ---------------------------------------------------------------------------
+
+function toggleCardExpand(id: string): void {
+  var card = document.querySelector<HTMLElement>(`.ws-card[data-id="${cssAttrEsc(id)}"]`);
+  if (!card) return;
+  if (_expandedIds.has(id)) {
+    _expandedIds.delete(id);
+    card.classList.add("collapsed");
+  } else {
+    _expandedIds.add(id);
+    card.classList.remove("collapsed");
+  }
+  saveExpandedState();
+}
+
+function cssAttrEsc(s: string): string {
+  // Minimal escape for use inside double-quoted attribute selectors.
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+// ---------------------------------------------------------------------------
+// Card "more" menu (archive / remove)
+// ---------------------------------------------------------------------------
+
+function closeAllCardMenus(): void {
+  document.querySelectorAll(".card-menu.open").forEach((el) => el.classList.remove("open"));
+}
+
+function toggleCardMenu(id: string): void {
+  var menu = document.getElementById("cm-" + id);
+  if (!menu) return;
+  var wasOpen = menu.classList.contains("open");
+  closeAllCardMenus();
+  if (!wasOpen) menu.classList.add("open");
+}
+
+// ---------------------------------------------------------------------------
+// Sort dropdown
+// ---------------------------------------------------------------------------
+
+function setSort(s: SortKey): void {
+  _sort = s;
+  savePrefs();
+  updateSortUI();
+  closeSortMenu();
+  console.log(`[dashboard] sort=${_sort}`);
+  render();
+}
+
+function updateSortUI(): void {
+  var label = document.getElementById("sort-label");
+  if (label) label.textContent = SORT_LABELS[_sort];
+  document.querySelectorAll(".sort-menu-item").forEach((el) => {
+    var item = el as HTMLElement;
+    item.classList.toggle("selected", item.dataset.sort === _sort);
+  });
+}
+
+function closeSortMenu(): void {
+  var menu = document.getElementById("sort-menu");
+  var btn = document.getElementById("btn-sort");
+  if (menu) menu.classList.remove("open");
+  if (btn) {
+    btn.classList.remove("active");
+    btn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function toggleSortMenu(): void {
+  var menu = document.getElementById("sort-menu");
+  var btn = document.getElementById("btn-sort");
+  if (!menu || !btn) return;
+  var isOpen = menu.classList.contains("open");
+  if (isOpen) {
+    closeSortMenu();
+  } else {
+    menu.classList.add("open");
+    btn.classList.add("active");
+    btn.setAttribute("aria-expanded", "true");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Sync UI controls to state
 // ---------------------------------------------------------------------------
@@ -933,15 +1188,54 @@ if (typeof window !== "undefined") {
     });
   }
 
+  // Wire sort dropdown
+  var sortBtn = document.getElementById("btn-sort");
+  if (sortBtn) {
+    sortBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      // Closing other open menus first keeps only one popup at a time.
+      closeAllCardMenus();
+      toggleSortMenu();
+    });
+  }
+  document.querySelectorAll("#sort-menu .sort-menu-item").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      var s = (e.currentTarget as HTMLElement).dataset.sort as SortKey | undefined;
+      if (s) setSort(s);
+    });
+  });
+
+  // Outside-click: close any open dropdown / card menu
+  document.addEventListener("click", () => {
+    closeSortMenu();
+    closeAllCardMenus();
+  });
+  // Esc closes too
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeSortMenu();
+      closeAllCardMenus();
+    }
+  });
+
   // Sync initial visual states
   syncChips();
   syncViewToggle();
+  updateSortUI();
 
   // Load workspaces
   (async () => {
     try {
       if (!window.dashboardAPI) {
         throw new Error("window.dashboardAPI is undefined — preload script failed to load");
+      }
+      // Fetch home dir once for path tilde abbreviation
+      try {
+        _homeDir = await window.dashboardAPI.homedir();
+      } catch (err) {
+        console.warn("[dashboard] homedir fetch failed:", err);
+        _homeDir = "";
       }
       await loadAndRender();
     } catch (err) {

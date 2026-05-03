@@ -902,6 +902,86 @@ ipcMain.handle("path:checkExists", (_event, dirPath: string): boolean => {
   }
 });
 
+// --- Home dir IPC (Sprint 1 UX Polish: dashboard tilde abbreviation) ---
+
+ipcMain.handle("workspace:homedir", (): string => {
+  return os.homedir();
+});
+
+// --- Open in Terminal IPC (Sprint 1 UX Polish) ---
+// Launches the macOS default Terminal app at the workspace path. This is
+// distinct from `workspace:openInMain` which opens the workspace as a group
+// inside the HyperTerm main window (footer "Open" button).
+
+ipcMain.handle("workspace:openInTerminal", async (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    return { error: "invalid_path" };
+  }
+  if (!fs.existsSync(workspacePath)) {
+    return { error: "path_missing" };
+  }
+  try {
+    await execFileAsync("open", ["-a", "Terminal", workspacePath]);
+    console.log(`[workspace] openInTerminal: opened in Terminal: ${workspacePath}`);
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[workspace] openInTerminal: failed: ${msg}`);
+    return { error: msg };
+  }
+});
+
+// --- Open in IDE IPC (Sprint 1 UX Polish) ---
+// Try Cursor first, then fall back to standard `open` (which lets macOS pick).
+// Returns { success: true } or { error: string } so renderer can toast appropriately.
+
+ipcMain.handle("workspace:openInIDE", async (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    return { error: "invalid_path" };
+  }
+  if (!fs.existsSync(workspacePath)) {
+    return { error: "path_missing" };
+  }
+
+  // First attempt: open with Cursor.app explicitly.
+  try {
+    await execFileAsync("open", ["-a", "Cursor", workspacePath]);
+    console.log(`[workspace] openInIDE: opened in Cursor: ${workspacePath}`);
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[workspace] openInIDE: Cursor open failed: ${msg}`);
+    return { error: "cursor_unavailable" };
+  }
+});
+
+// --- Reveal in Finder IPC (Sprint 1 UX Polish) ---
+
+ipcMain.handle("workspace:revealInFinder", async (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    return { error: "invalid_path" };
+  }
+  if (!fs.existsSync(workspacePath)) {
+    return { error: "path_missing" };
+  }
+  try {
+    // shell.openPath opens the directory itself in Finder; for a folder we
+    // prefer this over showItemInFolder (which would highlight the folder
+    // inside its parent — slightly less useful for a workspace folder).
+    const errStr = await shell.openPath(workspacePath);
+    if (errStr) {
+      console.warn(`[workspace] revealInFinder: shell.openPath returned error: ${errStr}`);
+      return { error: errStr };
+    }
+    console.log(`[workspace] revealInFinder: opened ${workspacePath}`);
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[workspace] revealInFinder: failed: ${msg}`);
+    return { error: msg };
+  }
+});
+
 // --- Settings IPC ---
 
 ipcMain.handle("settings:get", () => appSettings);

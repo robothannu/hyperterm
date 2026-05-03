@@ -139,4 +139,24 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   archiveToggle: (id: string, archived: boolean): Promise<{ workspaces: Workspace[]; success: boolean }> => {
     return ipcRenderer.invoke("workspace:archiveToggle", id, archived);
   },
+
+  // Sprint 1 UX Polish: home dir for tilde abbreviation
+  homedir: (): Promise<string> => {
+    return ipcRenderer.invoke("workspace:homedir");
+  },
+
+  // Sprint 1 UX Polish: open workspace folder in macOS Terminal.app
+  openInTerminal: (workspacePath: string): Promise<{ success?: boolean; error?: string }> => {
+    return ipcRenderer.invoke("workspace:openInTerminal", workspacePath);
+  },
+
+  // Sprint 1 UX Polish: open workspace folder in Cursor
+  openInIDE: (workspacePath: string): Promise<{ success?: boolean; error?: string }> => {
+    return ipcRenderer.invoke("workspace:openInIDE", workspacePath);
+  },
+
+  // Sprint 1 UX Polish: reveal in Finder
+  revealInFinder: (workspacePath: string): Promise<{ success?: boolean; error?: string }> => {
+    return ipcRenderer.invoke("workspace:revealInFinder", workspacePath);
+  },
 });

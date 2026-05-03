@@ -214,6 +214,11 @@ interface DashboardAPI {
   sessionState(workspacePath: string): Promise<{ open: boolean; harnessPhase: string | null }>;
   // Sprint 2: archive toggle
   archiveToggle(id: string, archived: boolean): Promise<{ workspaces: WorkspaceEntry[]; success: boolean }>;
+  // Sprint 1 UX Polish
+  homedir(): Promise<string>;
+  openInTerminal(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  openInIDE(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  revealInFinder(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
 }
 
 interface WorkspaceEntry {

@@ -231,6 +231,11 @@
 
     .filter-spacer { flex: 1; min-width: 8px; }
 
+    .sort-wrap {
+      position: relative;
+      display: inline-block;
+    }
+
     .sort-btn {
       height: 28px;
       padding: 0 10px;
@@ -247,6 +252,56 @@
     }
 
     .sort-btn:hover { background: var(--bg-3); }
+
+    .sort-btn.active {
+      background: var(--bg-3);
+      border-color: var(--line-2);
+    }
+
+    .sort-menu {
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      min-width: 180px;
+      background: var(--bg-2);
+      border: 1px solid var(--line-2);
+      border-radius: 8px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+      padding: 4px;
+      display: none;
+      z-index: 50;
+    }
+
+    .sort-menu.open { display: block; }
+
+    .sort-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      color: var(--fg-1);
+      cursor: pointer;
+      font-family: inherit;
+      background: transparent;
+      border: 0;
+      width: 100%;
+      text-align: left;
+    }
+
+    .sort-menu-item:hover { background: var(--bg-3); color: var(--fg-0); }
+
+    .sort-menu-item .check {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      color: var(--accent);
+      visibility: hidden;
+    }
+
+    .sort-menu-item.selected .check { visibility: visible; }
+    .sort-menu-item.selected { color: var(--fg-0); }
 
     .view-toggle {
       display: inline-flex;
@@ -623,6 +678,68 @@
       color: var(--err);
     }
 
+    /* === Expand/collapse (Sprint 1 UX Polish) === */
+    /* Collapsed cards hide status-strip, tags-row and card-body — show only head + foot. */
+    .ws-card.collapsed .status-strip,
+    .ws-card.collapsed .tags-row,
+    .ws-card.collapsed .card-body,
+    .ws-card.collapsed .card-expand {
+      display: none;
+    }
+
+    /* card-expand container reserved for Sprint 2 gitflow content */
+    .card-expand {
+      padding: 0 14px 12px;
+      border-top: 1px dashed var(--line);
+      font-size: 11px;
+      color: var(--fg-3);
+    }
+
+    /* === Card more (kebab) menu — archive/remove access from card head === */
+    .card-more-wrap {
+      position: relative;
+      display: inline-block;
+    }
+
+    .qbtn.more-btn {
+      opacity: 1;
+    }
+
+    .card-menu {
+      position: absolute;
+      top: calc(100% + 2px);
+      right: 0;
+      min-width: 160px;
+      background: var(--bg-2);
+      border: 1px solid var(--line-2);
+      border-radius: 8px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+      padding: 4px;
+      display: none;
+      z-index: 60;
+    }
+
+    .card-menu.open { display: block; }
+
+    .card-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      color: var(--fg-1);
+      cursor: pointer;
+      font-family: inherit;
+      background: transparent;
+      border: 0;
+      width: 100%;
+      text-align: left;
+    }
+
+    .card-menu-item:hover { background: var(--bg-3); color: var(--fg-0); }
+    .card-menu-item.danger:hover { background: rgba(255,107,107,0.12); color: var(--err); }
+
     /* === List view === */
     .ws-list {
       display: grid;
@@ -914,15 +1031,31 @@
 
         <div class="filter-spacer"></div>
 
-        <button class="sort-btn" id="btn-sort">
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-            <path d="M3 4l3-3 3 3M6 1v14M13 12l-3 3-3-3M10 15V1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Recently active
-          <svg width="9" height="9" viewBox="0 0 16 16" fill="none" style="color:var(--fg-3)">
-            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
+        <div class="sort-wrap">
+          <button class="sort-btn" id="btn-sort" aria-haspopup="menu" aria-expanded="false">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+              <path d="M3 4l3-3 3 3M6 1v14M13 12l-3 3-3-3M10 15V1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span id="sort-label">Recently active</span>
+            <svg width="9" height="9" viewBox="0 0 16 16" fill="none" style="color:var(--fg-3)">
+              <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <div class="sort-menu" id="sort-menu" role="menu">
+            <button class="sort-menu-item" role="menuitem" data-sort="recent">
+              <svg class="check" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Recently active
+            </button>
+            <button class="sort-menu-item" role="menuitem" data-sort="name">
+              <svg class="check" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Name (A&rarr;Z)
+            </button>
+            <button class="sort-menu-item" role="menuitem" data-sort="lastCommit">
+              <svg class="check" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Last commit
+            </button>
+          </div>
+        </div>
 
         <div class="view-toggle" id="view-toggle">
           <button class="vt active" data-view="grid" title="Grid view">
