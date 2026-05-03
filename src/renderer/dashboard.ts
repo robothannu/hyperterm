@@ -134,6 +134,81 @@ function relTime(isoStr: string): string {
   }
 }
 
+// Age in milliseconds from ISO string (or 0 if parse fails)
+function ageMs(isoStr: string): number {
+  try {
+    return Date.now() - new Date(isoStr).getTime();
+  } catch (_) {
+    return 0;
+  }
+}
+
+var MS_24H = 24 * 60 * 60 * 1000;
+var MS_7D  = 7  * 24 * 60 * 60 * 1000;
+var MS_4W  = 28 * 24 * 60 * 60 * 1000;
+
+/**
+ * Classify a workspace into active/recent/archived.
+ * - archived: ws.archived === true  OR  4+ weeks since addedAt AND no recent git activity
+ * - active:   isOpen, isRunning, gitDirty, gitChanged > 0, OR last commit < 24h
+ * - recent:   last commit/activity < 7 days
+ * - archived: everything else (>= 7d, no activity)
+ *
+ * ws.archived flag always wins (sticky).
+ */
+function classifyGroup(
+  ws: WorkspaceEntry,
+  isOpen: boolean,
+  isRunning: boolean,
+  gitDirty: boolean,
+  gitChanged: number,
+  gitLastCommit: string | null
+): "active" | "recent" | "archived" {
+  // archived flag wins
+  if (ws.archived === true) return "archived";
+
+  // Active: open session, harness running, dirty tree, or last commit < 24h
+  if (isOpen || isRunning || gitDirty || gitChanged > 0) return "active";
+
+  // Try to interpret gitLastCommit relative time string into rough age
+  // The string comes from `git log -1 --pretty=format:%cr` (e.g. "3 minutes ago", "2 days ago")
+  if (gitLastCommit) {
+    var lastAge = parseGitRelTimeMs(gitLastCommit);
+    if (lastAge !== null) {
+      if (lastAge < MS_24H) return "active";
+      if (lastAge < MS_7D)  return "recent";
+      if (lastAge < MS_4W)  return "recent"; // still recent within 4 weeks
+      return "archived";
+    }
+  }
+
+  // Fallback: use addedAt age
+  var age = ageMs(ws.addedAt);
+  if (age < MS_7D) return "recent";
+  return "archived";
+}
+
+/**
+ * Parse git relative time string (e.g. "3 minutes ago", "2 days ago", "1 hour ago")
+ * into approximate milliseconds. Returns null if unparseable.
+ */
+function parseGitRelTimeMs(rel: string): number | null {
+  var m = rel.match(/^(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago$/i);
+  if (!m) return null;
+  var n = parseInt(m[1], 10);
+  var unit = m[2].toLowerCase();
+  var ms: Record<string, number> = {
+    second: 1000,
+    minute: 60 * 1000,
+    hour:   60 * 60 * 1000,
+    day:    24 * 60 * 60 * 1000,
+    week:   7 * 24 * 60 * 60 * 1000,
+    month:  30 * 24 * 60 * 60 * 1000,
+    year:   365 * 24 * 60 * 60 * 1000,
+  };
+  return ms[unit] ? n * ms[unit] : null;
+}
+
 // ---------------------------------------------------------------------------
 // Count helpers for filter chips
 // ---------------------------------------------------------------------------
@@ -200,13 +275,14 @@ function renderCard(m: CardMeta): HTMLElement {
   var iconInfo = wsIconInfo(m.ws.name);
 
   // === Card head ===
+  var archiveLabel = m.ws.archived ? "Unarchive" : "Archive";
   var quickActionsHTML = `
     <div class="card-quick">
       <button class="qbtn" title="Open in terminal" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 5l3 3-3 3M8 11h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button class="qbtn" title="Reveal in Finder" data-action="reveal" data-path="${dashEsc(m.ws.absolutePath)}">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/></svg>
+      <button class="qbtn" title="${archiveLabel}" data-action="archive-toggle" data-id="${dashEsc(m.ws.id)}" data-archived="${m.ws.archived ? "true" : "false"}">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2" y="5" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M5 5V3.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5V5" stroke="currentColor" stroke-width="1.3"/><path d="M6 9h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
       </button>
       <button class="qbtn btn-remove" title="Remove workspace" data-action="remove" data-id="${dashEsc(m.ws.id)}">
         <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -223,14 +299,17 @@ function renderCard(m: CardMeta): HTMLElement {
       </div>
       ${quickActionsHTML}
     </div>
-    <div class="status-strip" id="ss-${dashEsc(m.ws.id)}">
-      <span class="card-absent" style="font-style:italic">Loading…</span>
+    <div class="status-strip skeleton-strip" id="ss-${dashEsc(m.ws.id)}">
+      <span class="skeleton-block" style="width:40px"></span>
+      <span class="skeleton-block" style="width:60px"></span>
+      <span class="skeleton-block" style="width:30px"></span>
     </div>
-    <div class="card-body" id="cb-${dashEsc(m.ws.id)}">
-      <span class="card-absent">Loading…</span>
+    <div class="card-body skeleton-body" id="cb-${dashEsc(m.ws.id)}">
+      <span class="skeleton-block" style="width:90%"></span>
+      <span class="skeleton-block" style="width:70%"></span>
     </div>
     <div class="card-foot">
-      <span class="updated">${dashEsc(m.updatedLabel)}</span>
+      <span class="updated" id="upd-${dashEsc(m.ws.id)}">${dashEsc(m.updatedLabel)}</span>
       <button class="open-btn primary" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""}>
         <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3H3v10h10V10M9 3h4v4M13 3L7 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Open
@@ -248,10 +327,14 @@ function renderCard(m: CardMeta): HTMLElement {
         var p = btn.getAttribute("data-path");
         if (p) void handleOpen(p);
       } else if (action === "reveal") {
-        showDashboardToast("Reveal in Finder — coming in Sprint 2", "warn");
+        showDashboardToast("Reveal in Finder — coming in Sprint 3", "warn");
       } else if (action === "remove") {
         var id = btn.getAttribute("data-id");
         if (id) void handleRemove(id);
+      } else if (action === "archive-toggle") {
+        var toggleId = btn.getAttribute("data-id");
+        var currentArchived = btn.getAttribute("data-archived") === "true";
+        if (toggleId) void handleArchiveToggle(toggleId, !currentArchived);
       }
     });
   });
@@ -269,16 +352,24 @@ function renderCard(m: CardMeta): HTMLElement {
 function populateCardData(m: CardMeta): void {
   var ssEl = document.getElementById("ss-" + m.ws.id);
   var cbEl = document.getElementById("cb-" + m.ws.id);
+  var updEl = document.getElementById("upd-" + m.ws.id);
   if (!ssEl || !cbEl) return;
+
+  // Remove skeleton classes
+  ssEl.classList.remove("skeleton-strip");
+  cbEl.classList.remove("skeleton-body");
+
+  // Update footer timestamp
+  if (updEl) updEl.textContent = m.updatedLabel;
 
   // Status strip
   var statusItems: string[] = [];
 
-  if (m.isRunning) {
-    statusItems.push(`<span class="ss-item live"><span class="dot"></span>harness running</span>`);
-  }
   if (m.isOpen) {
-    statusItems.push(`<span class="ss-item"><span style="color:var(--accent)">&#9679;</span> open</span>`);
+    statusItems.push(`<span class="ss-item live"><span class="dot"></span>live</span>`);
+  }
+  if (m.isRunning) {
+    statusItems.push(`<span class="ss-item"><span style="color:var(--warn)">&#9679;</span> harness</span>`);
   }
   if (m.gitBranch) {
     statusItems.push(`<span class="ss-item"><span class="branch">&#10567; ${dashEsc(m.gitBranch)}</span></span>`);
@@ -292,8 +383,11 @@ function populateCardData(m: CardMeta): void {
   if (m.gitChanged > 0) {
     statusItems.push(`<span class="ss-item"><span class="changed">&#9679;${m.gitChanged}</span></span>`);
   }
-  if (!m.gitBranch || (!m.gitDirty && m.gitChanged === 0 && m.gitUntracked === 0)) {
+  if (m.gitBranch && !m.gitDirty && m.gitChanged === 0 && m.gitUntracked === 0) {
     statusItems.push(`<span class="ss-item"><span class="clean">&#10003; clean</span></span>`);
+  }
+  if (!m.gitBranch && !m.isOpen && !m.isRunning) {
+    statusItems.push(`<span class="ss-item" style="color:var(--fg-3);font-style:italic">git unavailable</span>`);
   }
   if (m.gitLastCommit) {
     statusItems.push(`<span class="ss-item ago" style="margin-left:auto">${dashEsc(m.gitLastCommit)}</span>`);
@@ -310,7 +404,7 @@ function populateCardData(m: CardMeta): void {
     tagsRow.className = "tags-row";
     tagsRow.id = "tr-" + m.ws.id;
     for (var tag of m.tags) {
-      var cls = tag === "archived" ? "gray" : tag === "harness" || tag === "open" ? "cyan" : "";
+      var cls = tag === "archived" ? "gray" : tag === "harness" ? "warn" : tag === "open" ? "cyan" : "";
       tagsRow.innerHTML += `<span class="tag ${cls}">${dashEsc(tag)}</span>`;
     }
     // Insert tags-row after status-strip
@@ -347,19 +441,23 @@ function populateCardData(m: CardMeta): void {
   }
 
   if (m.nextSteps.length > 0) {
-    var todosHTML = m.nextSteps.slice(0, 2).map((step) => `
-      <li class="todo-item">
-        <span class="todo-checkbox"></span>
-        <span>${mdInline(step)}</span>
-      </li>
-    `).join("");
-    var moreCount = m.nextSteps.length - 2;
+    var firstTodo = m.nextSteps[0];
+    var moreTodos = m.nextSteps.slice(1);
+    var moreCount = moreTodos.length;
+    var firstHTML = `<li class="todo-item"><span>${mdInline(firstTodo)}</span></li>`;
+    var moreItemsHTML = moreCount > 0
+      ? moreTodos.map((step) => `<li class="todo-item todo-extra" style="display:none"><span>${mdInline(step)}</span></li>`).join("")
+      : "";
+    var toggleId = "todo-toggle-" + m.ws.id;
+    var expandHTML = moreCount > 0
+      ? `<div class="todo-more" id="${dashEsc(toggleId)}" data-expanded="false">+${moreCount} more</div>`
+      : "";
     bodyParts.push(`
       <div class="field">
         <div class="field-label">Next</div>
         <div class="field-value">
-          <ul class="todo-list">${todosHTML}</ul>
-          ${moreCount > 0 ? `<div style="font-size:11px;color:var(--fg-2);padding-top:4px;cursor:pointer">+ ${moreCount} more</div>` : ""}
+          <ul class="todo-list" id="todo-list-${dashEsc(m.ws.id)}">${firstHTML}${moreItemsHTML}</ul>
+          ${expandHTML}
         </div>
       </div>
     `);
@@ -370,6 +468,25 @@ function populateCardData(m: CardMeta): void {
   }
 
   cbEl.innerHTML = bodyParts.join("");
+
+  // Wire +N more toggle for todos
+  var toggleEl = document.getElementById("todo-toggle-" + m.ws.id);
+  if (toggleEl) {
+    (function(tEl: HTMLElement) {
+      tEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        var expanded = tEl.getAttribute("data-expanded") === "true";
+        var listEl2 = document.getElementById("todo-list-" + m.ws.id);
+        if (!listEl2) return;
+        var extras = listEl2.querySelectorAll(".todo-extra") as NodeListOf<HTMLElement>;
+        var newExpanded = !expanded;
+        extras.forEach((el) => { el.style.display = newExpanded ? "" : "none"; });
+        tEl.setAttribute("data-expanded", newExpanded ? "true" : "false");
+        var moreCount2 = extras.length;
+        tEl.textContent = newExpanded ? "Show less" : "+" + moreCount2 + " more";
+      });
+    })(toggleEl);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -451,6 +568,12 @@ function render(): void {
   if (countDirty) countDirty.textContent = String(counts.dirty);
   if (countRunning) countRunning.textContent = String(counts.running);
   if (countArchived) countArchived.textContent = String(counts.archived);
+
+  // Log group classification result once per render
+  var gActive = _cardMetas.filter((m) => m.group === "active").length;
+  var gRecent = _cardMetas.filter((m) => m.group === "recent").length;
+  var gArchived = _cardMetas.filter((m) => m.group === "archived").length;
+  console.log(`[dashboard] grouped active=${gActive} recent=${gRecent} archived=${gArchived}`);
 
   var visible = filterMetas(_cardMetas);
   var filterName = _filter;
@@ -537,6 +660,9 @@ function renderList(container: HTMLElement, metas: CardMeta[]): void {
 
 async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
   var api = window.dashboardAPI!;
+  // Initial group from archived flag (will be refined after IPC completes)
+  var initialGroup: "active" | "recent" | "archived" = ws.archived === true ? "archived" : "recent";
+
   var meta: CardMeta = {
     ws,
     gitBranch: null,
@@ -553,7 +679,7 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
     currentTask: null,
     nextSteps: [],
     tags: [],
-    group: "recent",
+    group: initialGroup,
     updatedLabel: relTime(ws.addedAt),
   };
 
@@ -603,16 +729,26 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
     var tags: string[] = [];
     if (meta.isOpen) tags.push("open");
     if (meta.isRunning) tags.push("harness");
+    // Merge workspace-level tags from workspaces.json
+    if (ws.tags && ws.tags.length > 0) {
+      for (var wt of ws.tags) {
+        if (!tags.includes(wt)) tags.push(wt);
+      }
+    }
     meta.tags = tags;
 
-    // Group classification
-    if (meta.isOpen || meta.isRunning) {
-      meta.group = "active";
-    } else if (meta.gitDirty || meta.gitChanged > 0) {
-      meta.group = "active";
-    } else {
-      meta.group = "recent";
-    }
+    // Group classification (Sprint 2: time-based + archived flag)
+    meta.group = classifyGroup(
+      ws,
+      meta.isOpen,
+      meta.isRunning,
+      meta.gitDirty,
+      meta.gitChanged,
+      meta.gitLastCommit
+    );
+
+    // updatedLabel: prefer gitLastCommit, fallback to addedAt
+    meta.updatedLabel = meta.gitLastCommit || relTime(ws.addedAt);
 
   } catch (err) {
     console.error(`[dashboard] buildCardMeta error for ${ws.absolutePath}:`, err);
@@ -685,6 +821,25 @@ async function handleOpen(workspacePath: string): Promise<void> {
     var msg = err instanceof Error ? err.message : String(err);
     showDashboardToast(`Failed to open: ${msg}`, "err");
     console.error("[dashboard] handleOpen error:", err);
+  }
+}
+
+async function handleArchiveToggle(id: string, archived: boolean): Promise<void> {
+  var api = window.dashboardAPI!;
+  try {
+    var result = await api.archiveToggle(id, archived);
+    if (!result.success) {
+      showDashboardToast("Archive toggle failed.", "err");
+      return;
+    }
+    _workspaces = result.workspaces;
+    console.log(`[dashboard] archive toggle: id=${id} archived=${archived}`);
+    // Rebuild metas for affected workspace only then re-render
+    await loadAndRender();
+    showDashboardToast(archived ? "Moved to Archived." : "Restored from Archived.", "ok");
+  } catch (err) {
+    console.error("[dashboard] handleArchiveToggle error:", err);
+    showDashboardToast("Archive toggle failed.", "err");
   }
 }
 

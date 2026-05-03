@@ -212,6 +212,8 @@ interface DashboardAPI {
   fileTree(workspacePath: string): Promise<DashboardFileTreeResult>;
   // Sprint 5: session state badges
   sessionState(workspacePath: string): Promise<{ open: boolean; harnessPhase: string | null }>;
+  // Sprint 2: archive toggle
+  archiveToggle(id: string, archived: boolean): Promise<{ workspaces: WorkspaceEntry[]; success: boolean }>;
 }
 
 interface WorkspaceEntry {
@@ -219,6 +221,10 @@ interface WorkspaceEntry {
   name: string;
   absolutePath: string;
   addedAt: string;
+  // Sprint 2 optional fields
+  archived?: boolean;
+  iconColor?: string;
+  tags?: string[];
 }
 
 // Cross-module teardown helpers (defined in their respective modules,

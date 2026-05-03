@@ -20,6 +20,7 @@ import {
   addWorkspace,
   removeWorkspace,
   renameWorkspace,
+  archiveToggleWorkspace,
   type Workspace,
 } from "./workspaces";
 import { getCardData, summarizeOverview, getStatusInfo, getFileTree } from "./workspace-reader";
@@ -745,6 +746,19 @@ ipcMain.handle("workspace:statusInfo", async (_event, workspacePath: string) => 
 ipcMain.handle("workspace:fileTree", async (_event, workspacePath: string) => {
   console.log(`[main] workspace:fileTree IPC for: ${workspacePath}`);
   return getFileTree(workspacePath);
+});
+
+// --- Workspace Archive Toggle IPC (Sprint 2) ---
+
+ipcMain.handle("workspace:archiveToggle", (_event, id: string, archived: boolean) => {
+  console.log(`[workspace] archiveToggle: id=${id} archived=${archived}`);
+  const updated = archiveToggleWorkspace(workspaces, id, archived);
+  if (updated === null) {
+    console.warn(`[workspace] archiveToggle: failed for id=${id}`);
+    return { workspaces, success: false };
+  }
+  workspaces = updated;
+  return { workspaces, success: true };
 });
 
 // --- Workspace Rename IPC (Sprint 3) ---

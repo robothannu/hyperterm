@@ -5,6 +5,10 @@ interface Workspace {
   name: string;
   absolutePath: string;
   addedAt: string;
+  // Sprint 2 optional fields
+  archived?: boolean;
+  iconColor?: string;
+  tags?: string[];
 }
 
 interface AddResult {
@@ -129,5 +133,10 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   // Sprint 5: session state badges
   sessionState: (workspacePath: string): Promise<{ open: boolean; harnessPhase: string | null }> => {
     return ipcRenderer.invoke("workspace:sessionState", workspacePath);
+  },
+
+  // Sprint 2: archive toggle
+  archiveToggle: (id: string, archived: boolean): Promise<{ workspaces: Workspace[]; success: boolean }> => {
+    return ipcRenderer.invoke("workspace:archiveToggle", id, archived);
   },
 });
