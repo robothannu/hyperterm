@@ -88,6 +88,27 @@ interface FileTreeResult {
   error?: string;
 }
 
+// Sprint 2 (Dashboard design v2): Git flow diagram data
+interface GitFlowCommit {
+  id: string;
+  shortHash: string;
+  parents: string[];
+  author: string;
+  relTime: string;
+  msg: string;
+  branch: string | null;
+  tag: string | null;
+  isHead: boolean;
+}
+
+interface GitFlowData {
+  commits: GitFlowCommit[];
+  branches: string[];
+  head: string | null;
+  branch: string | null;
+  summary: string;
+}
+
 contextBridge.exposeInMainWorld("dashboardAPI", {
   listWorkspaces: (): Promise<Workspace[]> => {
     return ipcRenderer.invoke("workspace:list");
@@ -158,5 +179,11 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   // Sprint 1 UX Polish: reveal in Finder
   revealInFinder: (workspacePath: string): Promise<{ success?: boolean; error?: string }> => {
     return ipcRenderer.invoke("workspace:revealInFinder", workspacePath);
+  },
+
+  // Sprint 2 (Dashboard design v2): git flow diagram source data.
+  // Returns null on non-git / missing path / failure (renderer skips SVG).
+  gitFlow: (workspacePath: string): Promise<GitFlowData | null> => {
+    return ipcRenderer.invoke("workspace:gitFlow", workspacePath);
   },
 });

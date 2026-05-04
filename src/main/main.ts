@@ -982,6 +982,137 @@ ipcMain.handle("workspace:revealInFinder", async (_event, workspacePath: string)
   }
 });
 
+// --- Git Flow IPC (Sprint 2 — Dashboard design v2) ---
+// Returns commit/branch/tag data sufficient to render the gitflow SVG diagram.
+// Bundles three pieces of git CLI output into one IPC roundtrip:
+//   - git log -n 20 --all  (with %D decoration for refs/tags)
+//   - git symbolic-ref --short HEAD (current branch)
+// Returns null on non-git / missing path / failure (renderer skips SVG).
+
+interface GitFlowCommit {
+  id: string;          // full hash
+  shortHash: string;
+  parents: string[];
+  author: string;
+  relTime: string;
+  msg: string;
+  branch: string | null; // primary branch ref pointing at this commit (if any)
+  tag: string | null;    // first tag pointing at this commit (if any)
+  isHead: boolean;
+}
+
+interface GitFlowData {
+  commits: GitFlowCommit[]; // newest first
+  branches: string[];       // unique branch names referenced
+  head: string | null;      // hash of HEAD
+  branch: string | null;    // current branch name
+  summary: string;          // "{N} commits · {branch}"
+}
+
+function parseGitDecoration(decoration: string): { branches: string[]; tags: string[]; isHead: boolean } {
+  // Decoration looks like: "HEAD -> main, origin/main, tag: v1.0, feature/foo"
+  const out = { branches: [] as string[], tags: [] as string[], isHead: false };
+  if (!decoration) return out;
+  const parts = decoration.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  for (const part of parts) {
+    if (part.startsWith("HEAD -> ")) {
+      out.isHead = true;
+      const ref = part.slice("HEAD -> ".length).trim();
+      if (ref) out.branches.push(ref);
+    } else if (part === "HEAD") {
+      out.isHead = true;
+    } else if (part.startsWith("tag: ")) {
+      out.tags.push(part.slice("tag: ".length).trim());
+    } else if (part.startsWith("origin/") || part.startsWith("upstream/") || part.includes("/HEAD")) {
+      // skip remote refs
+    } else {
+      out.branches.push(part);
+    }
+  }
+  return out;
+}
+
+ipcMain.handle("workspace:gitFlow", async (_event, workspacePath: string): Promise<GitFlowData | null> => {
+  if (!workspacePath || typeof workspacePath !== "string") return null;
+  if (!workspacePath.startsWith("/") || workspacePath.length < 2) return null;
+  if (!fs.existsSync(workspacePath)) return null;
+
+  try {
+    // Single git log call carries refs (%D) and parents (%P), so we only need
+    // one extra call for current branch.
+    const SEP = "\x1F";
+    const FIELDS = ["%H", "%h", "%P", "%an", "%cr", "%s", "%D"].join(SEP);
+    const [logResult, branchResult] = await Promise.all([
+      execFileAsync(
+        "git",
+        ["-C", workspacePath, "log", "--max-count=20", "--all", "--date-order", `--pretty=format:${FIELDS}`],
+        { encoding: "utf8", timeout: 8000, maxBuffer: 1024 * 1024 }
+      ),
+      execFileAsync(
+        "git",
+        ["-C", workspacePath, "symbolic-ref", "--short", "HEAD"],
+        { encoding: "utf8", timeout: 4000 }
+      ).catch(() => ({ stdout: "" })),
+    ]);
+
+    const stdout = logResult.stdout.trim();
+    if (!stdout) {
+      // Repo with no commits.
+      return null;
+    }
+
+    const currentBranch = branchResult.stdout.trim() || null;
+
+    const commits: GitFlowCommit[] = [];
+    const branchSet = new Set<string>();
+    let headHash: string | null = null;
+
+    for (const line of stdout.split("\n")) {
+      const parts = line.split(SEP);
+      if (parts.length < 6) continue;
+      const fullHash = parts[0]?.trim() ?? "";
+      const shortHash = parts[1]?.trim() ?? "";
+      const parentStr = parts[2]?.trim() ?? "";
+      const author = parts[3]?.trim() ?? "";
+      const relTime = parts[4]?.trim() ?? "";
+      const msg = parts[5] ?? "";
+      const decoration = parts[6] ?? "";
+      const parents = parentStr.length > 0 ? parentStr.split(/\s+/) : [];
+      const dec = parseGitDecoration(decoration);
+      const primaryBranch = dec.branches.length > 0 ? dec.branches[0] : null;
+      const firstTag = dec.tags.length > 0 ? dec.tags[0] : null;
+      if (primaryBranch) branchSet.add(primaryBranch);
+      if (dec.isHead) headHash = fullHash;
+      commits.push({
+        id: fullHash,
+        shortHash,
+        parents,
+        author,
+        relTime,
+        msg,
+        branch: primaryBranch,
+        tag: firstTag,
+        isHead: dec.isHead,
+      });
+    }
+
+    // Make sure current branch is in the set (even if no decoration was visible)
+    if (currentBranch) branchSet.add(currentBranch);
+
+    return {
+      commits,
+      branches: Array.from(branchSet),
+      head: headHash,
+      branch: currentBranch,
+      summary: `${commits.length} commits${currentBranch ? ` · ${currentBranch}` : ""}`,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`[workspace] gitFlow: failed at ${workspacePath}: ${msg}`);
+    return null;
+  }
+});
+
 // --- Settings IPC ---
 
 ipcMain.handle("settings:get", () => appSettings);

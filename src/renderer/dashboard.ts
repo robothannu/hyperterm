@@ -55,6 +55,15 @@ var _toastTimer: ReturnType<typeof setTimeout> | null = null;
 var _homeDir: string = "";
 var _expandedIds: Set<string> = new Set();
 
+// Sprint 2: gitflow data cache, keyed by workspace id.
+// undefined  = not yet fetched (fetch on next expand)
+// null       = fetched but unavailable (non-git / failed) — do not retry until refresh
+// otherwise  = ready data, render immediately on expand
+var _gitFlowCache: Map<string, DashboardGitFlowData | null> = new Map();
+// Track in-flight fetches so we don't double-fire when a card gets expanded
+// repeatedly while a request is pending.
+var _gitFlowInflight: Set<string> = new Set();
+
 // ---------------------------------------------------------------------------
 // Persist view/filter/sort/expand to localStorage
 // ---------------------------------------------------------------------------
@@ -708,6 +717,15 @@ function render(): void {
     for (var i = 0; i < visible.length; i++) {
       populateCardData(visible[i]);
     }
+    // G1: cards restored as expanded from localStorage need gitflow data too,
+    // not only fresh user-clicks. Trigger fetch (or paint from cache) for any
+    // currently-expanded card. ensureGitflowForWorkspace is idempotent +
+    // paints synchronously on cache hit.
+    for (var j = 0; j < visible.length; j++) {
+      if (_expandedIds.has(visible[j].ws.id)) {
+        ensureGitflowForWorkspace(visible[j].ws);
+      }
+    }
   } else {
     renderList(content, visible);
   }
@@ -1021,6 +1039,303 @@ async function handleRevealInFinder(workspacePath: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Git Flow SVG (Sprint 2 — Dashboard design v2)
+// ---------------------------------------------------------------------------
+
+// Lane color tokens lifted verbatim from the design source so visual parity
+// with the static mock is grep-checkable.
+// Reference: /tmp/design_dashboard/terminal/project/Workspace Dashboard.html lines 977-992
+var GITFLOW_LANE_COLORS: Record<string, string> = {
+  main:    "#4a78c0",
+  hotfix:  "#a78bfa",
+  release: "#7fc3f5",
+  develop: "#ff7a6b",
+  feature: "#9ad641",
+  feature2:"#9ad641",
+};
+var GITFLOW_LANE_BG: Record<string, string> = {
+  main:    "rgba(74,120,192,0.18)",
+  hotfix:  "rgba(167,139,250,0.18)",
+  release: "rgba(127,195,245,0.2)",
+  develop: "rgba(255,122,107,0.18)",
+  feature: "rgba(154,214,65,0.2)",
+  feature2:"rgba(154,214,65,0.2)",
+};
+
+// Map a branch name to a lane color key.
+function gitflowLaneKey(branchName: string): string {
+  var n = branchName.toLowerCase();
+  if (n === "main" || n === "master") return "main";
+  if (n === "develop" || n === "dev") return "develop";
+  if (n.startsWith("release/") || n === "release") return "release";
+  if (n.startsWith("hotfix/") || n === "hotfix") return "hotfix";
+  return "feature";
+}
+
+interface GitflowLaneRow {
+  key: string;     // branch name (unique per row)
+  label: string;   // display label
+  colorKey: string; // lookup into LANE_COLORS / LANE_BG
+}
+
+interface GitflowLayoutCommit {
+  id: string;
+  shortHash: string;
+  parents: string[];
+  msg: string;
+  author: string;
+  relTime: string;
+  tag: string | null;
+  isHead: boolean;
+  lane: string; // lane.key
+  x: number;    // column index (0..N-1)
+}
+
+// Pure helper: assign each commit to a lane (branch name) given the gitflow
+// data + current branch fallback. Exposed as a separate function so it stays
+// testable in isolation if/when we introduce unit tests.
+function gitflowAssignLanes(
+  data: DashboardGitFlowData,
+): { lanes: GitflowLaneRow[]; commits: GitflowLayoutCommit[] } {
+  var commits = data.commits;
+  if (commits.length === 0) {
+    return { lanes: [], commits: [] };
+  }
+
+  // Step 1: seed lane assignments from explicit branch decorations.
+  var laneOf: Record<string, string> = {};
+  for (var c of commits) {
+    if (c.branch) laneOf[c.id] = c.branch;
+  }
+
+  // Step 2: propagate lane to parents via first-parent walk.
+  // commits[] is in `--date-order` newest-first. We iterate top-down so when
+  // we visit a commit with a known lane, we push that lane onto its first
+  // parent (if not already assigned). This keeps a contiguous color along
+  // each branch's history while still respecting branch tips that already
+  // claimed an ancestor.
+  var byHash: Record<string, DashboardGitFlowCommit> = {};
+  for (var c2 of commits) byHash[c2.id] = c2;
+  for (var c3 of commits) {
+    var lane = laneOf[c3.id];
+    if (!lane) continue;
+    var firstParent = c3.parents[0];
+    if (firstParent && byHash[firstParent] && !laneOf[firstParent]) {
+      laneOf[firstParent] = lane;
+    }
+  }
+
+  // Step 3: any still-unassigned commit falls back to current branch (or 'main').
+  var fallbackLane = data.branch || "main";
+  for (var c4 of commits) {
+    if (!laneOf[c4.id]) laneOf[c4.id] = fallbackLane;
+  }
+
+  // Step 4: build ordered lane list. Stable order = first appearance among
+  // commits (newest-first). 'main'/'master' floats to the top so the canonical
+  // line is the first lane.
+  var seen: Record<string, boolean> = {};
+  var laneOrder: string[] = [];
+  for (var c5 of commits) {
+    var l = laneOf[c5.id];
+    if (!seen[l]) { seen[l] = true; laneOrder.push(l); }
+  }
+  laneOrder.sort(function (a, b) {
+    var aMain = (a === "main" || a === "master") ? 0 : 1;
+    var bMain = (b === "main" || b === "master") ? 0 : 1;
+    if (aMain !== bMain) return aMain - bMain;
+    return 0; // preserve insertion order for ties
+  });
+
+  var lanes: GitflowLaneRow[] = laneOrder.map(function (name) {
+    return { key: name, label: name, colorKey: gitflowLaneKey(name) };
+  });
+
+  // Step 5: assign x columns. commits are newest-first; oldest commit should
+  // sit on the left so the diagram reads left-to-right. Column = (N-1) - i.
+  var N = commits.length;
+  var layoutCommits: GitflowLayoutCommit[] = commits.map(function (c, i) {
+    return {
+      id: c.id,
+      shortHash: c.shortHash,
+      parents: c.parents,
+      msg: c.msg,
+      author: c.author,
+      relTime: c.relTime,
+      tag: c.tag,
+      isHead: c.isHead,
+      lane: laneOf[c.id],
+      x: (N - 1) - i,
+    };
+  });
+
+  return { lanes, commits: layoutCommits };
+}
+
+// Build the gitflow SVG markup. Coordinate constants mirror the design source
+// (padL=70, padR=14, padT=22, padB=14, laneH=30, colW=28).
+function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): string {
+  var laid = gitflowAssignLanes(data);
+  var lanes = laid.lanes;
+  var commits = laid.commits;
+  if (lanes.length === 0 || commits.length === 0) return "";
+
+  var padL = 70, padR = 14, padT = 22, padB = 14;
+  var laneH = 30;
+  var colW = 28;
+
+  var maxX = commits.reduce(function (m, c) { return Math.max(m, c.x); }, 0);
+  var innerW = maxX * colW + colW + 40;
+  var W = padL + innerW + padR;
+  var H = padT + lanes.length * laneH + padB;
+
+  var laneY: Record<string, number> = {};
+  lanes.forEach(function (l, i) { laneY[l.key] = padT + i * laneH + laneH / 2; });
+
+  var posByHash: Record<string, { x: number; y: number }> = {};
+  commits.forEach(function (c) {
+    posByHash[c.id] = { x: padL + c.x * colW + 16, y: laneY[c.lane] };
+  });
+
+  // Lane label pills + dashed lane lines
+  var laneSVG = lanes.map(function (l) {
+    var y = laneY[l.key];
+    var color = GITFLOW_LANE_COLORS[l.colorKey] || "#888";
+    var bg = GITFLOW_LANE_BG[l.colorKey] || "rgba(255,255,255,0.05)";
+    var labelW = (l.label.length * 5.4) + 16;
+    return ""
+      + `<line class="lane-line" x1="${padL + labelW / 2 - 4}" y1="${y}" x2="${W - padR}" y2="${y}"/>`
+      + `<rect x="${padL - labelW - 6}" y="${y - 9}" width="${labelW}" height="18" rx="9" fill="${bg}" stroke="${color}" stroke-opacity="0.4"/>`
+      + `<text x="${padL - labelW - 6 + labelW / 2}" y="${y + 3}" text-anchor="middle" class="lane-label" fill="${color}">${dashEsc(l.label)}</text>`;
+  }).join("");
+
+  // Edges: parent → child, S-curve when crossing lanes, straight otherwise.
+  // Keep design class names ("commit-edge", "commit-edge merge") verbatim.
+  var arrowId = `gf-arrow-${workspaceId}`;
+  var safeArrowId = arrowId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  var edgeSVG = commits.map(function (c) {
+    var b = posByHash[c.id];
+    if (!b) return "";
+    var isMerge = c.parents.length > 1;
+    return c.parents.map(function (parentHash) {
+      var a = posByHash[parentHash];
+      if (!a) return "";
+      var sameLane = a.y === b.y;
+      var d;
+      if (sameLane) {
+        d = `M${a.x + 5},${a.y} L${b.x - 5},${b.y}`;
+      } else {
+        var mx = (a.x + b.x) / 2;
+        d = `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+      }
+      var cls = isMerge ? "commit-edge merge" : "commit-edge";
+      return `<path class="${cls}" d="${d}" marker-end="url(#${safeArrowId})"/>`;
+    }).join("");
+  }).join("");
+
+  // Commits, tags, HEAD
+  var commitSVG = commits.map(function (c) {
+    var p = posByHash[c.id];
+    var color = GITFLOW_LANE_COLORS[gitflowLaneKey(c.lane)] || "#888";
+    var r = c.isHead ? 6.5 : 5.5;
+    var tagSVG = "";
+    if (c.tag) {
+      var tw = c.tag.length * 5.4 + 12;
+      var tagX = p.x - tw / 2;
+      var tagY = padT - 18;
+      tagSVG = ""
+        + `<g transform="translate(${tagX}, ${tagY})">`
+        + `<path d="M0,0 H${tw} V11 L${tw / 2 + 3},14 L${tw / 2 - 3},14 L${tw / 2},17 L${tw / 2 - 3},14 L${tw / 2 - 3},14 H0 Z" class="tag-bg"/>`
+        + `<text x="${tw / 2}" y="8" text-anchor="middle" class="tag">${dashEsc(c.tag)}</text>`
+        + `<line x1="${tw / 2}" y1="17" x2="${tw / 2}" y2="${p.y - padT + 18 - 5}" stroke="${color}" stroke-opacity="0.4" stroke-dasharray="2 2"/>`
+        + `</g>`;
+    }
+    var headSVG = "";
+    if (c.isHead) {
+      headSVG = ""
+        + `<g transform="translate(${p.x + 10}, ${p.y - 10})">`
+        + `<rect x="0" y="0" width="34" height="14" rx="3" fill="${color}" fill-opacity="0.15" stroke="${color}" stroke-opacity="0.5"/>`
+        + `<text x="17" y="10" text-anchor="middle" class="head-label" fill="${color}">HEAD</text>`
+        + `</g>`;
+    }
+    var titleText = c.msg ? `${c.shortHash} — ${c.msg}` : c.shortHash;
+    return ""
+      + tagSVG
+      + `<g class="commit ${c.isHead ? "head" : ""}">`
+      + `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${color}"/>`
+      + headSVG
+      + `<title>${dashEsc(titleText)}</title>`
+      + `</g>`;
+  }).join("");
+
+  // Header summary + lane legend
+  var legendItems = lanes.map(function (l) {
+    var color = GITFLOW_LANE_COLORS[l.colorKey] || "#888";
+    return `<span class="lg-item"><span class="lg-dot" style="background:${color}"></span>${dashEsc(l.label)}</span>`;
+  }).join("");
+
+  return ""
+    + `<div class="gitflow-wrap">`
+    + `<div class="gitflow-head">`
+    + `<span>Git Flow · ${dashEsc(data.summary || "")}</span>`
+    + `<span class="legend">${legendItems}</span>`
+    + `</div>`
+    + `<svg class="gitflow-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`
+    + `<defs>`
+    + `<marker id="${safeArrowId}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">`
+    + `<path d="M0,0 L8,4 L0,8 Z" fill="rgba(255,255,255,0.35)"/>`
+    + `</marker>`
+    + `</defs>`
+    + laneSVG
+    + edgeSVG
+    + commitSVG
+    + `</svg>`
+    + `</div>`;
+}
+
+// Inject (or clear) gitflow SVG into the card's `.card-expand` host.
+// `data === null` → leave the host empty (graceful degrade for non-git / failure).
+function paintGitflowInto(workspaceId: string, data: DashboardGitFlowData | null): void {
+  var host = document.getElementById("ce-" + workspaceId);
+  if (!host) return;
+  if (!data || !data.commits || data.commits.length === 0) {
+    host.innerHTML = "";
+    return;
+  }
+  host.innerHTML = renderGitflowSVG(workspaceId, data);
+}
+
+// Async fetch + cache. Idempotent — multiple calls coalesce via the inflight
+// set. Once cached, future calls return immediately and re-paint.
+function ensureGitflowForWorkspace(ws: WorkspaceEntry): void {
+  // Cache hit (data ready or known-unavailable): just paint.
+  if (_gitFlowCache.has(ws.id)) {
+    paintGitflowInto(ws.id, _gitFlowCache.get(ws.id) || null);
+    return;
+  }
+  if (_gitFlowInflight.has(ws.id)) return;
+  var api = window.dashboardAPI;
+  if (!api || typeof api.gitFlow !== "function") return;
+  _gitFlowInflight.add(ws.id);
+  api.gitFlow(ws.absolutePath)
+    .then(function (data) {
+      _gitFlowCache.set(ws.id, data || null);
+      // Only paint if the card is still expanded — avoids a noticeable late
+      // pop-in if the user already collapsed the card.
+      if (_expandedIds.has(ws.id)) {
+        paintGitflowInto(ws.id, data || null);
+      }
+    })
+    .catch(function (err) {
+      console.log("[dashboard] gitFlow fetch failed for " + ws.absolutePath + ": " + (err instanceof Error ? err.message : String(err)));
+      _gitFlowCache.set(ws.id, null);
+    })
+    .finally(function () {
+      _gitFlowInflight.delete(ws.id);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Card expand / collapse
 // ---------------------------------------------------------------------------
 
@@ -1033,6 +1348,9 @@ function toggleCardExpand(id: string): void {
   } else {
     _expandedIds.add(id);
     card.classList.remove("collapsed");
+    // Trigger gitflow fetch on first expand; cache hits paint synchronously.
+    var ws = _workspaces.find(function (w) { return w.id === id; });
+    if (ws) ensureGitflowForWorkspace(ws);
   }
   saveExpandedState();
 }

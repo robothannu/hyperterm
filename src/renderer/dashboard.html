@@ -687,12 +687,79 @@
       display: none;
     }
 
-    /* card-expand container reserved for Sprint 2 gitflow content */
+    /* card-expand container — Sprint 2 gitflow host (border/padding owned by inner .gitflow-wrap) */
     .card-expand {
-      padding: 0 14px 12px;
-      border-top: 1px dashed var(--line);
       font-size: 11px;
       color: var(--fg-3);
+    }
+    .card-expand:empty { display: none; }
+
+    /* ============ Git Flow (Sprint 2) ============ */
+    .gitflow-wrap {
+      border-top: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.012), transparent);
+    }
+    .gitflow-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px 6px;
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--fg-3); font-weight: 600;
+    }
+    .gitflow-head .legend {
+      display: flex; gap: 10px; text-transform: none; letter-spacing: 0;
+      font-size: 10.5px; color: var(--fg-2); font-family: "JetBrains Mono", monospace;
+    }
+    .gitflow-head .lg-item { display: inline-flex; align-items: center; gap: 4px; }
+    .gitflow-head .lg-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+    }
+    .gitflow-svg {
+      width: 100%;
+      display: block;
+      padding: 4px 10px 12px;
+    }
+    .gitflow-svg .lane-label {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9.5px;
+      fill: var(--fg-1);
+      font-weight: 500;
+    }
+    .gitflow-svg .lane-line {
+      stroke: rgba(255,255,255,0.05);
+      stroke-dasharray: 2 3;
+    }
+    .gitflow-svg .commit-edge {
+      stroke: rgba(255,255,255,0.18);
+      stroke-width: 1.4;
+      fill: none;
+    }
+    .gitflow-svg .commit-edge.merge { stroke: rgba(255,255,255,0.28); }
+    .gitflow-svg .tag {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9.5px;
+      fill: var(--fg-0);
+      font-weight: 600;
+    }
+    .gitflow-svg .tag-bg {
+      fill: var(--bg-3);
+      stroke: var(--line-2);
+    }
+    .gitflow-svg .commit {
+      cursor: pointer;
+    }
+    .gitflow-svg .commit circle {
+      transition: r .15s, filter .15s;
+    }
+    .gitflow-svg .commit:hover circle { filter: brightness(1.25); }
+    .gitflow-svg .commit.head circle {
+      stroke: var(--fg-0);
+      stroke-width: 1.5;
+    }
+    .gitflow-svg .head-label {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9px;
+      font-weight: 700;
+      fill: var(--fg-0);
     }
 
     /* === Card more (kebab) menu — archive/remove access from card head === */
