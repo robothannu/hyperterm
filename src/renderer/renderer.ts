@@ -430,6 +430,16 @@ async function createNewTab(
       focusedPtyId: leaf.ptyId,
     };
 
+    // Sprint (Run with Claude polish): mark group as claude-mode for dedup.
+    // We record cwd ONLY when runWithClaude=true AND the caller provided a
+    // cwd. claudePrompt presence does not change this — Ask Claude callers
+    // skip dedup entirely (they don't reach this lookup), but if they do
+    // create a new tab here we still record the cwd so a subsequent
+    // promptless "Run with Claude" can dedup against it.
+    if (options?.runWithClaude && cwd) {
+      tab.claudeCwd = cwd;
+    }
+
     tabMap.set(tabId, tab);
     tabLabels.set(tabId, displayLabel);
 
@@ -800,6 +810,9 @@ async function saveSessionMetadata(): Promise<void> {
         cluster: tabClusters.get(tabId),
         layout: await serializePaneTree(tab.root),
         layoutPreset: typeof getTabLayoutPreset === "function" ? getTabLayoutPreset(tabId) : undefined,
+        // Sprint (Run with Claude polish): persist claudeCwd for dedup
+        // across app restarts.
+        claudeCwd: tab.claudeCwd,
       });
     }
     const state: SavedStateV2 = { version: 3, tabs: savedTabs, activeTabIndex };
@@ -902,6 +915,14 @@ async function restoreFromSaved(): Promise<boolean> {
       container: tabContainer,
       focusedPtyId: tabId,
     };
+
+    // Sprint (Run with Claude polish): restore claudeCwd so dedup keeps
+    // working after app restart. Note: the actual PTY no longer runs
+    // claude (PTYs aren't preserved), but the group meta still says "this
+    // tab is for Claude on cwd X" which matches the user's mental model.
+    if (savedTab.claudeCwd) {
+      tab.claudeCwd = savedTab.claudeCwd;
+    }
 
     tabMap.set(tabId, tab);
     tabLabels.set(tabId, savedTab.label);
@@ -1104,9 +1125,16 @@ window.terminalAPI.onOpenGroupWithCwd(async (payload: { path: string }) => {
 
 // --- group:openWithCwdWithClaude (Sprint: Run with Claude) ---
 //
-// Always creates a NEW tab (group) for the workspace whose initial PTY runs
-// `claude`. We deliberately do NOT dedup against existing tabs — each click
-// of the dashboard "Claude" footer button = one new claude session.
+// Policy:
+//   - "Run with Claude" (no taskText): dedup against any existing tab whose
+//     group meta has claudeCwd === requestedPath (exact string match — the
+//     dashboard sends workspaces.json absolutePath as-is, no normalization
+//     is needed). If a match exists, switchToTab and return without
+//     spawning a new PTY.
+//   - "Ask Claude" (taskText present): ALWAYS create a new tab. Reason: we
+//     can't safely inject a new prompt into an existing claude REPL (no way
+//     to know if it's at the input prompt vs mid-tool-use), so each Ask
+//     Claude click = one fresh `claude "<prompt>"` invocation.
 window.terminalAPI.onOpenGroupWithCwdWithClaude(async (payload: { path: string; taskText?: string }) => {
   const requestedPath = payload?.path;
   if (!requestedPath || typeof requestedPath !== "string") {
@@ -1122,6 +1150,19 @@ window.terminalAPI.onOpenGroupWithCwdWithClaude(async (payload: { path: string; 
       : undefined;
 
   console.log(`[renderer] group:openWithCwdWithClaude: requested path=${requestedPath}${promptText ? ` (with prompt, len=${promptText.length})` : ""}`);
+
+  // Dedup only when no taskText (Run with Claude, not Ask Claude).
+  if (!promptText) {
+    for (const [existingTabId, existingTab] of tabMap.entries()) {
+      if (existingTab.claudeCwd === requestedPath) {
+        console.log(`[renderer] group:openWithCwdWithClaude: dedup match — existing claude tab ${existingTabId} for cwd=${requestedPath}`);
+        switchToTab(existingTabId);
+        const folderName = requestedPath.split("/").filter(Boolean).pop() || "Workspace";
+        showToast(`Switched to existing Claude session: ${folderName}`, "ok");
+        return;
+      }
+    }
+  }
 
   const folderName = requestedPath.split("/").filter(Boolean).pop() || "Workspace";
   const tabId = await createNewTab(folderName, requestedPath, {

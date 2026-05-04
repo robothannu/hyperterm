@@ -1240,10 +1240,14 @@
 
     .todo-more:hover { color: var(--fg-1); }
 
-    /* todo-item: bullet on left, text expands, "Ask Claude" inline on right */
+    /* todo-item: bullet on left, text expands, "Ask Claude" inline on right.
+       Sprint 1 (polish): align-items:flex-start so text can wrap to multiple
+       lines while button stays pinned to first line on the right. min-width:0
+       on text + overflow-wrap:anywhere allows long Korean/path strings to
+       break instead of pushing the button off the card edge. */
     .todo-item {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
       font-size: 12px;
       color: var(--fg-1);
@@ -1260,13 +1264,19 @@
     }
 
     .todo-item .todo-text {
-      flex: 1;
+      flex: 1 1 auto;
       min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
-    /* Sprint 2 (Ask Claude per nextStep): small ghost button right-aligned */
+    /* Sprint 2 (Ask Claude per nextStep): small ghost button right-aligned.
+       Sprint 1 polish: white-space:nowrap + flex:0 0 auto so the full
+       "Ask Claude" label is always visible regardless of text length or
+       narrow card width (3-up grid). */
     .todo-ask-btn {
-      flex-shrink: 0;
+      flex: 0 0 auto;
+      white-space: nowrap;
       height: 19px;
       padding: 0 7px;
       border: 1px solid var(--line-2);
