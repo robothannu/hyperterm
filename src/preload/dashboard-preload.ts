@@ -109,6 +109,19 @@ interface GitFlowData {
   summary: string;
 }
 
+// Sprint 3: Discovery banner types
+interface DiscoveryCandidate {
+  absolutePath: string;
+  name: string;
+  root: string;
+}
+
+interface BatchAddResult {
+  workspaces: Workspace[];
+  added: string[];
+  failed: { path: string; reason: string }[];
+}
+
 contextBridge.exposeInMainWorld("dashboardAPI", {
   listWorkspaces: (): Promise<Workspace[]> => {
     return ipcRenderer.invoke("workspace:list");
@@ -185,5 +198,16 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   // Returns null on non-git / missing path / failure (renderer skips SVG).
   gitFlow: (workspacePath: string): Promise<GitFlowData | null> => {
     return ipcRenderer.invoke("workspace:gitFlow", workspacePath);
+  },
+
+  // Sprint 3 (Dashboard design v2): discovery banner — scan ~/dev, ~/work,
+  // ~/projects for unregistered git repos.
+  discoverCandidates: (): Promise<DiscoveryCandidate[]> => {
+    return ipcRenderer.invoke("workspace:discoverCandidates");
+  },
+
+  // Sprint 3: batch add multiple workspace paths via a single IPC roundtrip.
+  addWorkspacesBatch: (paths: string[]): Promise<BatchAddResult> => {
+    return ipcRenderer.invoke("workspace:addBatch", paths);
   },
 });

@@ -725,6 +725,126 @@ ipcMain.handle("workspace:remove", (_event, id: string) => {
   return workspaces;
 });
 
+// --- Workspace Discovery IPC (Sprint 3 — Discovery banner) ---
+// Scans ~/dev, ~/work, ~/projects (1-level children only) for git repos that
+// are not yet registered in workspaces.json. Missing roots silently skipped.
+
+interface DiscoveryCandidate {
+  absolutePath: string;
+  name: string;
+  root: string; // absolute path of the parent root (e.g. /Users/alice/dev)
+}
+
+const DISCOVERY_ROOT_NAMES = ["dev", "work", "projects"] as const;
+
+ipcMain.handle("workspace:discoverCandidates", async (): Promise<DiscoveryCandidate[]> => {
+  const home = os.homedir();
+  const candidates: DiscoveryCandidate[] = [];
+
+  // Pre-compute the set of registered absolutePaths for quick membership checks
+  const registered = new Set<string>(
+    workspaces.map((w) => path.resolve(w.absolutePath))
+  );
+
+  for (const rootName of DISCOVERY_ROOT_NAMES) {
+    const root = path.join(home, rootName);
+    let exists = false;
+    try {
+      exists = fs.existsSync(root);
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
+      // silently skip missing roots
+      continue;
+    }
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch (err) {
+      console.warn(`[workspace] discoverCandidates: readdir failed for ${root}:`, err);
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      // Skip dotfiles (e.g. .DS_Store dirs)
+      if (entry.name.startsWith(".")) continue;
+
+      const childPath = path.join(root, entry.name);
+      const gitDir = path.join(childPath, ".git");
+      let hasGit = false;
+      try {
+        hasGit = fs.existsSync(gitDir);
+      } catch {
+        hasGit = false;
+      }
+      if (!hasGit) continue;
+
+      const normalized = path.resolve(childPath);
+      if (registered.has(normalized)) continue;
+
+      candidates.push({
+        absolutePath: normalized,
+        name: entry.name,
+        root,
+      });
+    }
+  }
+
+  console.log(`[workspace] discoverCandidates: found ${candidates.length} candidate(s)`);
+  return candidates;
+});
+
+interface BatchAddResult {
+  workspaces: Workspace[];
+  added: string[];                              // absolute paths that were added
+  failed: { path: string; reason: string }[];   // duplicates or errors
+}
+
+ipcMain.handle("workspace:addBatch", async (_event, paths: string[]): Promise<BatchAddResult> => {
+  const result: BatchAddResult = {
+    workspaces,
+    added: [],
+    failed: [],
+  };
+
+  if (!Array.isArray(paths) || paths.length === 0) {
+    return result;
+  }
+
+  for (const p of paths) {
+    if (typeof p !== "string" || p.length === 0) {
+      result.failed.push({ path: String(p), reason: "invalid_path" });
+      continue;
+    }
+    if (!fs.existsSync(p)) {
+      result.failed.push({ path: p, reason: "path_missing" });
+      continue;
+    }
+    try {
+      const r = addWorkspace(workspaces, p);
+      workspaces = r.workspaces;
+      if (r.duplicate) {
+        result.failed.push({ path: p, reason: "duplicate" });
+      } else {
+        result.added.push(path.resolve(p));
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[workspace] addBatch: failed to add ${p}: ${msg}`);
+      result.failed.push({ path: p, reason: msg });
+    }
+  }
+
+  result.workspaces = workspaces;
+  console.log(
+    `[workspace] addBatch: added=${result.added.length} failed=${result.failed.length}`
+  );
+  return result;
+});
+
 // --- Workspace Card Data IPC (Sprint 2) ---
 
 ipcMain.handle("workspace:cardData", async (_event, workspacePath: string) => {

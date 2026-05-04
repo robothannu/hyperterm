@@ -1046,6 +1046,128 @@
       left: 2px;
       color: var(--fg-3);
     }
+
+    /* === Sprint 3: Discovery banner ===
+       Style verbatim from design source lines 572-591. */
+    .discover {
+      margin: 14px 0 0;
+      background: linear-gradient(180deg, rgba(124,140,255,0.06), transparent);
+      border: 1px dashed rgba(124,140,255,0.25);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .discover .ico {
+      width: 30px; height: 30px;
+      border-radius: 8px;
+      background: rgba(124,140,255,0.12);
+      color: var(--accent);
+      display: grid; place-items: center;
+      flex: none;
+    }
+    .discover .body { flex: 1; min-width: 0; }
+    .discover .title { font-size: 13px; color: var(--fg-0); font-weight: 600; }
+    .discover .title .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
+    .discover .sub {
+      font-size: 12px;
+      color: var(--fg-2);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* === Sprint 3: Review modal === */
+    #discover-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(8, 9, 13, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+    #discover-modal.open { display: flex; }
+    #discover-modal .dlg {
+      width: min(560px, calc(100vw - 48px));
+      max-height: calc(100vh - 80px);
+      background: var(--bg-1);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #discover-modal .dlg-head {
+      padding: 14px 18px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    #discover-modal .dlg-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg-0);
+    }
+    #discover-modal .dlg-sub {
+      font-size: 12px;
+      color: var(--fg-3);
+      margin-top: 2px;
+    }
+    #discover-modal .dlg-body {
+      padding: 8px 6px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    #discover-modal .dc-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 7px;
+      cursor: pointer;
+    }
+    #discover-modal .dc-item:hover { background: var(--bg-2); }
+    #discover-modal .dc-item input[type="checkbox"] {
+      width: 14px; height: 14px;
+      accent-color: var(--accent);
+      flex: none;
+    }
+    #discover-modal .dc-name {
+      font-size: 13px;
+      color: var(--fg-0);
+      font-weight: 500;
+    }
+    #discover-modal .dc-path {
+      font-size: 11px;
+      color: var(--fg-3);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #discover-modal .dc-meta {
+      flex: 1;
+      min-width: 0;
+    }
+    #discover-modal .dlg-foot {
+      padding: 12px 18px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    #discover-modal .dlg-foot .summary {
+      font-size: 12px;
+      color: var(--fg-3);
+    }
+    #discover-modal .dlg-foot .actions {
+      display: flex;
+      gap: 8px;
+    }
   </style>
 </head>
 <body>
@@ -1156,6 +1278,24 @@
           </svg>
           Add Workspace
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sprint 3: Discovery review modal -->
+  <div id="discover-modal" role="dialog" aria-modal="true" aria-labelledby="discover-modal-title">
+    <div class="dlg">
+      <div class="dlg-head">
+        <div class="dlg-title" id="discover-modal-title">Review discovered repositories</div>
+        <div class="dlg-sub" id="discover-modal-sub">Select repositories to add as workspaces.</div>
+      </div>
+      <div class="dlg-body" id="discover-modal-list"></div>
+      <div class="dlg-foot">
+        <div class="summary" id="discover-modal-summary">0 selected</div>
+        <div class="actions">
+          <button class="btn" id="discover-modal-cancel">Cancel</button>
+          <button class="btn primary" id="discover-modal-confirm">Add selected</button>
+        </div>
       </div>
     </div>
   </div>

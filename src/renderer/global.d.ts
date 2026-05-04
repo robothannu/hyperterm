@@ -219,6 +219,19 @@ interface DashboardGitFlowData {
   summary: string;
 }
 
+// Sprint 3 (Dashboard design v2): discovery banner candidate
+interface DashboardDiscoveryCandidate {
+  absolutePath: string;
+  name: string;
+  root: string;
+}
+
+interface DashboardBatchAddResult {
+  workspaces: WorkspaceEntry[];
+  added: string[];
+  failed: { path: string; reason: string }[];
+}
+
 interface DashboardAPI {
   listWorkspaces(): Promise<WorkspaceEntry[]>;
   addWorkspace(): Promise<{ workspaces: WorkspaceEntry[]; duplicate: boolean; cancelled: boolean }>;
@@ -242,6 +255,9 @@ interface DashboardAPI {
   revealInFinder(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
   // Sprint 2 (Dashboard design v2): git flow diagram source data
   gitFlow(workspacePath: string): Promise<DashboardGitFlowData | null>;
+  // Sprint 3 (Dashboard design v2): discovery banner
+  discoverCandidates(): Promise<DashboardDiscoveryCandidate[]>;
+  addWorkspacesBatch(paths: string[]): Promise<DashboardBatchAddResult>;
 }
 
 interface WorkspaceEntry {
