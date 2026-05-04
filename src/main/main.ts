@@ -20,6 +20,7 @@ import {
   addWorkspace,
   removeWorkspace,
   renameWorkspace,
+  archiveToggleWorkspace,
   type Workspace,
 } from "./workspaces";
 import { getCardData, summarizeOverview, getStatusInfo, getFileTree } from "./workspace-reader";
@@ -296,10 +297,10 @@ function openDashboardWindow(): void {
   }
 
   dashboardWindow = new BrowserWindow({
-    width: 800,
-    height: 560,
-    minWidth: 480,
-    minHeight: 360,
+    width: 1340,
+    height: 840,
+    minWidth: 640,
+    minHeight: 480,
     backgroundColor: "#0a0b0f",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 12, y: 12 },
@@ -724,6 +725,126 @@ ipcMain.handle("workspace:remove", (_event, id: string) => {
   return workspaces;
 });
 
+// --- Workspace Discovery IPC (Sprint 3 — Discovery banner) ---
+// Scans ~/dev, ~/work, ~/projects (1-level children only) for git repos that
+// are not yet registered in workspaces.json. Missing roots silently skipped.
+
+interface DiscoveryCandidate {
+  absolutePath: string;
+  name: string;
+  root: string; // absolute path of the parent root (e.g. /Users/alice/dev)
+}
+
+const DISCOVERY_ROOT_NAMES = ["dev", "work", "projects"] as const;
+
+ipcMain.handle("workspace:discoverCandidates", async (): Promise<DiscoveryCandidate[]> => {
+  const home = os.homedir();
+  const candidates: DiscoveryCandidate[] = [];
+
+  // Pre-compute the set of registered absolutePaths for quick membership checks
+  const registered = new Set<string>(
+    workspaces.map((w) => path.resolve(w.absolutePath))
+  );
+
+  for (const rootName of DISCOVERY_ROOT_NAMES) {
+    const root = path.join(home, rootName);
+    let exists = false;
+    try {
+      exists = fs.existsSync(root);
+    } catch {
+      exists = false;
+    }
+    if (!exists) {
+      // silently skip missing roots
+      continue;
+    }
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch (err) {
+      console.warn(`[workspace] discoverCandidates: readdir failed for ${root}:`, err);
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      // Skip dotfiles (e.g. .DS_Store dirs)
+      if (entry.name.startsWith(".")) continue;
+
+      const childPath = path.join(root, entry.name);
+      const gitDir = path.join(childPath, ".git");
+      let hasGit = false;
+      try {
+        hasGit = fs.existsSync(gitDir);
+      } catch {
+        hasGit = false;
+      }
+      if (!hasGit) continue;
+
+      const normalized = path.resolve(childPath);
+      if (registered.has(normalized)) continue;
+
+      candidates.push({
+        absolutePath: normalized,
+        name: entry.name,
+        root,
+      });
+    }
+  }
+
+  console.log(`[workspace] discoverCandidates: found ${candidates.length} candidate(s)`);
+  return candidates;
+});
+
+interface BatchAddResult {
+  workspaces: Workspace[];
+  added: string[];                              // absolute paths that were added
+  failed: { path: string; reason: string }[];   // duplicates or errors
+}
+
+ipcMain.handle("workspace:addBatch", async (_event, paths: string[]): Promise<BatchAddResult> => {
+  const result: BatchAddResult = {
+    workspaces,
+    added: [],
+    failed: [],
+  };
+
+  if (!Array.isArray(paths) || paths.length === 0) {
+    return result;
+  }
+
+  for (const p of paths) {
+    if (typeof p !== "string" || p.length === 0) {
+      result.failed.push({ path: String(p), reason: "invalid_path" });
+      continue;
+    }
+    if (!fs.existsSync(p)) {
+      result.failed.push({ path: p, reason: "path_missing" });
+      continue;
+    }
+    try {
+      const r = addWorkspace(workspaces, p);
+      workspaces = r.workspaces;
+      if (r.duplicate) {
+        result.failed.push({ path: p, reason: "duplicate" });
+      } else {
+        result.added.push(path.resolve(p));
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[workspace] addBatch: failed to add ${p}: ${msg}`);
+      result.failed.push({ path: p, reason: msg });
+    }
+  }
+
+  result.workspaces = workspaces;
+  console.log(
+    `[workspace] addBatch: added=${result.added.length} failed=${result.failed.length}`
+  );
+  return result;
+});
+
 // --- Workspace Card Data IPC (Sprint 2) ---
 
 ipcMain.handle("workspace:cardData", async (_event, workspacePath: string) => {
@@ -745,6 +866,19 @@ ipcMain.handle("workspace:statusInfo", async (_event, workspacePath: string) => 
 ipcMain.handle("workspace:fileTree", async (_event, workspacePath: string) => {
   console.log(`[main] workspace:fileTree IPC for: ${workspacePath}`);
   return getFileTree(workspacePath);
+});
+
+// --- Workspace Archive Toggle IPC (Sprint 2) ---
+
+ipcMain.handle("workspace:archiveToggle", (_event, id: string, archived: boolean) => {
+  console.log(`[workspace] archiveToggle: id=${id} archived=${archived}`);
+  const updated = archiveToggleWorkspace(workspaces, id, archived);
+  if (updated === null) {
+    console.warn(`[workspace] archiveToggle: failed for id=${id}`);
+    return { workspaces, success: false };
+  }
+  workspaces = updated;
+  return { workspaces, success: true };
 });
 
 // --- Workspace Rename IPC (Sprint 3) ---
@@ -885,6 +1019,217 @@ ipcMain.handle("path:checkExists", (_event, dirPath: string): boolean => {
     return fs.existsSync(dirPath);
   } catch {
     return false;
+  }
+});
+
+// --- Home dir IPC (Sprint 1 UX Polish: dashboard tilde abbreviation) ---
+
+ipcMain.handle("workspace:homedir", (): string => {
+  return os.homedir();
+});
+
+// --- Open in Terminal IPC (Sprint 1 UX Polish) ---
+// Launches the macOS default Terminal app at the workspace path. This is
+// distinct from `workspace:openInMain` which opens the workspace as a group
+// inside the HyperTerm main window (footer "Open" button).
+
+ipcMain.handle("workspace:openInTerminal", async (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    return { error: "invalid_path" };
+  }
+  if (!fs.existsSync(workspacePath)) {
+    return { error: "path_missing" };
+  }
+  try {
+    await execFileAsync("open", ["-a", "Terminal", workspacePath]);
+    console.log(`[workspace] openInTerminal: opened in Terminal: ${workspacePath}`);
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[workspace] openInTerminal: failed: ${msg}`);
+    return { error: msg };
+  }
+});
+
+// --- Open in IDE IPC (Sprint 1 UX Polish) ---
+// Try Cursor first, then fall back to standard `open` (which lets macOS pick).
+// Returns { success: true } or { error: string } so renderer can toast appropriately.
+
+ipcMain.handle("workspace:openInIDE", async (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    return { error: "invalid_path" };
+  }
+  if (!fs.existsSync(workspacePath)) {
+    return { error: "path_missing" };
+  }
+
+  // First attempt: open with Cursor.app explicitly.
+  try {
+    await execFileAsync("open", ["-a", "Cursor", workspacePath]);
+    console.log(`[workspace] openInIDE: opened in Cursor: ${workspacePath}`);
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[workspace] openInIDE: Cursor open failed: ${msg}`);
+    return { error: "cursor_unavailable" };
+  }
+});
+
+// --- Reveal in Finder IPC (Sprint 1 UX Polish) ---
+
+ipcMain.handle("workspace:revealInFinder", async (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    return { error: "invalid_path" };
+  }
+  if (!fs.existsSync(workspacePath)) {
+    return { error: "path_missing" };
+  }
+  try {
+    // shell.openPath opens the directory itself in Finder; for a folder we
+    // prefer this over showItemInFolder (which would highlight the folder
+    // inside its parent — slightly less useful for a workspace folder).
+    const errStr = await shell.openPath(workspacePath);
+    if (errStr) {
+      console.warn(`[workspace] revealInFinder: shell.openPath returned error: ${errStr}`);
+      return { error: errStr };
+    }
+    console.log(`[workspace] revealInFinder: opened ${workspacePath}`);
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[workspace] revealInFinder: failed: ${msg}`);
+    return { error: msg };
+  }
+});
+
+// --- Git Flow IPC (Sprint 2 — Dashboard design v2) ---
+// Returns commit/branch/tag data sufficient to render the gitflow SVG diagram.
+// Bundles three pieces of git CLI output into one IPC roundtrip:
+//   - git log -n 20 --all  (with %D decoration for refs/tags)
+//   - git symbolic-ref --short HEAD (current branch)
+// Returns null on non-git / missing path / failure (renderer skips SVG).
+
+interface GitFlowCommit {
+  id: string;          // full hash
+  shortHash: string;
+  parents: string[];
+  author: string;
+  relTime: string;
+  msg: string;
+  branch: string | null; // primary branch ref pointing at this commit (if any)
+  tag: string | null;    // first tag pointing at this commit (if any)
+  isHead: boolean;
+}
+
+interface GitFlowData {
+  commits: GitFlowCommit[]; // newest first
+  branches: string[];       // unique branch names referenced
+  head: string | null;      // hash of HEAD
+  branch: string | null;    // current branch name
+  summary: string;          // "{N} commits · {branch}"
+}
+
+function parseGitDecoration(decoration: string): { branches: string[]; tags: string[]; isHead: boolean } {
+  // Decoration looks like: "HEAD -> main, origin/main, tag: v1.0, feature/foo"
+  const out = { branches: [] as string[], tags: [] as string[], isHead: false };
+  if (!decoration) return out;
+  const parts = decoration.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  for (const part of parts) {
+    if (part.startsWith("HEAD -> ")) {
+      out.isHead = true;
+      const ref = part.slice("HEAD -> ".length).trim();
+      if (ref) out.branches.push(ref);
+    } else if (part === "HEAD") {
+      out.isHead = true;
+    } else if (part.startsWith("tag: ")) {
+      out.tags.push(part.slice("tag: ".length).trim());
+    } else if (part.startsWith("origin/") || part.startsWith("upstream/") || part.includes("/HEAD")) {
+      // skip remote refs
+    } else {
+      out.branches.push(part);
+    }
+  }
+  return out;
+}
+
+ipcMain.handle("workspace:gitFlow", async (_event, workspacePath: string): Promise<GitFlowData | null> => {
+  if (!workspacePath || typeof workspacePath !== "string") return null;
+  if (!workspacePath.startsWith("/") || workspacePath.length < 2) return null;
+  if (!fs.existsSync(workspacePath)) return null;
+
+  try {
+    // Single git log call carries refs (%D) and parents (%P), so we only need
+    // one extra call for current branch.
+    const SEP = "\x1F";
+    const FIELDS = ["%H", "%h", "%P", "%an", "%cr", "%s", "%D"].join(SEP);
+    const [logResult, branchResult] = await Promise.all([
+      execFileAsync(
+        "git",
+        ["-C", workspacePath, "log", "--max-count=20", "--all", "--date-order", `--pretty=format:${FIELDS}`],
+        { encoding: "utf8", timeout: 8000, maxBuffer: 1024 * 1024 }
+      ),
+      execFileAsync(
+        "git",
+        ["-C", workspacePath, "symbolic-ref", "--short", "HEAD"],
+        { encoding: "utf8", timeout: 4000 }
+      ).catch(() => ({ stdout: "" })),
+    ]);
+
+    const stdout = logResult.stdout.trim();
+    if (!stdout) {
+      // Repo with no commits.
+      return null;
+    }
+
+    const currentBranch = branchResult.stdout.trim() || null;
+
+    const commits: GitFlowCommit[] = [];
+    const branchSet = new Set<string>();
+    let headHash: string | null = null;
+
+    for (const line of stdout.split("\n")) {
+      const parts = line.split(SEP);
+      if (parts.length < 6) continue;
+      const fullHash = parts[0]?.trim() ?? "";
+      const shortHash = parts[1]?.trim() ?? "";
+      const parentStr = parts[2]?.trim() ?? "";
+      const author = parts[3]?.trim() ?? "";
+      const relTime = parts[4]?.trim() ?? "";
+      const msg = parts[5] ?? "";
+      const decoration = parts[6] ?? "";
+      const parents = parentStr.length > 0 ? parentStr.split(/\s+/) : [];
+      const dec = parseGitDecoration(decoration);
+      const primaryBranch = dec.branches.length > 0 ? dec.branches[0] : null;
+      const firstTag = dec.tags.length > 0 ? dec.tags[0] : null;
+      if (primaryBranch) branchSet.add(primaryBranch);
+      if (dec.isHead) headHash = fullHash;
+      commits.push({
+        id: fullHash,
+        shortHash,
+        parents,
+        author,
+        relTime,
+        msg,
+        branch: primaryBranch,
+        tag: firstTag,
+        isHead: dec.isHead,
+      });
+    }
+
+    // Make sure current branch is in the set (even if no decoration was visible)
+    if (currentBranch) branchSet.add(currentBranch);
+
+    return {
+      commits,
+      branches: Array.from(branchSet),
+      head: headHash,
+      branch: currentBranch,
+      summary: `${commits.length} commits${currentBranch ? ` · ${currentBranch}` : ""}`,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`[workspace] gitFlow: failed at ${workspacePath}: ${msg}`);
+    return null;
   }
 });
 

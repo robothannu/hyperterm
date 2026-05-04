@@ -198,6 +198,40 @@ interface DashboardFileTreeResult {
   error?: string;
 }
 
+// Sprint 2 (Dashboard design v2): git flow diagram source data
+interface DashboardGitFlowCommit {
+  id: string;
+  shortHash: string;
+  parents: string[];
+  author: string;
+  relTime: string;
+  msg: string;
+  branch: string | null;
+  tag: string | null;
+  isHead: boolean;
+}
+
+interface DashboardGitFlowData {
+  commits: DashboardGitFlowCommit[];
+  branches: string[];
+  head: string | null;
+  branch: string | null;
+  summary: string;
+}
+
+// Sprint 3 (Dashboard design v2): discovery banner candidate
+interface DashboardDiscoveryCandidate {
+  absolutePath: string;
+  name: string;
+  root: string;
+}
+
+interface DashboardBatchAddResult {
+  workspaces: WorkspaceEntry[];
+  added: string[];
+  failed: { path: string; reason: string }[];
+}
+
 interface DashboardAPI {
   listWorkspaces(): Promise<WorkspaceEntry[]>;
   addWorkspace(): Promise<{ workspaces: WorkspaceEntry[]; duplicate: boolean; cancelled: boolean }>;
@@ -212,6 +246,18 @@ interface DashboardAPI {
   fileTree(workspacePath: string): Promise<DashboardFileTreeResult>;
   // Sprint 5: session state badges
   sessionState(workspacePath: string): Promise<{ open: boolean; harnessPhase: string | null }>;
+  // Sprint 2: archive toggle
+  archiveToggle(id: string, archived: boolean): Promise<{ workspaces: WorkspaceEntry[]; success: boolean }>;
+  // Sprint 1 UX Polish
+  homedir(): Promise<string>;
+  openInTerminal(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  openInIDE(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  revealInFinder(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  // Sprint 2 (Dashboard design v2): git flow diagram source data
+  gitFlow(workspacePath: string): Promise<DashboardGitFlowData | null>;
+  // Sprint 3 (Dashboard design v2): discovery banner
+  discoverCandidates(): Promise<DashboardDiscoveryCandidate[]>;
+  addWorkspacesBatch(paths: string[]): Promise<DashboardBatchAddResult>;
 }
 
 interface WorkspaceEntry {
@@ -219,6 +265,10 @@ interface WorkspaceEntry {
   name: string;
   absolutePath: string;
   addedAt: string;
+  // Sprint 2 optional fields
+  archived?: boolean;
+  iconColor?: string;
+  tags?: string[];
 }
 
 // Cross-module teardown helpers (defined in their respective modules,

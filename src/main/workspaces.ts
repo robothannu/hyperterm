@@ -6,12 +6,41 @@ export interface Workspace {
   name: string;
   absolutePath: string;
   addedAt: string;
+  // Optional fields added in Sprint 2 — always present after migration
+  archived?: boolean;
+  iconColor?: string;
+  tags?: string[];
 }
 
 type WorkspacesFile = {
   version: number;
   workspaces: Workspace[];
 };
+
+/**
+ * Idempotent migration: add optional Sprint 2 fields to existing workspaces.
+ * Only adds missing fields — never modifies existing keys.
+ */
+function migrateWorkspaces(workspaces: Workspace[]): { workspaces: Workspace[]; changed: boolean } {
+  let changed = false;
+  const migrated = workspaces.map((ws) => {
+    let updated = ws;
+    if (ws.archived === undefined) {
+      updated = { ...updated, archived: false };
+      changed = true;
+    }
+    if (ws.iconColor === undefined) {
+      updated = { ...updated, iconColor: "" };
+      changed = true;
+    }
+    if (ws.tags === undefined) {
+      updated = { ...updated, tags: [] };
+      changed = true;
+    }
+    return updated;
+  });
+  return { workspaces: migrated, changed };
+}
 
 let workspacesFilePath = "";
 
@@ -41,7 +70,13 @@ export function loadWorkspaces(): Workspace[] {
       return [];
     }
     console.log(`[workspaces] load: loaded ${parsed.workspaces.length} workspace(s) from ${workspacesFilePath}`);
-    return parsed.workspaces;
+    // Run idempotent migration to add Sprint 2 optional fields
+    const { workspaces: migrated, changed } = migrateWorkspaces(parsed.workspaces);
+    if (changed) {
+      console.log("[workspaces] load: migration applied — writing updated workspaces.json");
+      saveWorkspaces(migrated);
+    }
+    return migrated;
   } catch (err) {
     console.error("[workspaces] load: JSON parse error (corrupt file), falling back to []:", err);
     return [];
@@ -110,6 +145,28 @@ export function removeWorkspace(
   }
   const updated = existing.filter((w) => w.id !== id);
   saveWorkspaces(updated);
+  return updated;
+}
+
+/**
+ * Toggle archived status for a workspace by id.
+ * Returns updated list, or null if id not found.
+ */
+export function archiveToggleWorkspace(
+  existing: Workspace[],
+  id: string,
+  archived: boolean
+): Workspace[] | null {
+  const index = existing.findIndex((w) => w.id === id);
+  if (index === -1) {
+    console.warn(`[workspaces] archiveToggle: id not found: ${id}`);
+    return null;
+  }
+  const updated = existing.map((w, i) =>
+    i === index ? { ...w, archived } : w
+  );
+  saveWorkspaces(updated);
+  console.log(`[workspaces] archiveToggle: id=${id} archived=${archived}`);
   return updated;
 }
 
