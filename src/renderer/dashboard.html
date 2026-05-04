@@ -390,6 +390,7 @@
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 14px;
+      align-items: start;
     }
 
     @media (max-width: 1100px) {
@@ -713,32 +714,47 @@
     .gitflow-head .lg-dot {
       width: 7px; height: 7px; border-radius: 50%;
     }
-    .gitflow-svg {
+    .gitflow-scroll {
       width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 6px 10px 14px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--bg-4) transparent;
+    }
+    .gitflow-scroll::-webkit-scrollbar { height: 8px; }
+    .gitflow-scroll::-webkit-scrollbar-track { background: transparent; }
+    .gitflow-scroll::-webkit-scrollbar-thumb {
+      background: var(--bg-4);
+      border-radius: 4px;
+    }
+    .gitflow-scroll::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
+    .gitflow-svg {
       display: block;
-      padding: 4px 10px 12px;
+      /* Use intrinsic width/height attrs from JS — do not stretch.
+         Wider-than-card diagrams scroll horizontally inside .gitflow-scroll. */
     }
     .gitflow-svg .lane-label {
       font-family: "JetBrains Mono", monospace;
-      font-size: 9.5px;
+      font-size: 12px;
       fill: var(--fg-1);
-      font-weight: 500;
+      font-weight: 600;
     }
     .gitflow-svg .lane-line {
-      stroke: rgba(255,255,255,0.05);
-      stroke-dasharray: 2 3;
+      stroke: rgba(255,255,255,0.08);
+      stroke-dasharray: 3 4;
     }
     .gitflow-svg .commit-edge {
-      stroke: rgba(255,255,255,0.18);
-      stroke-width: 1.4;
+      stroke: rgba(255,255,255,0.28);
+      stroke-width: 1.8;
       fill: none;
     }
-    .gitflow-svg .commit-edge.merge { stroke: rgba(255,255,255,0.28); }
+    .gitflow-svg .commit-edge.merge { stroke: rgba(255,255,255,0.42); stroke-width: 2; }
     .gitflow-svg .tag {
       font-family: "JetBrains Mono", monospace;
-      font-size: 9.5px;
+      font-size: 11px;
       fill: var(--fg-0);
-      font-weight: 600;
+      font-weight: 700;
     }
     .gitflow-svg .tag-bg {
       fill: var(--bg-3);
@@ -750,15 +766,15 @@
     .gitflow-svg .commit circle {
       transition: r .15s, filter .15s;
     }
-    .gitflow-svg .commit:hover circle { filter: brightness(1.25); }
+    .gitflow-svg .commit:hover circle { filter: brightness(1.25); r: 9; }
     .gitflow-svg .commit.head circle {
       stroke: var(--fg-0);
-      stroke-width: 1.5;
+      stroke-width: 2;
     }
     .gitflow-svg .head-label {
       font-family: "JetBrains Mono", monospace;
-      font-size: 9px;
-      font-weight: 700;
+      font-size: 10.5px;
+      font-weight: 800;
       fill: var(--fg-0);
     }
 
@@ -953,6 +969,200 @@
       font-size: 14px;
       color: var(--fg-1);
       margin-bottom: 6px;
+    }
+
+    /* === Git Flow card trigger (compact button) === */
+    .gitflow-trigger {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 18px auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border: 0;
+      border-top: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.012), transparent);
+      color: var(--fg-2);
+      font-family: inherit;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.12s, color 0.12s;
+    }
+    .gitflow-trigger:hover {
+      background: linear-gradient(180deg, rgba(124,140,255,0.06), transparent);
+      color: var(--fg-0);
+    }
+    .gitflow-trigger .gf-trig-icon {
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+    }
+    .gitflow-trigger .gf-trig-label {
+      color: var(--fg-1);
+    }
+    .gitflow-trigger .gf-trig-summary {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10.5px;
+      text-transform: none;
+      letter-spacing: 0;
+      color: var(--fg-3);
+      font-weight: 400;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .gitflow-trigger .gf-trig-arrow {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 13px;
+      color: var(--accent);
+      transform: translateX(0);
+      transition: transform 0.15s;
+    }
+    .gitflow-trigger:hover .gf-trig-arrow { transform: translateX(3px); }
+
+    /* === Git Flow modal (zoom + scroll) === */
+    .gitflow-wrap { cursor: zoom-in; }
+    .gitflow-wrap:hover { background: linear-gradient(180deg, rgba(255,255,255,0.025), transparent); }
+
+    #gitflow-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(5,6,10,0.78);
+      backdrop-filter: blur(4px);
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+    }
+    #gitflow-modal.open { display: flex; }
+
+    #gitflow-modal .gf-dlg {
+      width: min(96vw, 1500px);
+      height: min(86vh, 900px);
+      background: var(--bg-1);
+      border: 1px solid var(--line-2);
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      overflow: hidden;
+    }
+
+    #gitflow-modal .gf-dlg-head {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #0f1116, transparent);
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 16px;
+    }
+
+    #gitflow-modal .gf-dlg-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg-0);
+      letter-spacing: 0.02em;
+    }
+
+    #gitflow-modal .gf-zoom-controls {
+      justify-self: center;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 3px;
+    }
+
+    #gitflow-modal .gf-zoom-btn,
+    #gitflow-modal .gf-zoom-btn-text {
+      height: 26px;
+      min-width: 30px;
+      padding: 0 10px;
+      background: transparent;
+      border: 0;
+      border-radius: 5px;
+      color: var(--fg-1);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #gitflow-modal .gf-zoom-btn-text {
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--fg-2);
+    }
+    #gitflow-modal .gf-zoom-btn:hover,
+    #gitflow-modal .gf-zoom-btn-text:hover {
+      background: var(--bg-3);
+      color: var(--fg-0);
+    }
+
+    #gitflow-modal .gf-zoom-label {
+      min-width: 56px;
+      text-align: center;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11.5px;
+      color: var(--fg-1);
+    }
+
+    #gitflow-modal .gf-zoom-sep {
+      width: 1px;
+      height: 18px;
+      background: var(--line);
+      margin: 0 4px;
+    }
+
+    #gitflow-modal .gf-dlg-close {
+      width: 30px;
+      height: 30px;
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--fg-2);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      font-size: 14px;
+    }
+    #gitflow-modal .gf-dlg-close:hover {
+      background: var(--bg-3);
+      color: var(--fg-0);
+    }
+
+    #gitflow-modal .gf-dlg-body {
+      overflow: auto;
+      background:
+        radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 1px) 0 0/24px 24px,
+        var(--bg-0);
+      position: relative;
+    }
+    #gitflow-modal .gf-dlg-body::-webkit-scrollbar { width: 10px; height: 10px; }
+    #gitflow-modal .gf-dlg-body::-webkit-scrollbar-track { background: transparent; }
+    #gitflow-modal .gf-dlg-body::-webkit-scrollbar-thumb {
+      background: var(--bg-4); border-radius: 5px;
+    }
+    #gitflow-modal .gf-dlg-body::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
+
+    #gitflow-modal .gf-canvas {
+      transform-origin: 0 0;
+      transition: transform 0.12s ease-out;
+      padding: 28px;
+      display: inline-block;
+    }
+    #gitflow-modal .gf-canvas .gitflow-svg {
+      display: block;
     }
 
     /* === Toast === */
@@ -1296,6 +1506,27 @@
           <button class="btn" id="discover-modal-cancel">Cancel</button>
           <button class="btn primary" id="discover-modal-confirm">Add selected</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sprint 2 polish: Git Flow zoom modal -->
+  <div id="gitflow-modal" role="dialog" aria-modal="true" aria-labelledby="gf-modal-title">
+    <div class="gf-dlg">
+      <div class="gf-dlg-head">
+        <div class="gf-dlg-title" id="gf-modal-title">Git Flow</div>
+        <div class="gf-zoom-controls">
+          <button class="gf-zoom-btn" id="gf-zoom-out" title="Zoom out (−)">−</button>
+          <span class="gf-zoom-label" id="gf-zoom-label">100%</span>
+          <button class="gf-zoom-btn" id="gf-zoom-in" title="Zoom in (+)">+</button>
+          <span class="gf-zoom-sep"></span>
+          <button class="gf-zoom-btn-text" id="gf-zoom-fit" title="Fit to screen">Fit</button>
+          <button class="gf-zoom-btn-text" id="gf-zoom-reset" title="Reset to 100% (0)">100%</button>
+        </div>
+        <button class="gf-dlg-close" id="gf-modal-close" aria-label="Close" title="Close (Esc)">&#x2715;</button>
+      </div>
+      <div class="gf-dlg-body" id="gf-modal-body">
+        <div class="gf-canvas" id="gf-canvas"></div>
       </div>
     </div>
   </div>

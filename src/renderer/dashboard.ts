@@ -1200,9 +1200,14 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
   var commits = laid.commits;
   if (lanes.length === 0 || commits.length === 0) return "";
 
-  var padL = 70, padR = 14, padT = 22, padB = 14;
-  var laneH = 30;
-  var colW = 28;
+  var padR = 16, padT = 30, padB = 18;
+  var laneH = 44;
+  var colW = 44;
+  // padL must accommodate the longest lane label pill so it doesn't clip out
+  // of the SVG on the left edge. label width formula: chars * 7.2 + 22 (rect)
+  // + 8 (gap from padL).
+  var maxLabelChars = lanes.reduce(function (m, l) { return Math.max(m, l.label.length); }, 0);
+  var padL = Math.max(96, Math.ceil(maxLabelChars * 7.2 + 22 + 14));
 
   var maxX = commits.reduce(function (m, c) { return Math.max(m, c.x); }, 0);
   var innerW = maxX * colW + colW + 40;
@@ -1222,11 +1227,11 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
     var y = laneY[l.key];
     var color = GITFLOW_LANE_COLORS[l.colorKey] || "#888";
     var bg = GITFLOW_LANE_BG[l.colorKey] || "rgba(255,255,255,0.05)";
-    var labelW = (l.label.length * 5.4) + 16;
+    var labelW = (l.label.length * 7.2) + 22;
     return ""
-      + `<line class="lane-line" x1="${padL + labelW / 2 - 4}" y1="${y}" x2="${W - padR}" y2="${y}"/>`
-      + `<rect x="${padL - labelW - 6}" y="${y - 9}" width="${labelW}" height="18" rx="9" fill="${bg}" stroke="${color}" stroke-opacity="0.4"/>`
-      + `<text x="${padL - labelW - 6 + labelW / 2}" y="${y + 3}" text-anchor="middle" class="lane-label" fill="${color}">${dashEsc(l.label)}</text>`;
+      + `<line class="lane-line" x1="${padL - 6}" y1="${y}" x2="${W - padR}" y2="${y}"/>`
+      + `<rect x="${padL - labelW - 8}" y="${y - 12}" width="${labelW}" height="24" rx="12" fill="${bg}" stroke="${color}" stroke-opacity="0.4"/>`
+      + `<text x="${padL - labelW - 8 + labelW / 2}" y="${y + 4}" text-anchor="middle" class="lane-label" fill="${color}">${dashEsc(l.label)}</text>`;
   }).join("");
 
   // Edges: parent → child, S-curve when crossing lanes, straight otherwise.
@@ -1257,25 +1262,25 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
   var commitSVG = commits.map(function (c) {
     var p = posByHash[c.id];
     var color = GITFLOW_LANE_COLORS[gitflowLaneKey(c.lane)] || "#888";
-    var r = c.isHead ? 6.5 : 5.5;
+    var r = c.isHead ? 9 : 7;
     var tagSVG = "";
     if (c.tag) {
-      var tw = c.tag.length * 5.4 + 12;
+      var tw = c.tag.length * 7.2 + 16;
       var tagX = p.x - tw / 2;
-      var tagY = padT - 18;
+      var tagY = padT - 24;
       tagSVG = ""
         + `<g transform="translate(${tagX}, ${tagY})">`
-        + `<path d="M0,0 H${tw} V11 L${tw / 2 + 3},14 L${tw / 2 - 3},14 L${tw / 2},17 L${tw / 2 - 3},14 L${tw / 2 - 3},14 H0 Z" class="tag-bg"/>`
-        + `<text x="${tw / 2}" y="8" text-anchor="middle" class="tag">${dashEsc(c.tag)}</text>`
-        + `<line x1="${tw / 2}" y1="17" x2="${tw / 2}" y2="${p.y - padT + 18 - 5}" stroke="${color}" stroke-opacity="0.4" stroke-dasharray="2 2"/>`
+        + `<path d="M0,0 H${tw} V14 L${tw / 2 + 4},18 L${tw / 2 - 4},18 L${tw / 2},22 L${tw / 2 - 4},18 L${tw / 2 - 4},18 H0 Z" class="tag-bg"/>`
+        + `<text x="${tw / 2}" y="10" text-anchor="middle" class="tag">${dashEsc(c.tag)}</text>`
+        + `<line x1="${tw / 2}" y1="22" x2="${tw / 2}" y2="${p.y - padT + 24 - 6}" stroke="${color}" stroke-opacity="0.4" stroke-dasharray="2 2"/>`
         + `</g>`;
     }
     var headSVG = "";
     if (c.isHead) {
       headSVG = ""
-        + `<g transform="translate(${p.x + 10}, ${p.y - 10})">`
-        + `<rect x="0" y="0" width="34" height="14" rx="3" fill="${color}" fill-opacity="0.15" stroke="${color}" stroke-opacity="0.5"/>`
-        + `<text x="17" y="10" text-anchor="middle" class="head-label" fill="${color}">HEAD</text>`
+        + `<g transform="translate(${p.x + 13}, ${p.y - 11})">`
+        + `<rect x="0" y="0" width="42" height="18" rx="4" fill="${color}" fill-opacity="0.15" stroke="${color}" stroke-opacity="0.5"/>`
+        + `<text x="21" y="13" text-anchor="middle" class="head-label" fill="${color}">HEAD</text>`
         + `</g>`;
     }
     var titleText = c.msg ? `${c.shortHash} — ${c.msg}` : c.shortHash;
@@ -1300,9 +1305,10 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
     + `<span>Git Flow · ${dashEsc(data.summary || "")}</span>`
     + `<span class="legend">${legendItems}</span>`
     + `</div>`
-    + `<svg class="gitflow-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`
+    + `<div class="gitflow-scroll">`
+    + `<svg class="gitflow-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
     + `<defs>`
-    + `<marker id="${safeArrowId}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">`
+    + `<marker id="${safeArrowId}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">`
     + `<path d="M0,0 L8,4 L0,8 Z" fill="rgba(255,255,255,0.35)"/>`
     + `</marker>`
     + `</defs>`
@@ -1310,10 +1316,13 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
     + edgeSVG
     + commitSVG
     + `</svg>`
+    + `</div>`
     + `</div>`;
 }
 
-// Inject (or clear) gitflow SVG into the card's `.card-expand` host.
+// Inject (or clear) gitflow trigger button into the card's `.card-expand` host.
+// The full SVG diagram is rendered only inside the zoom modal. The card shows
+// a compact "View Git Flow →" trigger to keep the card density low.
 // `data === null` → leave the host empty (graceful degrade for non-git / failure).
 function paintGitflowInto(workspaceId: string, data: DashboardGitFlowData | null): void {
   var host = document.getElementById("ce-" + workspaceId);
@@ -1322,7 +1331,96 @@ function paintGitflowInto(workspaceId: string, data: DashboardGitFlowData | null
     host.innerHTML = "";
     return;
   }
-  host.innerHTML = renderGitflowSVG(workspaceId, data);
+  var summary = data.summary || (data.commits.length + " commits");
+  host.innerHTML = ""
+    + `<button class="gitflow-trigger" type="button" data-action="open-gitflow" data-id="${dashEsc(workspaceId)}">`
+    +   `<span class="gf-trig-icon">`
+    +     `<svg width="14" height="14" viewBox="0 0 16 16" fill="none">`
+    +       `<circle cx="4" cy="4" r="1.6" fill="currentColor"/>`
+    +       `<circle cx="4" cy="12" r="1.6" fill="currentColor"/>`
+    +       `<circle cx="12" cy="8" r="1.6" fill="currentColor"/>`
+    +       `<path d="M4 5.5v5M5.5 12h3a2.5 2.5 0 002.5-2.5v0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/>`
+    +     `</svg>`
+    +   `</span>`
+    +   `<span class="gf-trig-label">Git Flow</span>`
+    +   `<span class="gf-trig-summary">${dashEsc(summary)}</span>`
+    +   `<span class="gf-trig-arrow">&rarr;</span>`
+    + `</button>`;
+  var btn = host.querySelector(".gitflow-trigger") as HTMLElement | null;
+  if (btn) {
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation(); // don't toggle card collapse
+      openGitflowModal(workspaceId);
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Git Flow zoom modal
+// ---------------------------------------------------------------------------
+
+var _gitflowModalScale: number = 1;
+var _gitflowModalWorkspaceId: string | null = null;
+var GITFLOW_ZOOM_MIN = 0.4;
+var GITFLOW_ZOOM_MAX = 4;
+var GITFLOW_ZOOM_STEP = 0.2;
+
+function openGitflowModal(workspaceId: string): void {
+  var data = _gitFlowCache.get(workspaceId);
+  if (!data) return;
+  var modal = document.getElementById("gitflow-modal");
+  var canvas = document.getElementById("gf-canvas");
+  var titleEl = document.getElementById("gf-modal-title");
+  if (!modal || !canvas) return;
+  _gitflowModalWorkspaceId = workspaceId;
+  // Find ws name for title
+  var ws = _workspaces.find(function (w) { return w.id === workspaceId; });
+  if (titleEl) {
+    titleEl.textContent = "Git Flow — " + (ws ? ws.name : workspaceId) + " · " + (data.summary || "");
+  }
+  canvas.innerHTML = renderGitflowSVG("modal-" + workspaceId, data);
+  // Default to fit-to-screen on open so 큰 다이어그램도 한눈에 들어옴.
+  modal.classList.add("open");
+  // Defer to next frame so the dialog has measured.
+  requestAnimationFrame(function () {
+    setGitflowZoomFit();
+  });
+}
+
+function closeGitflowModal(): void {
+  var modal = document.getElementById("gitflow-modal");
+  if (!modal) return;
+  modal.classList.remove("open");
+  _gitflowModalWorkspaceId = null;
+  _gitflowModalScale = 1;
+  var canvas = document.getElementById("gf-canvas");
+  if (canvas) canvas.innerHTML = "";
+}
+
+function setGitflowZoom(scale: number): void {
+  var clamped = Math.max(GITFLOW_ZOOM_MIN, Math.min(GITFLOW_ZOOM_MAX, scale));
+  _gitflowModalScale = clamped;
+  var canvas = document.getElementById("gf-canvas");
+  var label = document.getElementById("gf-zoom-label");
+  if (canvas) canvas.style.transform = "scale(" + clamped + ")";
+  if (label) label.textContent = Math.round(clamped * 100) + "%";
+}
+
+function setGitflowZoomFit(): void {
+  var body = document.getElementById("gf-modal-body");
+  var canvas = document.getElementById("gf-canvas");
+  if (!body || !canvas) return;
+  var svg = canvas.querySelector("svg.gitflow-svg") as SVGSVGElement | null;
+  if (!svg) return;
+  var natW = svg.width.baseVal.value || parseFloat(svg.getAttribute("width") || "0");
+  var natH = svg.height.baseVal.value || parseFloat(svg.getAttribute("height") || "0");
+  if (!natW || !natH) return;
+  // 56 = approx padding (28*2). Subtract from body inner size before fit.
+  var availW = body.clientWidth - 56;
+  var availH = body.clientHeight - 56;
+  var fit = Math.min(availW / natW, availH / natH);
+  // Cap fit at 2.0 — for very small diagrams, oversizing looks bad.
+  setGitflowZoom(Math.min(fit, 2));
 }
 
 // Async fetch + cache. Idempotent — multiple calls coalesce via the inflight
@@ -1706,7 +1804,47 @@ function initKeyboardShortcuts(): void {
       var inp = document.getElementById("search-input") as HTMLInputElement | null;
       if (inp) inp.focus();
     }
+    // Gitflow modal shortcuts (only when modal is open)
+    if (_gitflowModalWorkspaceId) {
+      if (e.key === "Escape") { e.preventDefault(); closeGitflowModal(); return; }
+      if (e.key === "+" || e.key === "=") { e.preventDefault(); setGitflowZoom(_gitflowModalScale + GITFLOW_ZOOM_STEP); return; }
+      if (e.key === "-" || e.key === "_") { e.preventDefault(); setGitflowZoom(_gitflowModalScale - GITFLOW_ZOOM_STEP); return; }
+      if (e.key === "0") { e.preventDefault(); setGitflowZoom(1); return; }
+      if (e.key === "f" || e.key === "F") {
+        // Avoid clobbering Cmd/Ctrl+F search shortcut
+        if (!e.metaKey && !e.ctrlKey) { e.preventDefault(); setGitflowZoomFit(); return; }
+      }
+    }
   });
+}
+
+function initGitflowModalControls(): void {
+  var modal = document.getElementById("gitflow-modal");
+  if (!modal) return;
+  // Click backdrop (overlay) outside .gf-dlg → close
+  modal.addEventListener("click", function (e) {
+    if (e.target === modal) closeGitflowModal();
+  });
+  var closeBtn = document.getElementById("gf-modal-close");
+  if (closeBtn) closeBtn.addEventListener("click", closeGitflowModal);
+  var zin = document.getElementById("gf-zoom-in");
+  if (zin) zin.addEventListener("click", function () { setGitflowZoom(_gitflowModalScale + GITFLOW_ZOOM_STEP); });
+  var zout = document.getElementById("gf-zoom-out");
+  if (zout) zout.addEventListener("click", function () { setGitflowZoom(_gitflowModalScale - GITFLOW_ZOOM_STEP); });
+  var zfit = document.getElementById("gf-zoom-fit");
+  if (zfit) zfit.addEventListener("click", setGitflowZoomFit);
+  var zreset = document.getElementById("gf-zoom-reset");
+  if (zreset) zreset.addEventListener("click", function () { setGitflowZoom(1); });
+  // Wheel + Cmd/Ctrl = zoom
+  var body = document.getElementById("gf-modal-body");
+  if (body) {
+    body.addEventListener("wheel", function (e) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      var delta = e.deltaY > 0 ? -GITFLOW_ZOOM_STEP : GITFLOW_ZOOM_STEP;
+      setGitflowZoom(_gitflowModalScale + delta);
+    }, { passive: false });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1716,6 +1854,7 @@ function initKeyboardShortcuts(): void {
 if (typeof window !== "undefined") {
   loadPrefs();
   initKeyboardShortcuts();
+  initGitflowModalControls();
 
   // Wire toolbar buttons
   var addBtn = document.getElementById("btn-add-workspace") as HTMLButtonElement | null;
