@@ -989,8 +989,12 @@ ipcMain.handle("workspace:openInMain", async (_event, workspacePath: string) => 
 // runs `claude`).
 //
 // Policy decisions:
-//   - Re-open: ALWAYS create a new group/tab. We do not dedup against an
-//     existing tab with the same cwd; each click = one new claude session.
+//   - Re-open dedup: handled in renderer (group:openWithCwdWithClaude). When
+//     taskText is empty (Run with Claude), the renderer switches to an
+//     existing claude tab whose claudeCwd === requestedPath. When taskText
+//     is present (Ask Claude), the renderer always creates a new tab.
+//     Main process unconditionally focuses the window and forwards the
+//     event; the dedup decision lives next to tabMap (single source).
 //   - Missing CLI: pre-check via PtyManager.isClaudeAvailable(). If missing,
 //     return error WITHOUT focusing/creating any group. Caller toasts.
 //   - SECURITY: spawn argv has no user-controlled string (literal "claude").

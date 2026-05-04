@@ -186,9 +186,17 @@ async function pollAgentStatus(): Promise<void> {
     recordAgentIpcFailure();
   }
 
-  // Update each pane's agentStatus + pane header marker only
-  // (setSidebarPaneRowState is NOT called here — that is hook-state's responsibility)
-  let activeTabHasAgent = false;
+  // Update each pane's agentStatus + pane header marker.
+  // Aggregate per-tab running state so every tab's sidebar marker
+  // (active or inactive) is refreshed — otherwise inactive tabs get stuck
+  // in "running" forever once they had any running pane.
+  // (setSidebarPaneRowState is NOT called here — that is hook-state's responsibility.)
+  const tabHasAgent = new Map<number, boolean>();
+  // Seed every known tab so tabs whose panes are all idle still get a clear-update.
+  for (const tabId of tabMap.keys()) {
+    tabHasAgent.set(tabId, false);
+  }
+
   for (let i = 0; i < allEntries.length; i++) {
     const { tabId, leaf } = allEntries[i];
     const raw = results[i];
@@ -196,11 +204,15 @@ async function pollAgentStatus(): Promise<void> {
     const isRunning = result?.isClaudeRunning ?? false;
     prevAgentRunning.set(leaf.ptyId, isRunning);
     setPaneAgentStatus(leaf, isRunning);
-    if (tabId === activeTabId && isRunning) activeTabHasAgent = true;
+    if (isRunning) tabHasAgent.set(tabId, true);
   }
 
-  // Sidebar top marker: active tab only
-  updateSidebarAgentMarker(activeTabId, activeTabHasAgent);
+  // Sidebar top marker: refresh every tab (active + inactive) uniformly.
+  // updateSidebarAgentMarker preserves hook-state-managed states (waiting/done)
+  // — it only flips running→idle when hasAgent=false, never overwriting waiting.
+  for (const [tabId, hasAgent] of tabHasAgent.entries()) {
+    updateSidebarAgentMarker(tabId, hasAgent);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -29,6 +29,13 @@ interface Tab {
   root: PaneNode;
   container: HTMLElement;
   focusedPtyId: number;
+  // Sprint (Run with Claude polish): if this tab/group was created via the
+  // "Run with Claude" footer button, the workspace cwd it was opened with is
+  // stored here for dedup. undefined for normal terminals. Used by
+  // onOpenGroupWithCwdWithClaude to switch to an existing claude tab instead
+  // of spawning a duplicate. NOTE: only set for taskText-less opens — Ask
+  // Claude (with a prompt) always creates a new tab.
+  claudeCwd?: string;
 }
 
 // Persistence types
@@ -49,6 +56,12 @@ interface SavedTab {
   cluster?: string;
   layout: SavedPaneNode;
   layoutPreset?: string;
+  // Sprint (Run with Claude polish): persisted so claude-tab dedup survives
+  // app restart. PTYs themselves don't survive restart, but the group meta
+  // does — when this tab restores, its claudeCwd is repopulated and a
+  // subsequent "Run with Claude" click will switch to it instead of creating
+  // a duplicate.
+  claudeCwd?: string;
 }
 interface SavedStateV2 {
   version: 3;
