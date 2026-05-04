@@ -574,12 +574,30 @@ function populateCardData(m: CardMeta): void {
   }
 
   if (m.nextSteps.length > 0) {
-    var firstTodo = m.nextSteps[0];
+    // Sprint 2 (Ask Claude per nextStep): each <li> gets an inline "Ask Claude"
+    // button on the right. The raw nextStep string is NOT embedded in the
+    // markup; we store only its index in `data-todo-idx` and look up
+    // `m.nextSteps[idx]` at click time so metacharacters/newlines/emoji never
+    // pass through HTML serialization.
+    var renderTodoLi = function (step: string, idx: number, extra: boolean): string {
+      var cls = extra ? "todo-item todo-extra" : "todo-item";
+      var styleAttr = extra ? ' style="display:none"' : "";
+      return (
+        '<li class="' + cls + '"' + styleAttr + '>' +
+          '<span class="todo-text">' + mdInline(step) + '</span>' +
+          '<button type="button" class="todo-ask-btn" ' +
+            'data-action="ask-claude-todo" ' +
+            'data-path="' + dashEsc(m.ws.absolutePath) + '" ' +
+            'data-todo-idx="' + idx + '" ' +
+            'title="Ask Claude about this step">Ask Claude</button>' +
+        '</li>'
+      );
+    };
+    var firstHTML = renderTodoLi(m.nextSteps[0], 0, false);
     var moreTodos = m.nextSteps.slice(1);
     var moreCount = moreTodos.length;
-    var firstHTML = `<li class="todo-item"><span>${mdInline(firstTodo)}</span></li>`;
     var moreItemsHTML = moreCount > 0
-      ? moreTodos.map((step) => `<li class="todo-item todo-extra" style="display:none"><span>${mdInline(step)}</span></li>`).join("")
+      ? moreTodos.map((step, i) => renderTodoLi(step, i + 1, true)).join("")
       : "";
     var toggleId = "todo-toggle-" + m.ws.id;
     var expandHTML = moreCount > 0
@@ -619,6 +637,33 @@ function populateCardData(m: CardMeta): void {
         tEl.textContent = newExpanded ? "Show less" : "+" + moreCount2 + " more";
       });
     })(toggleEl);
+  }
+
+  // Sprint 2: Wire inline "Ask Claude" buttons per nextStep. Each click
+  //   - stops propagation so the card-level expand toggle does NOT fire
+  //   - looks up the raw nextStep text via index from m.nextSteps (raw text
+  //     never travels through HTML — protects against quote breakage)
+  //   - calls handleOpenWithClaude(path, taskText), same code path as the
+  //     footer "Claude" button but with prompt forwarded as positional argv.
+  var listEl = document.getElementById("todo-list-" + m.ws.id);
+  if (listEl) {
+    var capturedNextSteps = m.nextSteps.slice(); // freeze ref for closure
+    var capturedPath = m.ws.absolutePath;
+    listEl.querySelectorAll(".todo-ask-btn").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        var btn = e.currentTarget as HTMLElement;
+        var idxStr = btn.getAttribute("data-todo-idx") || "";
+        var idx = parseInt(idxStr, 10);
+        if (!Number.isFinite(idx) || idx < 0 || idx >= capturedNextSteps.length) {
+          console.warn("[dashboard] todo-ask-btn: invalid idx", idxStr);
+          return;
+        }
+        var taskText = capturedNextSteps[idx];
+        if (typeof taskText !== "string" || taskText.length === 0) return;
+        void handleOpenWithClaude(capturedPath, taskText);
+      });
+    });
   }
 }
 
@@ -991,9 +1036,21 @@ async function handleOpen(workspacePath: string): Promise<void> {
 // group inside the HyperTerm main window with `claude` running as the initial
 // PTY's foreground command. If the CLI is missing the main IPC returns
 // { error: "claude_missing" } and we toast without focusing the main window.
-async function handleOpenWithClaude(workspacePath: string): Promise<void> {
+//
+// Sprint 2: optional `taskText` is forwarded through IPC. Eventually it lands
+// in pty-manager as a positional argv to zsh, then becomes claude's first CLI
+// arg. There is NO shell interpolation anywhere along the path, so any
+// metacharacters (`;`, `$()`, backticks, `&&`, ...) inside taskText are
+// preserved as a literal string and never executed.
+async function handleOpenWithClaude(
+  workspacePath: string,
+  taskText?: string,
+): Promise<void> {
   try {
-    var result = await window.dashboardAPI!.openInMainWithClaude(workspacePath);
+    var result = await window.dashboardAPI!.openInMainWithClaude(
+      workspacePath,
+      taskText,
+    );
     if (result.error) {
       if (result.error === "path_missing") {
         showDashboardToast("Folder not found on disk.", "warn");

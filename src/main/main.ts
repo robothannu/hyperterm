@@ -362,12 +362,18 @@ ipcMain.handle(
 // then drops into an interactive zsh after claude exits. Pre-check
 // `claude` availability via main process before letting renderer call
 // this — caller (renderer) can short-circuit and toast.
+//
+// Sprint 2: optional `taskText` is forwarded to PtyManager which passes it
+// as a *positional argv* to zsh (not interpolated into the -c script).
+// Metacharacters in taskText are NOT shell-evaluated.
 ipcMain.handle(
   "pty:createWithClaude",
-  (_event, cols: number, rows: number, cwd?: string) => {
+  (_event, cols: number, rows: number, cwd?: string, taskText?: string) => {
     if (!isValidDimension(cols, rows)) {
       throw new Error(`Invalid dimensions: cols=${cols}, rows=${rows}`);
     }
+    const safeTaskText =
+      typeof taskText === "string" && taskText.length > 0 ? taskText : undefined;
     const result = PtyManager.createSessionWithClaude(
       cols,
       rows,
@@ -378,6 +384,7 @@ ipcMain.handle(
         mainWindow?.webContents.send("pty:exit", sessionId, exitCode);
       },
       cwd,
+      safeTaskText,
     );
     return result; // { id, sessionKey }
   }
@@ -987,7 +994,7 @@ ipcMain.handle("workspace:openInMain", async (_event, workspacePath: string) => 
 //   - Missing CLI: pre-check via PtyManager.isClaudeAvailable(). If missing,
 //     return error WITHOUT focusing/creating any group. Caller toasts.
 //   - SECURITY: spawn argv has no user-controlled string (literal "claude").
-ipcMain.handle("workspace:openInMainWithClaude", async (_event, workspacePath: string) => {
+ipcMain.handle("workspace:openInMainWithClaude", async (_event, workspacePath: string, taskText?: string) => {
   if (!workspacePath || typeof workspacePath !== "string") {
     console.warn("[workspace] openInMainWithClaude: invalid path");
     return { error: "invalid_path" };
@@ -1029,8 +1036,15 @@ ipcMain.handle("workspace:openInMainWithClaude", async (_event, workspacePath: s
   mainWindow!.show();
 
   const normalizedPath = path.resolve(workspacePath);
-  console.log(`[workspace] openInMainWithClaude: sending group:openWithCwdWithClaude for ${normalizedPath}`);
-  mainWindow!.webContents.send("group:openWithCwdWithClaude", { path: normalizedPath });
+  // Sprint 2: taskText (optional) is forwarded as-is to renderer; eventually
+  // passes through to zsh via positional argv (no shell interpolation).
+  const safeTaskText =
+    typeof taskText === "string" && taskText.length > 0 ? taskText : undefined;
+  console.log(`[workspace] openInMainWithClaude: sending group:openWithCwdWithClaude for ${normalizedPath}${safeTaskText ? ` (with taskText, len=${safeTaskText.length})` : ""}`);
+  mainWindow!.webContents.send("group:openWithCwdWithClaude", {
+    path: normalizedPath,
+    taskText: safeTaskText,
+  });
 
   return { success: true };
 });

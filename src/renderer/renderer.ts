@@ -174,7 +174,7 @@ function shortBranchName(b: string): string {
 async function createPaneSession(
   parentElement: HTMLElement,
   cwd?: string,
-  options?: { runWithClaude?: boolean }
+  options?: { runWithClaude?: boolean; claudePrompt?: string }
 ): Promise<PaneLeaf> {
   const paneElement = document.createElement("div");
   paneElement.className = "pane-leaf";
@@ -271,7 +271,12 @@ async function createPaneSession(
 
   try {
     const result = options?.runWithClaude
-      ? await window.terminalAPI.createPtyWithClaude(cols, rows, cwd)
+      ? await window.terminalAPI.createPtyWithClaude(
+          cols,
+          rows,
+          cwd,
+          options?.claudePrompt,
+        )
       : await window.terminalAPI.createPty(cols, rows, cwd);
     ptyId = result.id;
     sessionKey = result.sessionKey;
@@ -401,7 +406,7 @@ async function createPaneSession(
 async function createNewTab(
   label?: string,
   cwd?: string,
-  options?: { runWithClaude?: boolean }
+  options?: { runWithClaude?: boolean; claudePrompt?: string }
 ): Promise<number | null> {
   const displayLabel = label || `Terminal ${sessionCounter}`;
 
@@ -1102,17 +1107,27 @@ window.terminalAPI.onOpenGroupWithCwd(async (payload: { path: string }) => {
 // Always creates a NEW tab (group) for the workspace whose initial PTY runs
 // `claude`. We deliberately do NOT dedup against existing tabs — each click
 // of the dashboard "Claude" footer button = one new claude session.
-window.terminalAPI.onOpenGroupWithCwdWithClaude(async (payload: { path: string }) => {
+window.terminalAPI.onOpenGroupWithCwdWithClaude(async (payload: { path: string; taskText?: string }) => {
   const requestedPath = payload?.path;
   if (!requestedPath || typeof requestedPath !== "string") {
     console.warn("[renderer] group:openWithCwdWithClaude: invalid payload", payload);
     return;
   }
 
-  console.log(`[renderer] group:openWithCwdWithClaude: requested path=${requestedPath}`);
+  // Sprint 2: optional prompt to pass through to `claude "$@"` as a positional
+  // argv. Renderer does NO shell quoting; the value is forwarded as-is.
+  const promptText =
+    typeof payload.taskText === "string" && payload.taskText.length > 0
+      ? payload.taskText
+      : undefined;
+
+  console.log(`[renderer] group:openWithCwdWithClaude: requested path=${requestedPath}${promptText ? ` (with prompt, len=${promptText.length})` : ""}`);
 
   const folderName = requestedPath.split("/").filter(Boolean).pop() || "Workspace";
-  const tabId = await createNewTab(folderName, requestedPath, { runWithClaude: true });
+  const tabId = await createNewTab(folderName, requestedPath, {
+    runWithClaude: true,
+    claudePrompt: promptText,
+  });
   if (tabId === null) {
     showToast("Failed to open Claude session.", "error");
     return;

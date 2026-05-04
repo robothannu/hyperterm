@@ -51,11 +51,15 @@ export interface TerminalAPI {
     rows: number,
     cwd?: string
   ): Promise<{ id: number; sessionKey: string }>;
-  // Sprint: Run with Claude
+  // Sprint: Run with Claude. Sprint 2 adds optional `taskText` — when present,
+  // it is forwarded to main and finally to zsh as a positional argv (NOT
+  // interpolated into the -c script). Metacharacters in taskText are not
+  // shell-evaluated.
   createPtyWithClaude(
     cols: number,
     rows: number,
-    cwd?: string
+    cwd?: string,
+    taskText?: string
   ): Promise<{ id: number; sessionKey: string }>;
   writePty(id: number, data: string): void;
   resizePty(id: number, cols: number, rows: number): void;
@@ -119,7 +123,10 @@ export interface TerminalAPI {
   onOpenGroupWithCwd(callback: (payload: { path: string }) => void): void;
 
   // --- group:openWithCwdWithClaude (Sprint: Run with Claude) ---
-  onOpenGroupWithCwdWithClaude(callback: (payload: { path: string }) => void): void;
+  // Sprint 2: payload may carry optional `taskText` for "Ask Claude per nextStep".
+  onOpenGroupWithCwdWithClaude(
+    callback: (payload: { path: string; taskText?: string }) => void
+  ): void;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -136,9 +143,10 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   createPtyWithClaude: (
     cols: number,
     rows: number,
-    cwd?: string
+    cwd?: string,
+    taskText?: string
   ): Promise<{ id: number; sessionKey: string }> => {
-    return ipcRenderer.invoke("pty:createWithClaude", cols, rows, cwd);
+    return ipcRenderer.invoke("pty:createWithClaude", cols, rows, cwd, taskText);
   },
   writePty: (id: number, data: string): void => {
     ipcRenderer.send("pty:write", id, data);
@@ -281,8 +289,9 @@ contextBridge.exposeInMainWorld("terminalAPI", {
 
   // --- group:openWithCwdWithClaude (Sprint: Run with Claude) ---
   // Like onOpenGroupWithCwd but the new tab's initial PTY runs `claude`.
+  // Sprint 2: payload may carry optional `taskText` for the prompt.
   onOpenGroupWithCwdWithClaude: (
-    callback: (payload: { path: string }) => void
+    callback: (payload: { path: string; taskText?: string }) => void
   ): void => {
     ipcRenderer.removeAllListeners("group:openWithCwdWithClaude");
     ipcRenderer.on("group:openWithCwdWithClaude", (_event, payload) => callback(payload));

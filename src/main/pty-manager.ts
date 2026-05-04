@@ -107,8 +107,16 @@ export function createSession(
  *   2. `claude` runs in the foreground.
  *   3. After claude exits the user keeps an interactive shell in the cwd.
  *
- * SECURITY: argv contains NO user-controlled string. The literal command
- * `claude; exec zsh -i` is hardcoded. cwd is validated like createSession.
+ * Sprint 2 (Ask Claude per nextStep): when `taskText` is provided, the prompt
+ * is passed as a *positional argument* to zsh — NEVER interpolated into the
+ * `-c` script string. The script uses `"$@"` which zsh expands to the
+ * positional args as separate, already-quoted argv elements; metacharacters
+ * like `;`, `$(...)`, backticks, `&&`, `|` inside taskText are preserved as
+ * a literal single argv string handed to the claude binary.
+ *
+ * SECURITY: the `-c` script is a hardcoded literal. The only user-controlled
+ * value (`taskText`) reaches the spawned process via argv[positional], not
+ * via shell parsing. cwd is validated like createSession.
  *
  * If `claude` is not installed/resolvable, `zsh -i -c` exits with code 127
  * and the second `exec zsh -i` step never runs — the PTY exits and the
@@ -121,6 +129,7 @@ export function createSessionWithClaude(
   onData: (id: number, data: string) => void,
   onExit: (id: number, exitCode: number) => void,
   cwd?: string,
+  taskText?: string,
 ): { id: number; sessionKey: string } {
   const id = nextId++;
   const sessionKey = `session-${id}`;
@@ -137,7 +146,16 @@ export function createSessionWithClaude(
   // Force zsh on macOS for `claude` shell-function resolution. On non-macOS
   // we fall back to the user's default shell + interactive flags.
   const shell = platform() === "darwin" ? "/bin/zsh" : getDefaultShell();
-  const args = ["-i", "-c", "claude; exec zsh -i"];
+  // Two script variants — both are HARDCODED literals:
+  //   - With taskText:    `claude "$@"; exec zsh -i` — `"$@"` expands to the
+  //     positional args (we pass exactly one: taskText). Metacharacters in
+  //     taskText are NOT re-evaluated; they reach claude as one argv string.
+  //   - Without taskText: `claude; exec zsh -i` (Sprint 1 path, unchanged).
+  const hasTask =
+    typeof taskText === "string" && taskText.length > 0;
+  const args = hasTask
+    ? ["-i", "-c", 'claude "$@"; exec zsh -i', "_", taskText as string]
+    : ["-i", "-c", "claude; exec zsh -i"];
 
   const proc = pty.spawn(shell, args, {
     name: "xterm-256color",

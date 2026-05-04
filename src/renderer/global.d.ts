@@ -44,10 +44,13 @@ interface TerminalAPI {
     cwd?: string
   ): Promise<{ id: number; sessionKey: string }>;
   // Sprint: Run with Claude — spawns a PTY whose foreground command is `claude`.
+  // Sprint 2: optional `taskText` becomes claude's first CLI arg (positional argv,
+  // not interpolated into any shell -c string).
   createPtyWithClaude(
     cols: number,
     rows: number,
-    cwd?: string
+    cwd?: string,
+    taskText?: string
   ): Promise<{ id: number; sessionKey: string }>;
   writePty(id: number, data: string): void;
   resizePty(id: number, cols: number, rows: number): void;
@@ -125,7 +128,10 @@ interface TerminalAPI {
   onOpenGroupWithCwd(callback: (payload: { path: string }) => void): void;
 
   // --- group:openWithCwdWithClaude (Sprint: Run with Claude) ---
-  onOpenGroupWithCwdWithClaude(callback: (payload: { path: string }) => void): void;
+  // Sprint 2: payload may include optional taskText for "Ask Claude per nextStep".
+  onOpenGroupWithCwdWithClaude(
+    callback: (payload: { path: string; taskText?: string }) => void
+  ): void;
 }
 
 interface SubagentAgent {
@@ -252,7 +258,12 @@ interface DashboardAPI {
   // Sprint: Run with Claude — opens workspace as new group + runs `claude` in initial PTY.
   // Pre-checks claude availability; if missing returns { error: "claude_missing" } and
   // does NOT focus/create the main window.
-  openInMainWithClaude(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  // Sprint 2: optional `taskText` is passed as claude's prompt argument (safe argv path,
+  // no shell interpolation).
+  openInMainWithClaude(
+    workspacePath: string,
+    taskText?: string
+  ): Promise<{ success?: boolean; error?: string }>;
   // Sprint: Run with Claude — checks if `claude` is resolvable from interactive zsh.
   claudeCheckInstalled(): Promise<boolean>;
   // Sprint 4

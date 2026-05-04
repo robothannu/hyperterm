@@ -155,8 +155,19 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   // running in the initial PTY. Returns { error: "claude_missing" } if
   // the CLI is not resolvable; main window is not focused/created in
   // that case.
-  openInMainWithClaude: (workspacePath: string): Promise<OpenInMainResult> => {
-    return ipcRenderer.invoke("workspace:openInMainWithClaude", workspacePath);
+  // Sprint 2: optional `taskText` is forwarded as a prompt to claude. The
+  // string travels IPC → main → renderer → terminalAPI.createPtyWithClaude
+  // → pty.spawn argv (positional). It is NEVER spliced into a shell -c
+  // string, so metacharacters in taskText are never shell-evaluated.
+  openInMainWithClaude: (
+    workspacePath: string,
+    taskText?: string,
+  ): Promise<OpenInMainResult> => {
+    return ipcRenderer.invoke(
+      "workspace:openInMainWithClaude",
+      workspacePath,
+      taskText,
+    );
   },
 
   claudeCheckInstalled: (): Promise<boolean> => {
