@@ -995,6 +995,9 @@ async function handleArchiveToggle(id: string, archived: boolean): Promise<void>
 
 async function handleRefreshAll(): Promise<void> {
   console.log("[dashboard] refresh all");
+  // Drop cached gitflow data so re-expand re-fetches fresh git state.
+  _gitFlowCache.clear();
+  _gitFlowInflight.clear();
   // Sprint 3: re-scan discovery candidates so banner reflects newly-cloned repos.
   await fetchDiscoveryCandidates();
   await loadAndRender();
