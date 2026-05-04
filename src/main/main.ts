@@ -357,6 +357,38 @@ ipcMain.handle(
   }
 );
 
+// --- pty:createWithClaude IPC (Sprint: Run with Claude) ---
+// Spawns a PTY whose foreground command is `claude` (Claude Code CLI),
+// then drops into an interactive zsh after claude exits. Pre-check
+// `claude` availability via main process before letting renderer call
+// this — caller (renderer) can short-circuit and toast.
+ipcMain.handle(
+  "pty:createWithClaude",
+  (_event, cols: number, rows: number, cwd?: string) => {
+    if (!isValidDimension(cols, rows)) {
+      throw new Error(`Invalid dimensions: cols=${cols}, rows=${rows}`);
+    }
+    const result = PtyManager.createSessionWithClaude(
+      cols,
+      rows,
+      (sessionId, data) => {
+        mainWindow?.webContents.send("pty:data", sessionId, data);
+      },
+      (sessionId, exitCode) => {
+        mainWindow?.webContents.send("pty:exit", sessionId, exitCode);
+      },
+      cwd,
+    );
+    return result; // { id, sessionKey }
+  }
+);
+
+// --- claude:checkInstalled IPC (Sprint: Run with Claude) ---
+// Returns whether `claude` is resolvable from an interactive zsh.
+ipcMain.handle("claude:checkInstalled", async () => {
+  return await PtyManager.isClaudeAvailable();
+});
+
 ipcMain.on("pty:write", (_event, id: number, data: string) => {
   PtyManager.writeToSession(id, data);
 });
@@ -940,6 +972,65 @@ ipcMain.handle("workspace:openInMain", async (_event, workspacePath: string) => 
   const normalizedPath = path.resolve(workspacePath);
   console.log(`[workspace] openInMain: sending group:openWithCwd for ${normalizedPath}`);
   mainWindow!.webContents.send("group:openWithCwd", { path: normalizedPath });
+
+  return { success: true };
+});
+
+// --- workspace:openInMainWithClaude IPC (Sprint: Run with Claude) ---
+// Dashboard card "Claude" footer button → focus mainWindow + send
+// group:openWithCwdWithClaude (renderer creates a NEW tab whose initial PTY
+// runs `claude`).
+//
+// Policy decisions:
+//   - Re-open: ALWAYS create a new group/tab. We do not dedup against an
+//     existing tab with the same cwd; each click = one new claude session.
+//   - Missing CLI: pre-check via PtyManager.isClaudeAvailable(). If missing,
+//     return error WITHOUT focusing/creating any group. Caller toasts.
+//   - SECURITY: spawn argv has no user-controlled string (literal "claude").
+ipcMain.handle("workspace:openInMainWithClaude", async (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    console.warn("[workspace] openInMainWithClaude: invalid path");
+    return { error: "invalid_path" };
+  }
+
+  if (!fs.existsSync(workspacePath)) {
+    console.warn(`[workspace] openInMainWithClaude: path does not exist: ${workspacePath}`);
+    return { error: "path_missing" };
+  }
+
+  // Pre-check claude availability before opening any window. If missing we
+  // do not focus/create the main window — caller shows a toast.
+  const claudeAvailable = await PtyManager.isClaudeAvailable();
+  if (!claudeAvailable) {
+    console.warn("[workspace] openInMainWithClaude: claude CLI not found in PATH");
+    return { error: "claude_missing" };
+  }
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    console.log("[workspace] openInMainWithClaude: mainWindow does not exist, creating it");
+    if (forceQuitTimer !== null) {
+      clearTimeout(forceQuitTimer);
+      forceQuitTimer = null;
+    }
+    isQuitting = false;
+    createWindow();
+    await new Promise<void>((resolve) => {
+      const win = mainWindow!;
+      if (win.webContents.isLoading()) {
+        win.webContents.once("did-finish-load", () => resolve());
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  if (mainWindow!.isMinimized()) mainWindow!.restore();
+  mainWindow!.focus();
+  mainWindow!.show();
+
+  const normalizedPath = path.resolve(workspacePath);
+  console.log(`[workspace] openInMainWithClaude: sending group:openWithCwdWithClaude for ${normalizedPath}`);
+  mainWindow!.webContents.send("group:openWithCwdWithClaude", { path: normalizedPath });
 
   return { success: true };
 });

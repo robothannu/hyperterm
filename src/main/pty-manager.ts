@@ -97,6 +97,99 @@ export function createSession(
   return { id, sessionKey };
 }
 
+/**
+ * Spawn a new shell that runs `claude` as the foreground command, then drops
+ * into an interactive shell after claude exits.
+ *
+ * Sprint 1 (Run with Claude): we use `zsh -i -c 'claude; exec zsh -i'` so:
+ *   1. The user's interactive zshrc loads (their `claude` shell function with
+ *      the ANTHROPIC_* env unset wrapper resolves correctly).
+ *   2. `claude` runs in the foreground.
+ *   3. After claude exits the user keeps an interactive shell in the cwd.
+ *
+ * SECURITY: argv contains NO user-controlled string. The literal command
+ * `claude; exec zsh -i` is hardcoded. cwd is validated like createSession.
+ *
+ * If `claude` is not installed/resolvable, `zsh -i -c` exits with code 127
+ * and the second `exec zsh -i` step never runs — the PTY exits and the
+ * caller (renderer onPtyExit) can react. We pre-check via
+ * `isClaudeAvailable()` in main.ts, so this is a fallback.
+ */
+export function createSessionWithClaude(
+  cols: number,
+  rows: number,
+  onData: (id: number, data: string) => void,
+  onExit: (id: number, exitCode: number) => void,
+  cwd?: string,
+): { id: number; sessionKey: string } {
+  const id = nextId++;
+  const sessionKey = `session-${id}`;
+
+  let sessionCwd = cwd || process.env.HOME || "/";
+  if (
+    typeof sessionCwd !== "string" ||
+    !path.isAbsolute(sessionCwd) ||
+    !fs.existsSync(sessionCwd)
+  ) {
+    sessionCwd = process.env.HOME || "/";
+  }
+
+  // Force zsh on macOS for `claude` shell-function resolution. On non-macOS
+  // we fall back to the user's default shell + interactive flags.
+  const shell = platform() === "darwin" ? "/bin/zsh" : getDefaultShell();
+  const args = ["-i", "-c", "claude; exec zsh -i"];
+
+  const proc = pty.spawn(shell, args, {
+    name: "xterm-256color",
+    cols,
+    rows,
+    cwd: sessionCwd,
+    env: {
+      ...(process.env as { [key: string]: string }),
+      LANG: process.env.LANG || "en_US.UTF-8",
+      LC_ALL: process.env.LC_ALL || "en_US.UTF-8",
+      HYPERTERM_PTY_ID: String(id),
+    },
+  });
+
+  const childPid = proc.pid;
+
+  proc.onData((data: string) => onData(id, data));
+  proc.onExit(({ exitCode }) => {
+    sessions.delete(id);
+    onExit(id, exitCode);
+  });
+
+  sessions.set(id, { id, sessionKey, process: proc, childPid });
+  return { id, sessionKey };
+}
+
+/**
+ * Check whether `claude` is resolvable from an interactive zsh — accounts for
+ * shell functions defined in the user's zshrc (a common Claude Code install
+ * pattern). Returns true iff `command -v claude` exits 0 AND prints at least
+ * one stdout line that is either a token equal to "claude" or an absolute
+ * path — interactive shells emit unrelated noise lines (e.g. "Restored
+ * session:") on stdout, so we must filter rather than rely on length.
+ *
+ * SECURITY: argv has no user input.
+ */
+export async function isClaudeAvailable(): Promise<boolean> {
+  const shell = platform() === "darwin" ? "/bin/zsh" : getDefaultShell();
+  try {
+    const { stdout } = await execFileAsync(
+      shell,
+      ["-i", "-c", "command -v claude"],
+      { encoding: "utf8", timeout: 4000 },
+    );
+    const lines = stdout.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
+    return lines.some((line) => line === "claude" || line.startsWith("/"));
+  } catch {
+    // Non-zero exit (e.g. command -v claude when missing) lands here.
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Data I/O
 // ---------------------------------------------------------------------------

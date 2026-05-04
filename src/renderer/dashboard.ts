@@ -427,6 +427,10 @@ function renderCard(m: CardMeta): HTMLElement {
     <div class="card-expand" id="ce-${dashEsc(m.ws.id)}"></div>
     <div class="card-foot">
       <span class="updated" id="upd-${dashEsc(m.ws.id)}">${dashEsc(m.updatedLabel)}</span>
+      <button class="open-btn" data-action="open-claude" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Claude Code">
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M8 2L3 5v6l5 3 5-3V5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        Claude
+      </button>
       <button class="open-btn primary" data-action="open-main" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""}>
         <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3H3v10h10V10M9 3h4v4M13 3L7 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Open
@@ -446,6 +450,8 @@ function renderCard(m: CardMeta): HTMLElement {
         if (p) void handleOpenInTerminal(p);
       } else if (action === "open-main") {
         if (p) void handleOpen(p);
+      } else if (action === "open-claude") {
+        if (p) void handleOpenWithClaude(p);
       } else if (action === "open-ide") {
         if (p) void handleOpenInIDE(p);
       } else if (action === "reveal-finder") {
@@ -645,6 +651,7 @@ function renderListRow(m: CardMeta): HTMLElement {
       <button class="qbtn" title="Open" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 5l3 3-3 3M8 11h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
+      <button class="open-btn" data-action="open-claude" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Claude Code">Claude</button>
       <button class="open-btn primary" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}">Open</button>
     </div>
   `;
@@ -652,8 +659,14 @@ function renderListRow(m: CardMeta): HTMLElement {
   row.querySelectorAll("[data-action]").forEach((el) => {
     el.addEventListener("click", (e) => {
       e.stopPropagation();
-      var p = (e.currentTarget as HTMLElement).getAttribute("data-path");
-      if (p) void handleOpen(p);
+      var btn = e.currentTarget as HTMLElement;
+      var action = btn.getAttribute("data-action");
+      var p = btn.getAttribute("data-path");
+      if (action === "open-claude") {
+        if (p) void handleOpenWithClaude(p);
+      } else {
+        if (p) void handleOpen(p);
+      }
     });
   });
 
@@ -971,6 +984,29 @@ async function handleOpen(workspacePath: string): Promise<void> {
     var msg = err instanceof Error ? err.message : String(err);
     showDashboardToast(`Failed to open: ${msg}`, "err");
     console.error("[dashboard] handleOpen error:", err);
+  }
+}
+
+// Sprint: Run with Claude — footer "Claude" button. Opens workspace as a new
+// group inside the HyperTerm main window with `claude` running as the initial
+// PTY's foreground command. If the CLI is missing the main IPC returns
+// { error: "claude_missing" } and we toast without focusing the main window.
+async function handleOpenWithClaude(workspacePath: string): Promise<void> {
+  try {
+    var result = await window.dashboardAPI!.openInMainWithClaude(workspacePath);
+    if (result.error) {
+      if (result.error === "path_missing") {
+        showDashboardToast("Folder not found on disk.", "warn");
+      } else if (result.error === "claude_missing") {
+        showDashboardToast("Claude Code CLI not found in PATH", "err");
+      } else {
+        showDashboardToast(`Error: ${result.error}`, "err");
+      }
+    }
+  } catch (err) {
+    var msg = err instanceof Error ? err.message : String(err);
+    showDashboardToast(`Failed to open Claude session: ${msg}`, "err");
+    console.error("[dashboard] handleOpenWithClaude error:", err);
   }
 }
 

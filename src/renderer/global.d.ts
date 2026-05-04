@@ -43,6 +43,12 @@ interface TerminalAPI {
     rows: number,
     cwd?: string
   ): Promise<{ id: number; sessionKey: string }>;
+  // Sprint: Run with Claude — spawns a PTY whose foreground command is `claude`.
+  createPtyWithClaude(
+    cols: number,
+    rows: number,
+    cwd?: string
+  ): Promise<{ id: number; sessionKey: string }>;
   writePty(id: number, data: string): void;
   resizePty(id: number, cols: number, rows: number): void;
   destroyPty(id: number): void;
@@ -117,6 +123,9 @@ interface TerminalAPI {
 
   // --- group:openWithCwd (Sprint 3 dashboard → main renderer) ---
   onOpenGroupWithCwd(callback: (payload: { path: string }) => void): void;
+
+  // --- group:openWithCwdWithClaude (Sprint: Run with Claude) ---
+  onOpenGroupWithCwdWithClaude(callback: (payload: { path: string }) => void): void;
 }
 
 interface SubagentAgent {
@@ -240,6 +249,12 @@ interface DashboardAPI {
   readCardData(workspacePath: string): Promise<DashboardCardData | { error: string }>;
   renameWorkspace(id: string, newName: string): Promise<{ workspaces: WorkspaceEntry[]; success: boolean }>;
   openInMain(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  // Sprint: Run with Claude — opens workspace as new group + runs `claude` in initial PTY.
+  // Pre-checks claude availability; if missing returns { error: "claude_missing" } and
+  // does NOT focus/create the main window.
+  openInMainWithClaude(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  // Sprint: Run with Claude — checks if `claude` is resolvable from interactive zsh.
+  claudeCheckInstalled(): Promise<boolean>;
   // Sprint 4
   overviewSummary(workspacePath: string): Promise<DashboardOverviewSummary | { error: string }>;
   statusInfo(workspacePath: string): Promise<DashboardStatusInfo | { error: string }>;
