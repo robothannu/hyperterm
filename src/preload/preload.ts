@@ -51,6 +51,16 @@ export interface TerminalAPI {
     rows: number,
     cwd?: string
   ): Promise<{ id: number; sessionKey: string }>;
+  // Sprint: Run with Claude. Sprint 2 adds optional `taskText` — when present,
+  // it is forwarded to main and finally to zsh as a positional argv (NOT
+  // interpolated into the -c script). Metacharacters in taskText are not
+  // shell-evaluated.
+  createPtyWithClaude(
+    cols: number,
+    rows: number,
+    cwd?: string,
+    taskText?: string
+  ): Promise<{ id: number; sessionKey: string }>;
   writePty(id: number, data: string): void;
   resizePty(id: number, cols: number, rows: number): void;
   destroyPty(id: number): void;
@@ -111,6 +121,12 @@ export interface TerminalAPI {
 
   // --- group:openWithCwd (Sprint 3 dashboard → main renderer) ---
   onOpenGroupWithCwd(callback: (payload: { path: string }) => void): void;
+
+  // --- group:openWithCwdWithClaude (Sprint: Run with Claude) ---
+  // Sprint 2: payload may carry optional `taskText` for "Ask Claude per nextStep".
+  onOpenGroupWithCwdWithClaude(
+    callback: (payload: { path: string; taskText?: string }) => void
+  ): void;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -120,6 +136,17 @@ contextBridge.exposeInMainWorld("terminalAPI", {
     cwd?: string
   ): Promise<{ id: number; sessionKey: string }> => {
     return ipcRenderer.invoke("pty:create", cols, rows, cwd);
+  },
+  // Sprint: Run with Claude — spawns a PTY whose foreground command is
+  // `claude` (Claude Code CLI). After claude exits the PTY drops into an
+  // interactive zsh in the same cwd.
+  createPtyWithClaude: (
+    cols: number,
+    rows: number,
+    cwd?: string,
+    taskText?: string
+  ): Promise<{ id: number; sessionKey: string }> => {
+    return ipcRenderer.invoke("pty:createWithClaude", cols, rows, cwd, taskText);
   },
   writePty: (id: number, data: string): void => {
     ipcRenderer.send("pty:write", id, data);
@@ -258,5 +285,15 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   onOpenGroupWithCwd: (callback: (payload: { path: string }) => void): void => {
     ipcRenderer.removeAllListeners("group:openWithCwd");
     ipcRenderer.on("group:openWithCwd", (_event, payload) => callback(payload));
+  },
+
+  // --- group:openWithCwdWithClaude (Sprint: Run with Claude) ---
+  // Like onOpenGroupWithCwd but the new tab's initial PTY runs `claude`.
+  // Sprint 2: payload may carry optional `taskText` for the prompt.
+  onOpenGroupWithCwdWithClaude: (
+    callback: (payload: { path: string; taskText?: string }) => void
+  ): void => {
+    ipcRenderer.removeAllListeners("group:openWithCwdWithClaude");
+    ipcRenderer.on("group:openWithCwdWithClaude", (_event, payload) => callback(payload));
   },
 } satisfies TerminalAPI);

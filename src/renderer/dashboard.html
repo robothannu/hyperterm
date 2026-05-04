@@ -1240,9 +1240,11 @@
 
     .todo-more:hover { color: var(--fg-1); }
 
-    /* todo-item no longer uses checkbox grid */
+    /* todo-item: bullet on left, text expands, "Ask Claude" inline on right */
     .todo-item {
-      display: block;
+      display: flex;
+      align-items: center;
+      gap: 8px;
       font-size: 12px;
       color: var(--fg-1);
       line-height: 1.45;
@@ -1255,6 +1257,37 @@
       position: absolute;
       left: 2px;
       color: var(--fg-3);
+    }
+
+    .todo-item .todo-text {
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* Sprint 2 (Ask Claude per nextStep): small ghost button right-aligned */
+    .todo-ask-btn {
+      flex-shrink: 0;
+      height: 19px;
+      padding: 0 7px;
+      border: 1px solid var(--line-2);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--fg-2);
+      font-family: inherit;
+      font-size: 10.5px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0.55;
+      transition: opacity 0.12s, color 0.12s, border-color 0.12s, background 0.12s;
+    }
+
+    .todo-item:hover .todo-ask-btn { opacity: 1; }
+
+    .todo-ask-btn:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: rgba(124,140,255,0.08);
+      opacity: 1;
     }
 
     /* === Sprint 3: Discovery banner ===
