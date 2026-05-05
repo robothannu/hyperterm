@@ -83,6 +83,12 @@ function initSidebarDelegation(): void {
   terminalList.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
 
+    // tab-pin-btn (Sprint 3)
+    if (typeof handlePinButtonClick === "function" && handlePinButtonClick(target)) {
+      e.stopPropagation();
+      return;
+    }
+
     // btn-close
     if (target.closest(".btn-close")) {
       const li = closestEntry(target);
@@ -278,6 +284,7 @@ function addSidebarEntryDOM(tabId: number, label: string): void {
       <span class="tab-notif hidden"></span>
       <span class="subagent-indicator-slot" style="display:none"></span>
       <div class="terminal-entry-actions">
+        <button class="tab-pin-btn" title="Click to pin this group" data-tab-id="${tabId}">📍</button>
         <button class="btn-notes" title="Notes">&#9998;</button>
         <button class="btn-close" title="Close terminal">&times;</button>
       </div>

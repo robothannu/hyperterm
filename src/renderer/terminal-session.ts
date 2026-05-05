@@ -161,8 +161,8 @@ class TerminalSession {
     this.terminal.write(data);
   }
 
-  onData(callback: (data: string) => void): void {
-    this.terminal.onData(callback);
+  onData(callback: (data: string) => void): import("@xterm/xterm").IDisposable {
+    return this.terminal.onData(callback);
   }
 
   onResize(callback: (size: { cols: number; rows: number }) => void): void {
