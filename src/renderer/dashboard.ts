@@ -1962,6 +1962,29 @@ if (typeof window !== "undefined") {
   var emptyAddBtn = document.getElementById("btn-empty-add") as HTMLButtonElement | null;
   if (emptyAddBtn) emptyAddBtn.addEventListener("click", () => { void handleAdd(); });
 
+  // Sprint 1: New Project Wizard — "+ New Project" 버튼 후크 (AC #1, #10)
+  // 실제 모달 로직은 dashboard-newproject.ts에 위임 (50줄 이내 추가 목표).
+  var newProjBtn = document.getElementById("btn-new-project") as HTMLButtonElement | null;
+  if (newProjBtn) {
+    newProjBtn.addEventListener("click", () => {
+      if (typeof (window as any).openNewProjectModal === "function") {
+        (window as any).openNewProjectModal(_homeDir);
+      }
+    });
+  }
+
+  // Expose helpers for dashboard-newproject.ts to call back into dashboard.ts
+  (window as any).npDashboardRefresh = async (updatedWorkspaces?: WorkspaceEntry[]) => {
+    if (updatedWorkspaces) {
+      _workspaces = updatedWorkspaces;
+    }
+    await fetchDiscoveryCandidates();
+    await loadAndRender();
+  };
+  (window as any).npOpenWithClaude = (absolutePath: string) => {
+    void handleOpenWithClaude(absolutePath);
+  };
+
   // Wire filter chips
   document.querySelectorAll("#status-chips .chip").forEach((el) => {
     el.addEventListener("click", () => {

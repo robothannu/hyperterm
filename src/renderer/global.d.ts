@@ -284,6 +284,24 @@ interface DashboardAPI {
   // Sprint 3 (Dashboard design v2): discovery banner
   discoverCandidates(): Promise<DashboardDiscoveryCandidate[]>;
   addWorkspacesBatch(paths: string[]): Promise<DashboardBatchAddResult>;
+  // Sprint 1 (New Project Wizard): create a new project directory + register workspace.
+  newProject(payload: {
+    projectName: string;
+    parentDir: string;
+    options: {
+      gitInit: boolean;
+      claudeMd: boolean;
+      progressMd: boolean;
+      gitignoreNode: boolean;
+    };
+    createParent?: boolean;
+  }): Promise<{
+    success: boolean;
+    absolutePath?: string;
+    workspaces?: WorkspaceEntry[];
+    error?: string;
+    parentCreated?: boolean;
+  }>;
 }
 
 interface WorkspaceEntry {
