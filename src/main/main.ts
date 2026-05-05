@@ -5,6 +5,8 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import * as net from "net";
 import * as os from "os";
+import { capSnapshotsInTree, estimateTotalSnapshotBytes } from "./snapshot-store";
+import * as PinnedBridge from "./pinned-bridge";
 
 const execFileAsync = promisify(execFile);
 import * as PtyManager from "./pty-manager";
@@ -417,7 +419,26 @@ ipcMain.handle("pty:getCwd", (_event, id: number) => {
 
 ipcMain.handle("session:save", (_event, data: string) => {
   try {
-    fs.writeFileSync(sessionsFilePath, data, "utf8");
+    // Sprint 1 (Session Restore): apply per-leaf snapshot cap before writing.
+    // This is a safety net — the renderer already caps in snapshot-capture.ts,
+    // but we re-validate here to guard against any future bypass path.
+    let dataToWrite = data;
+    try {
+      const parsed = JSON.parse(data) as { tabs?: Array<{ layout?: unknown }> };
+      if (Array.isArray(parsed.tabs)) {
+        for (const tab of parsed.tabs) {
+          capSnapshotsInTree(tab.layout);
+        }
+        const totalBytes = estimateTotalSnapshotBytes(parsed.tabs);
+        console.log(
+          `[main] session:save — ${parsed.tabs.length} tab(s), snapshot total ~${Math.round(totalBytes / 1024)}KB`
+        );
+        dataToWrite = JSON.stringify(parsed);
+      }
+    } catch {
+      // If JSON parse fails, write raw data as-is (no snapshot to cap)
+    }
+    fs.writeFileSync(sessionsFilePath, dataToWrite, "utf8");
     return true;
   } catch {
     return false;
@@ -433,6 +454,116 @@ ipcMain.handle("session:load", () => {
     // ignore
   }
   return null;
+});
+
+// ---------------------------------------------------------------------------
+// Sprint 3: Pinned PTY IPC
+// ---------------------------------------------------------------------------
+
+/**
+ * pty:createPinned — spawn a daemon-owned PTY for a pinned group.
+ * Returns { id, cwd } where id is the daemonPtyId.
+ */
+ipcMain.handle(
+  "pty:createPinned",
+  async (_event, cols: number, rows: number, cwd?: string, groupLabel?: string) => {
+    try {
+      await PinnedBridge.ensureDaemon();
+      const info = await PinnedBridge.spawnOwnedPty({ cwd, cols, rows, groupLabel });
+      console.log(`[main] pty:createPinned: spawned ${info.id} for "${groupLabel}" cwd=${info.cwd}`);
+      return { id: info.id, cwd: info.cwd };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[main] pty:createPinned failed:", msg);
+      throw err;
+    }
+  }
+);
+
+/**
+ * pty:attachPinned — attach streaming connection to a daemon-owned PTY.
+ * After this call, the main process will forward PTY data via pty:data (same
+ * channel as normal PTYs). The renderer uses the returned `localPtyId` as the
+ * session id for all subsequent writes/resizes.
+ *
+ * Returns { localPtyId } — a synthetic session id allocated by main.
+ */
+let pinnedPtyIdCounter = 90000; // start high to avoid collision with pty-manager ids
+const pinnedStreams = new Map<number, import("./pinned-bridge").PinnedStream>();
+
+ipcMain.handle(
+  "pty:attachPinned",
+  async (_event, daemonPtyId: string) => {
+    const localPtyId = ++pinnedPtyIdCounter;
+    try {
+      await PinnedBridge.ensureDaemon();
+      const stream = await PinnedBridge.attachPinnedPty(
+        daemonPtyId,
+        (data) => {
+          mainWindow?.webContents.send("pty:data", localPtyId, data);
+        },
+        (_exitCode) => {
+          mainWindow?.webContents.send("pty:exit", localPtyId, _exitCode);
+          pinnedStreams.delete(localPtyId);
+        }
+      );
+      pinnedStreams.set(localPtyId, stream);
+      console.log(`[main] pty:attachPinned: localPtyId=${localPtyId} → daemonPtyId=${daemonPtyId}`);
+      return { localPtyId };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[main] pty:attachPinned failed:", msg);
+      throw err;
+    }
+  }
+);
+
+/** pty:writePinned — send input to a pinned PTY (via local proxy id). */
+ipcMain.on("pty:writePinned", (_event, localPtyId: number, data: string) => {
+  pinnedStreams.get(localPtyId)?.write(data);
+});
+
+/** pty:resizePinned — resize a pinned PTY. */
+ipcMain.on("pty:resizePinned", (_event, localPtyId: number, cols: number, rows: number) => {
+  pinnedStreams.get(localPtyId)?.resize(cols, rows);
+});
+
+/** pty:detachPinned — detach proxy (PTY stays alive in daemon). */
+ipcMain.on("pty:detachPinned", (_event, localPtyId: number) => {
+  const stream = pinnedStreams.get(localPtyId);
+  if (stream) {
+    stream.detach();
+    pinnedStreams.delete(localPtyId);
+  }
+});
+
+/** pty:killDaemonPty — kill a daemon-owned PTY (unpin / group delete). */
+ipcMain.handle("pty:killDaemonPty", async (_event, daemonPtyId: string) => {
+  try {
+    await PinnedBridge.killDaemonPty(daemonPtyId);
+    console.log(`[main] pty:killDaemonPty: killed ${daemonPtyId}`);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+/**
+ * pinned:reconcile — on startup, compare expected daemonPtyIds against daemon
+ * LIST. Returns { canReattach, needFallback }.
+ */
+ipcMain.handle("pinned:reconcile", async (_event, expectedIds: string[]) => {
+  try {
+    return await PinnedBridge.reconcilePinnedSessions(expectedIds);
+  } catch (err) {
+    console.warn("[main] pinned:reconcile failed:", err);
+    return { canReattach: [], needFallback: expectedIds };
+  }
+});
+
+/** pinned:isDaemonAlive — quick check for crash fallback notification. */
+ipcMain.handle("pinned:isDaemonAlive", async () => {
+  return PinnedBridge.isDaemonConnectable();
 });
 
 // --- Notes IPC ---
@@ -709,6 +840,9 @@ ipcMain.on("app:quit-ready", () => {
     clearTimeout(forceQuitTimer);
     forceQuitTimer = null;
   }
+  // Sprint 3: detach all pinned PTY streaming connections before killing
+  // non-pinned PTYs. Pinned PTYs stay alive in daemon.
+  PinnedBridge.detachAll();
   PtyManager.destroyAll(); // kill all pty processes
   if (hookServer) {
     hookServer.close();

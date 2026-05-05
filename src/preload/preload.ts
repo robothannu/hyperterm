@@ -46,6 +46,29 @@ export interface SubagentStatusPayload {
 }
 
 export interface TerminalAPI {
+  // Sprint 3: Pinned PTY API
+  /** Spawn a daemon-owned PTY for a pinned group. Returns daemonPtyId. */
+  createPinnedPty(
+    cols: number,
+    rows: number,
+    cwd?: string,
+    groupLabel?: string
+  ): Promise<{ id: string; cwd: string }>;
+  /** Attach streaming proxy to an existing daemon PTY. Returns localPtyId. */
+  attachPinnedPty(daemonPtyId: string): Promise<{ localPtyId: number }>;
+  /** Write input to a pinned PTY (via localPtyId). */
+  writePinnedPty(localPtyId: number, data: string): void;
+  /** Resize a pinned PTY. */
+  resizePinnedPty(localPtyId: number, cols: number, rows: number): void;
+  /** Detach proxy from a pinned PTY (PTY stays alive in daemon). */
+  detachPinnedPty(localPtyId: number): void;
+  /** Kill a daemon-owned PTY (unpin / group delete). */
+  killDaemonPty(daemonPtyId: string): Promise<boolean>;
+  /** Reconcile expected daemonPtyIds with daemon state. */
+  pinnedReconcile(expectedIds: string[]): Promise<{ canReattach: string[]; needFallback: string[] }>;
+  /** Check if daemon is alive. */
+  pinnedIsDaemonAlive(): Promise<boolean>;
+
   createPty(
     cols: number,
     rows: number,
@@ -130,6 +153,39 @@ export interface TerminalAPI {
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
+  // Sprint 3: Pinned PTY API
+  createPinnedPty: (
+    cols: number,
+    rows: number,
+    cwd?: string,
+    groupLabel?: string
+  ): Promise<{ id: string; cwd: string }> => {
+    return ipcRenderer.invoke("pty:createPinned", cols, rows, cwd, groupLabel);
+  },
+  attachPinnedPty: (daemonPtyId: string): Promise<{ localPtyId: number }> => {
+    return ipcRenderer.invoke("pty:attachPinned", daemonPtyId);
+  },
+  writePinnedPty: (localPtyId: number, data: string): void => {
+    ipcRenderer.send("pty:writePinned", localPtyId, data);
+  },
+  resizePinnedPty: (localPtyId: number, cols: number, rows: number): void => {
+    ipcRenderer.send("pty:resizePinned", localPtyId, cols, rows);
+  },
+  detachPinnedPty: (localPtyId: number): void => {
+    ipcRenderer.send("pty:detachPinned", localPtyId);
+  },
+  killDaemonPty: (daemonPtyId: string): Promise<boolean> => {
+    return ipcRenderer.invoke("pty:killDaemonPty", daemonPtyId);
+  },
+  pinnedReconcile: (
+    expectedIds: string[]
+  ): Promise<{ canReattach: string[]; needFallback: string[] }> => {
+    return ipcRenderer.invoke("pinned:reconcile", expectedIds);
+  },
+  pinnedIsDaemonAlive: (): Promise<boolean> => {
+    return ipcRenderer.invoke("pinned:isDaemonAlive");
+  },
+
   createPty: (
     cols: number,
     rows: number,

@@ -258,7 +258,9 @@
   <script src="../../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
   <script src="../../node_modules/@xterm/addon-serialize/lib/addon-serialize.js"></script>
   <script src="terminal-session.js"></script>
+  <script src="snapshot-capture.js"></script>
   <!-- renderer modules: load order matters
+       0. snapshot-capture.js — Sprint 1: captureSnapshot / restoreSnapshot globals (must precede renderer.js)
        1. renderer.js   — global state + core functions (no init IIFE)
        2. pane-tree.js  — pane tree helpers (uses nothing from other modules)
        3. toolbar-row.js — layout preset toolbar (uses pane-tree + renderer globals)
@@ -290,6 +292,8 @@
   <script src="sidebar-resize.js"></script>
   <script src="subagent-indicator.js"></script>
   <script src="dashboard-sidebar.js"></script>
+  <!-- Sprint 3: pinned-ui.js — pin toggle UX (must load after sidebar.js and renderer.js) -->
+  <script src="pinned-ui.js"></script>
   <script src="init.js"></script>
 </body>
 </html>
