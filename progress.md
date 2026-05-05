@@ -1,7 +1,8 @@
 # Work Progress
 
 ## Current Task
-- **completed** — Sprint B: New Project wizard (PASS 31/35), main 머지 완료. 빌드/시각 검증은 다음 단계
+- **completed** — Sprint C: 세션 유지 Hybrid (3 sprints, all PASS), main 머지 완료. 패키지 빌드/시각 검증은 다음 단계
+- (이전) Sprint B: New Project wizard — main 머지 완료
 - (이전) Sprint A: Claude 버튼 폴리시 — main 머지 + 패키지 빌드 완료
 
 ## Last Session (2026-05-05)
@@ -37,6 +38,32 @@
 - Evaluator 정적 분석: claudeCwd 8회 등장(dist), CSS rules 적용 확인, polling 로직 트레이스
 - adversarial 분석 (정규화 비대칭, 호출자 누락, race condition) 모두 통과
 - **시각 GUI 검증은 사용자 수동 필요** — 새 빌드(`release/HyperTerm-0.1.0-arm64.dmg`, 05-05 재빌드)로
+
+## Sprint C 결과 (2026-05-05, 머지 a11ccee)
+
+| Sprint | Verdict | 점수 | 커밋 |
+|---|---|---|---|
+| 1 (Snapshot 복원, daemon 없음) | PASS | 29/35 | c59e7d5 |
+| 2 (htptyd daemon 인프라, UI 노출 0) | PASS | 32/35 | 85ecb02 |
+| 3 iter 2 (pinned UX + reattach + crash 복구) | PASS | 30/35 | 258410e |
+
+누적: 20 files changed, 3097 insertions, 7 deletions.
+
+### Sprint C 핵심 결정
+- **A 기본 (Sprint 1)**: SerializeAddon으로 xterm buffer 직렬화 + 200KB tail cap (그룹 20개 ~3.91MB ≤ 5MB) + dim ANSI divider. 30s 주기 자동 저장. SavedPaneLeaf optional 필드로 Sprint A claudeCwd 보존.
+- **Daemon (Sprint 2)**: htptyd 별도 long-lived process. 위치 `~/Library/Application Support/HyperTerm/daemon/` (sock/pid/log). detach = `spawn detached + unref + ELECTRON_RUN_AS_NODE=1`. idle timeout HTPTYD_IDLE_MS env (default 5분). stale = PID kill(0) + connect 검증. tmux 0건.
+- **ADOPT 전략 (Sprint 3)**: Daemon-Spawn (B 변형). fd passing 회피 (Node IPty 내부 fd 접근 불가). pinned 토글 ON → daemon이 처음부터 PTY 소유.
+- **라우팅 (Sprint 3 iter 2)**: pinnedSessions Map (90000+ localPtyId → xterm session) + onPtyData 핸들러 분기. terminal-session onData() IDisposable 반환으로 pin/unpin 시 콜백 dispose+재등록.
+- **재시작 흐름**: reconcilePinnedTabs (daemon LIST 비교) → ATTACH (살아있음) 또는 fallback (snapshot+toast 1회). attachRestoredPinnedTab이 wirePinnedSession 호출.
+- **orphan 가드**: unpin / 그룹 삭제 → KILL 즉시.
+
+### Sprint C carryover SHOULD FIX (non-blocking, 별도 cleanup 권장)
+- Sprint 1: ANSI escape mid-cap 시 divider 직전 `\x1b[0m` reset (orphan 문자 방지)
+- Sprint 1: before-quit 시 worst-case `tabs × 3s lsof timeout` — tab 병렬화 또는 cwd 캡처 생략
+- Sprint 2: htptyd.log rotation/cap (현재 append-only)
+- Sprint 3: pinned-ui.ts:367 dead comment, cleanupPinnedOnDelete의 leaf.onDataDisposable null 미설정, attachRestoredPinnedTab fire-and-forget 실패 시 UI 알림 부재
+
+---
 
 ## Sprint B 결과 (2026-05-05, 머지 970a37b)
 
@@ -81,12 +108,16 @@
   - Run with Claude dedup: 같은 워크스페이스 카드의 "Claude" 두 번 클릭 → 두 번째는 새 탭 안 생기고 기존 탭으로 switch + 토스트
   - Ask Claude는 dedup 적용 안 됨 — nextStep 두 번 클릭 시 새 탭 두 개 생김 확인
   - Sidebar Running: claude 띄운 탭에서 다른 탭으로 전환 → claude 종료 → ≤5초 이내 sidebar Running 표시 사라짐
-- [ ] **HIGH: Sprint C — 세션 유지 Hybrid (방식 C)** — 사용자가 명시적으로 합의한 메인 작업
-  - **A 기본**: 모든 그룹의 cwd, 환경, scrollback(최근 N줄), 마지막 명령 N개를 sessions.json에 저장. 재시작 시 같은 cwd로 새 PTY + 화면 복원.
-  - **B pinned**: 사용자가 그룹별 📌 토글 → background daemon 프로세스에 PTY 위탁. 앱 닫혀도 daemon이 PTY 유지. 재오픈 시 reattach → claude REPL/dev server 그대로 살아있음.
-  - daemon 이름 자유, unix socket IPC, orphan 정리/crash 복구/생명주기 관리 포함
-  - "no tmux" 원칙 유지 (daemon은 직접 구현)
-  - macOS arm64 전용, node-pty 그대로
+- [ ] **HIGH: Sprint C 시각 검증** (사용자 수동, dev 모드 + 패키지 빌드)
+  - **A 기본**: 그룹에서 긴 출력 후 앱 종료 → 재오픈 시 출력 + dim divider `—— restored from previous session (시각) ——` + 같은 cwd
+  - **Daemon**: `ps aux | grep htptyd` 으로 daemon 살아있는지, 종료 후에도 살아있는지
+  - **Pinned**: 그룹 우클릭/아이콘으로 📌 토글 → claude REPL/dev server 띄우고 앱 종료 → 재오픈 시 살아있음
+  - **Crash 복구**: `kill -9 htptyd` 후 재오픈 → fallback + "pinned session lost: daemon crashed" toast 1회
+  - **Orphan 정리**: unpin/그룹 삭제 시 daemon에서 PTY 사라짐 (`htptyd-client list` 또는 nc로 확인)
+- [ ] **MEDIUM: Sprint C carryover SHOULD FIX 일괄 정리**
+  - Sprint 1 ANSI mid-cap reset, before-quit lsof timeout
+  - Sprint 2 htptyd.log rotation
+  - Sprint 3 dead comment, cleanupPinnedOnDelete 미정리, fire-and-forget UI 알림
 - [ ] **HIGH: Git Flow 모달 + 이전 미해결 항목** — Add Workspace 동작 확인 (이전 핫픽스 후 시각 검증 미완)
 - [ ] **MEDIUM: Sprint A SHOULD FIX (non-blocking)**
   - 재시작 후 dedup 매치 시 "(claude REPL 종료되었을 수 있음)" 보조 안내 토스트
@@ -120,11 +151,12 @@
 - argv 배열 인자 + path 3중 검증으로 command injection 차단
 
 ## Harness State
-- Phase: complete — Sprint B (New Project wizard) 완료
+- Phase: complete — Sprint C (세션 유지 Hybrid) 완료
 - Feature: -
-- Branch: - (feature/new-project-wizard 머지 후 삭제)
-- Sprint: 1/1, Iteration: 1, Score: 31/35 PASS
-- Resume: `/harness` (Sprint C 진입 시 새 기능 요청으로)
+- Branch: - (feature/session-persist-hybrid 머지 후 삭제)
+- Sprint: 3/3, Iteration: 2 (Sprint 3는 iter 1 22→ iter 2 30 REFINE 성공)
+- Score: Sprint 1 29/35, Sprint 2 32/35, Sprint 3 iter2 30/35 — all PASS
+- Resume: `/harness` (다음 기능 요청 시)
 
 ## Blockers / Notes
 - **사용자 시각 검증 필요** — 새 빌드(release/HyperTerm-0.1.0-arm64.dmg, 05-05 재빌드)로 Sprint A 동작 확인
