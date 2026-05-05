@@ -5,6 +5,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import * as net from "net";
 import * as os from "os";
+import { capSnapshotsInTree, estimateTotalSnapshotBytes } from "./snapshot-store";
 
 const execFileAsync = promisify(execFile);
 import * as PtyManager from "./pty-manager";
@@ -417,7 +418,26 @@ ipcMain.handle("pty:getCwd", (_event, id: number) => {
 
 ipcMain.handle("session:save", (_event, data: string) => {
   try {
-    fs.writeFileSync(sessionsFilePath, data, "utf8");
+    // Sprint 1 (Session Restore): apply per-leaf snapshot cap before writing.
+    // This is a safety net — the renderer already caps in snapshot-capture.ts,
+    // but we re-validate here to guard against any future bypass path.
+    let dataToWrite = data;
+    try {
+      const parsed = JSON.parse(data) as { tabs?: Array<{ layout?: unknown }> };
+      if (Array.isArray(parsed.tabs)) {
+        for (const tab of parsed.tabs) {
+          capSnapshotsInTree(tab.layout);
+        }
+        const totalBytes = estimateTotalSnapshotBytes(parsed.tabs);
+        console.log(
+          `[main] session:save — ${parsed.tabs.length} tab(s), snapshot total ~${Math.round(totalBytes / 1024)}KB`
+        );
+        dataToWrite = JSON.stringify(parsed);
+      }
+    } catch {
+      // If JSON parse fails, write raw data as-is (no snapshot to cap)
+    }
+    fs.writeFileSync(sessionsFilePath, dataToWrite, "utf8");
     return true;
   } catch {
     return false;

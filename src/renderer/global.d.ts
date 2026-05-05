@@ -321,6 +321,15 @@ declare function teardownKeybindings(): void;
 declare function teardownSidebarDelegation(): void;
 declare function stopGitPolling(): void;
 
+// Sprint 1 (Session Restore): snapshot-capture.ts — loaded before renderer.ts
+declare function captureSnapshot(session: TerminalSession): string;
+declare function buildDivider(timestamp?: string | Date): string;
+declare function restoreSnapshot(session: TerminalSession, snapshot: string, savedAt?: string): void;
+
+// Sprint 1 (Session Restore): periodic snapshot save — defined in renderer.ts
+declare function startPeriodicSnapshotSave(): void;
+declare function stopPeriodicSnapshotSave(): void;
+
 // Sidebar dot state (sidebar.ts → hook-state.ts, agent-status.ts)
 declare function setSidebarDotState(tabId: number, state: "idle" | "running" | "waiting" | "done"): void;
 declare function applySidebarDotState(dotEl: HTMLElement): void;

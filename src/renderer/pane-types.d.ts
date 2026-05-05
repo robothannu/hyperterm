@@ -43,6 +43,11 @@ interface SavedPaneLeaf {
   type: "leaf";
   sessionKey: string;
   cwd?: string;
+  // Sprint 1 (Session Restore): ANSI serialized scrollback from SerializeAddon.
+  // Optional — absent for new sessions or when capture fails. Max ~200 KB per leaf.
+  scrollback?: string;
+  // ISO timestamp of when the snapshot was captured (for divider display).
+  snapshotSavedAt?: string;
 }
 interface SavedPaneSplit {
   type: "split";
