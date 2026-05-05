@@ -233,4 +233,25 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   addWorkspacesBatch: (paths: string[]): Promise<BatchAddResult> => {
     return ipcRenderer.invoke("workspace:addBatch", paths);
   },
+
+  // Sprint 1 (New Project Wizard): create a new project directory with options.
+  newProject: (payload: {
+    projectName: string;
+    parentDir: string;
+    options: {
+      gitInit: boolean;
+      claudeMd: boolean;
+      progressMd: boolean;
+      gitignoreNode: boolean;
+    };
+    createParent?: boolean;
+  }): Promise<{
+    success: boolean;
+    absolutePath?: string;
+    workspaces?: Workspace[];
+    error?: string;
+    parentCreated?: boolean;
+  }> => {
+    return ipcRenderer.invoke("workspace:newProject", payload);
+  },
 });

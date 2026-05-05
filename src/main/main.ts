@@ -1342,6 +1342,172 @@ ipcMain.handle("workspace:gitFlow", async (_event, workspacePath: string): Promi
   }
 });
 
+// --- workspace:newProject IPC (Sprint 1: New Project Wizard) ---
+// 신규 프로젝트 디렉토리 생성 + 옵션 적용 + workspaces.json 등록을 원자적으로 수행.
+// 셸 인젝션 금지: git init은 spawn + 명시적 argv, 파일 쓰기는 fs/promises 사용.
+
+interface NewProjectPayload {
+  projectName: string;
+  parentDir: string;
+  options: {
+    gitInit: boolean;
+    claudeMd: boolean;
+    progressMd: boolean;
+    gitignoreNode: boolean;
+  };
+  createParent?: boolean;
+}
+
+interface NewProjectResult {
+  success: boolean;
+  absolutePath?: string;
+  workspaces?: typeof workspaces;
+  error?: string;
+  parentCreated?: boolean;
+}
+
+ipcMain.handle("workspace:newProject", async (_event, payload: NewProjectPayload): Promise<NewProjectResult> => {
+  const { projectName, parentDir, options, createParent } = payload;
+
+  console.log(`[new-project] received: name="${projectName}" parent="${parentDir}" options=${JSON.stringify(options)}`);
+
+  // 입력값 기본 검증
+  if (!projectName || typeof projectName !== "string" || !parentDir || typeof parentDir !== "string") {
+    return { success: false, error: "invalid_input" };
+  }
+
+  // ~ 확장
+  const expandedParent = parentDir.startsWith("~/")
+    ? path.join(os.homedir(), parentDir.slice(2))
+    : parentDir.startsWith("~")
+    ? os.homedir()
+    : parentDir;
+
+  const absolutePath = path.join(expandedParent, projectName);
+  console.log(`[new-project] absolutePath="${absolutePath}"`);
+
+  // AC #4: 이미 존재하는 경로 체크
+  if (fs.existsSync(absolutePath)) {
+    console.log(`[new-project] already_exists: ${absolutePath}`);
+    return { success: false, error: "already_exists" };
+  }
+
+  // AC #5: 부모 디렉토리 존재 여부
+  let parentCreated = false;
+  if (!fs.existsSync(expandedParent)) {
+    if (!createParent) {
+      console.log(`[new-project] parent_missing: ${expandedParent}`);
+      return { success: false, error: "parent_missing" };
+    }
+    // 재귀 생성 (mkdir -p 상당)
+    try {
+      fs.mkdirSync(expandedParent, { recursive: true });
+      parentCreated = true;
+      console.log(`[new-project] parent created: ${expandedParent}`);
+    } catch (err) {
+      console.error("[new-project] failed to create parent:", err);
+      return { success: false, error: "parent_create_failed" };
+    }
+  }
+
+  // AC #6: 프로젝트 디렉토리 생성
+  try {
+    fs.mkdirSync(absolutePath, { recursive: false });
+    console.log(`[new-project] directory created: ${absolutePath}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[new-project] mkdir failed:", err);
+    return { success: false, error: `mkdir_failed: ${msg}` };
+  }
+
+  // AC #6: 옵션별 파일/git 초기화
+  const fsp = fs.promises;
+
+  // git init (spawn + 명시적 argv — 셸 인젝션 없음)
+  if (options.gitInit) {
+    try {
+      await execFileAsync("git", ["init", absolutePath]);
+      console.log(`[new-project] git init OK: ${absolutePath}`);
+    } catch (err) {
+      console.warn("[new-project] git init failed (non-fatal):", err);
+      // non-fatal: git 없어도 폴더/워크스페이스는 정상 등록
+    }
+  }
+
+  // CLAUDE.md 템플릿
+  if (options.claudeMd) {
+    const claudeContent = `# ${projectName}
+
+## Objective
+(Describe the goal of this project)
+
+## Overview
+(Brief technical overview)
+`;
+    try {
+      await fsp.writeFile(path.join(absolutePath, "CLAUDE.md"), claudeContent, "utf8");
+      console.log("[new-project] CLAUDE.md written");
+    } catch (err) {
+      console.warn("[new-project] CLAUDE.md write failed (non-fatal):", err);
+    }
+  }
+
+  // progress.md 템플릿 (startwork 형식 준수)
+  if (options.progressMd) {
+    const today = new Date().toISOString().split("T")[0];
+    const progressContent = `# Progress — ${projectName}
+
+## Current Task
+(What are you working on right now?)
+
+## Next Steps
+- (First next step)
+
+## Blockers
+(None)
+
+## Last Updated
+${today}
+`;
+    try {
+      await fsp.writeFile(path.join(absolutePath, "progress.md"), progressContent, "utf8");
+      console.log("[new-project] progress.md written");
+    } catch (err) {
+      console.warn("[new-project] progress.md write failed (non-fatal):", err);
+    }
+  }
+
+  // .gitignore Node 템플릿 (AC #6: node_modules, dist, .env, .DS_Store 포함)
+  if (options.gitignoreNode) {
+    const gitignoreContent = `node_modules/
+dist/
+.env
+.DS_Store
+*.log
+.cache/
+coverage/
+`;
+    try {
+      await fsp.writeFile(path.join(absolutePath, ".gitignore"), gitignoreContent, "utf8");
+      console.log("[new-project] .gitignore written");
+    } catch (err) {
+      console.warn("[new-project] .gitignore write failed (non-fatal):", err);
+    }
+  }
+
+  // AC #7: workspaces.json 즉시 등록
+  const addResult = addWorkspace(workspaces, absolutePath);
+  workspaces = addResult.workspaces;
+  console.log(`[new-project] workspace registered: id lookup from updated list`);
+
+  return {
+    success: true,
+    absolutePath,
+    workspaces,
+    parentCreated,
+  };
+});
+
 // --- Settings IPC ---
 
 ipcMain.handle("settings:get", () => appSettings);
