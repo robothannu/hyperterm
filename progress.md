@@ -1,7 +1,8 @@
 # Work Progress
 
 ## Current Task
-- **completed** — Sprint A: Claude 버튼 폴리시 (클리핑 + dedup + Running stuck fix), main 머지 완료, 패키지 재빌드
+- **completed** — Sprint B: New Project wizard (PASS 31/35), main 머지 완료. 빌드/시각 검증은 다음 단계
+- (이전) Sprint A: Claude 버튼 폴리시 — main 머지 + 패키지 빌드 완료
 
 ## Last Session (2026-05-05)
 
@@ -37,14 +38,49 @@
 - adversarial 분석 (정규화 비대칭, 호출자 누락, race condition) 모두 통과
 - **시각 GUI 검증은 사용자 수동 필요** — 새 빌드(`release/HyperTerm-0.1.0-arm64.dmg`, 05-05 재빌드)로
 
+## Sprint B 결과 (2026-05-05, 머지 970a37b)
+
+| 항목 | 값 |
+|---|---|
+| Verdict | PASS 31/35 |
+| Sprint | 1/1, Iteration 1 |
+| 신규 파일 | `src/renderer/dashboard-newproject.ts` (614줄) |
+| dashboard.ts diff | +23줄 (목표 50줄 이하 달성) |
+| main.ts diff | +166줄 (IPC `workspace:newProject` 핸들러) |
+| 그 외 | dashboard.html(+7), global.d.ts(+18), preload(+21) |
+| 검증 | TypeScript 0 errors, npm run build 성공, AC 11개 라이브 검증 통과, adversarial 12건 안전 |
+
+### Sprint B 점수 (Dim별)
+- Functionality 5, UX 4 (native confirm), Visual 4, Edge 4 (server defence 약함), Perf 5, Regression 5, Code Quality 4
+- MUST FIX 없음. NICE TO HAVE 8건 (서버측 입력검증 강화, trailing space 거부, validateProjectName 단위테스트, `as any` 제거, 614줄 분할 등)
+
+### Sprint B 핵심 결정
+- 모듈 격리: 신규 로직 전체를 `dashboard-newproject.ts`에 격리. dashboard.ts에는 진입점 후크만
+- 보안: `execFileAsync("git", ["init", absolutePath])` argv 배열 + `path.join` + `fs.promises`. shell injection live test 통과
+- AC #5 (parent 미존재): native `window.confirm`으로 사용자 의도 확인 후 재귀 mkdir + toast
+- 부분 실패 정책: 자동 삭제 안 함, 사용자에게 명시 알림
+
 ## Next Steps
-- [ ] **HIGH: 새 빌드로 Sprint A 시각 검증**
+- [ ] **HIGH: 새 빌드로 Sprint A + B 시각 검증**
+  - **Sprint A** (이전):
+    - Ask Claude 인라인 버튼: 긴 텍스트(한국어/이모지/영문)에서 버튼 라벨 안 잘리는지
+    - Run with Claude dedup: 같은 워크스페이스 카드 "Claude" 두 번 클릭 → 두 번째는 새 탭 안 생기고 기존 탭 switch
+    - Sidebar Running: claude 띄운 탭에서 다른 탭 전환 → claude 종료 → ≤5초 Running 사라짐
+  - **Sprint B (NEW)**:
+    - Dashboard에 "+ New Project" 버튼 보이는지, 기존 "Add Workspace" 옆 위치
+    - 모달 입력 4개 (이름/parent/옵션 4종) 동작
+    - 잘못된 이름(공백/슬래시/.) 인라인 에러
+    - 이미 존재하는 디렉토리 → 인라인 에러
+    - parent 미존재 → confirm dialog → 재귀 생성 toast
+    - 모든 옵션 ON 생성 → Finder에서 .git/, CLAUDE.md, progress.md, .gitignore 확인
+    - 생성 후 dashboard 카드 즉시 표시 + Run with Claude 다이얼로그 자동 오픈
+- [ ] **MEDIUM: Sprint B SHOULD/NICE TO HAVE (non-blocking)**
+  - 서버측 `workspace:newProject` defence-in-depth (validateProjectName 서버 mirror)
+  - trailing space 거부, `as any` 캐스트 제거, 워크스페이스 ID 로깅, validateProjectName 단위테스트, 614줄 분할 검토
   - Ask Claude 인라인 버튼: 긴 텍스트(한국어/이모지/영문)에서 버튼 라벨 안 잘리는지, "+N more" 펼친 항목도 동일
   - Run with Claude dedup: 같은 워크스페이스 카드의 "Claude" 두 번 클릭 → 두 번째는 새 탭 안 생기고 기존 탭으로 switch + 토스트
   - Ask Claude는 dedup 적용 안 됨 — nextStep 두 번 클릭 시 새 탭 두 개 생김 확인
   - Sidebar Running: claude 띄운 탭에서 다른 탭으로 전환 → claude 종료 → ≤5초 이내 sidebar Running 표시 사라짐
-- [ ] **HIGH: Sprint B — New Project wizard** (이전 세션 분석에서 합의)
-  - Dashboard "+ New Project" 버튼 → 이름/부모 디렉토리/git init/CLAUDE.md 템플릿/progress.md 템플릿/.gitignore 옵션 → 자동 등록 + Run with Claude 다이얼로그
 - [ ] **HIGH: Sprint C — 세션 유지 Hybrid (방식 C)** — 사용자가 명시적으로 합의한 메인 작업
   - **A 기본**: 모든 그룹의 cwd, 환경, scrollback(최근 N줄), 마지막 명령 N개를 sessions.json에 저장. 재시작 시 같은 cwd로 새 PTY + 화면 복원.
   - **B pinned**: 사용자가 그룹별 📌 토글 → background daemon 프로세스에 PTY 위탁. 앱 닫혀도 daemon이 PTY 유지. 재오픈 시 reattach → claude REPL/dev server 그대로 살아있음.
@@ -84,11 +120,11 @@
 - argv 배열 인자 + path 3중 검증으로 command injection 차단
 
 ## Harness State
-- Phase: complete — Sprint A (Claude 버튼 폴리시) 완료
+- Phase: complete — Sprint B (New Project wizard) 완료
 - Feature: -
-- Branch: -
-- Sprint: 1/1 (sub-tasks 2개), Iteration: 1
-- Resume: `/harness` (Sprint B/C 진입 시 새 기능 요청으로)
+- Branch: - (feature/new-project-wizard 머지 후 삭제)
+- Sprint: 1/1, Iteration: 1, Score: 31/35 PASS
+- Resume: `/harness` (Sprint C 진입 시 새 기능 요청으로)
 
 ## Blockers / Notes
 - **사용자 시각 검증 필요** — 새 빌드(release/HyperTerm-0.1.0-arm64.dmg, 05-05 재빌드)로 Sprint A 동작 확인
