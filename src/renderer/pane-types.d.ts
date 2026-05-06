@@ -11,9 +11,6 @@ interface PaneLeaf {
   agentState: AgentHookState;
   // session_id from Claude Code hook, mapped after first hook event
   hookSessionId?: string;
-  // Sprint 3 (pinned): disposable returned by session.onData so pinned wiring
-  // can replace it with daemon-routing when pinTab is toggled.
-  onDataDisposable?: { dispose(): void };
 }
 
 interface PaneSplit {
@@ -39,10 +36,6 @@ interface Tab {
   // of spawning a duplicate. NOTE: only set for taskText-less opens — Ask
   // Claude (with a prompt) always creates a new tab.
   claudeCwd?: string;
-  // Sprint 3 (pinned): true = this group's PTY is daemon-owned and survives
-  // app restarts. The daemon PTY id is stored in daemonPtyId.
-  pinned?: boolean;
-  daemonPtyId?: string;
 }
 
 // Persistence types
@@ -74,9 +67,6 @@ interface SavedTab {
   // subsequent "Run with Claude" click will switch to it instead of creating
   // a duplicate.
   claudeCwd?: string;
-  // Sprint 3 (pinned): true = daemon-owned PTY. daemonPtyId = daemon's PTY id.
-  pinned?: boolean;
-  daemonPtyId?: string;
 }
 interface SavedStateV2 {
   version: 3;

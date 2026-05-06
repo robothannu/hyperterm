@@ -5,9 +5,6 @@
 // --- Global State ---
 
 const sessions = new Map<number, TerminalSession>();
-// Sprint 3 (pinned F1): localPtyId(90000번대) → TerminalSession for daemon output routing.
-// Populated by wirePinnedSession / unwirePinnedSession in pinned-ui.ts.
-const pinnedSessions = new Map<number, TerminalSession>();
 const sessionKeys = new Map<number, string>();
 const tabMap = new Map<number, Tab>();
 const tabLabels = new Map<number, string>();
@@ -375,7 +372,7 @@ async function createPaneSession(
     }
   }
 
-  const onDataDisposable = session.onData((data: string) => {
+  session.onData((data: string) => {
     window.terminalAPI.writePty(ptyId, data);
   });
 
@@ -403,7 +400,7 @@ async function createPaneSession(
   // Register cleanup for CWD poll (called from closePaneByPtyId path)
   paneElement.addEventListener("pane-destroy", () => stopCwdPoll(), { once: true });
 
-  return { type: "leaf", ptyId, session, element: paneElement, agentStatus: false, agentState: "idle", onDataDisposable };
+  return { type: "leaf", ptyId, session, element: paneElement, agentStatus: false, agentState: "idle" };
 }
 
 async function createNewTab(
@@ -713,13 +710,6 @@ function closeTab(tabId: number): void {
   const tab = tabMap.get(tabId);
   if (!tab) return;
 
-  // Sprint 3: cleanup pinned daemon PTY before removing tab
-  if (tab.pinned && typeof cleanupPinnedOnDelete === "function") {
-    cleanupPinnedOnDelete(tabId).catch((err) => {
-      console.warn("[renderer] cleanupPinnedOnDelete failed (non-fatal):", err);
-    });
-  }
-
   // Close notes panel if open for this tab
   if (notesPanelTabId === tabId) closeNotesPanel();
 
@@ -847,9 +837,6 @@ async function saveSessionMetadata(): Promise<void> {
         // Sprint (Run with Claude polish): persist claudeCwd for dedup
         // across app restarts.
         claudeCwd: tab.claudeCwd,
-        // Sprint 3 (pinned): persist pinned state + daemon PTY id
-        pinned: tab.pinned || undefined,
-        daemonPtyId: tab.daemonPtyId || undefined,
       });
     }
     const state: SavedStateV2 = { version: 3, tabs: savedTabs, activeTabIndex };
@@ -925,16 +912,6 @@ async function restoreFromSaved(): Promise<boolean> {
 
   if (!savedState || savedState.tabs.length === 0) return false;
 
-  // Sprint 3: reconcile pinned tabs with daemon state before restoring
-  let pinnedReattachMap = new Map<string, string | null>(); // daemonPtyId → daemonPtyId | null (F5)
-  if (typeof reconcilePinnedTabs === "function") {
-    try {
-      pinnedReattachMap = await reconcilePinnedTabs(savedState.tabs);
-    } catch (err) {
-      console.warn("[renderer] reconcilePinnedTabs failed (continuing):", err);
-    }
-  }
-
   // Clear sidebar before restoring
   terminalList.innerHTML = "";
 
@@ -977,22 +954,6 @@ async function restoreFromSaved(): Promise<boolean> {
       tab.claudeCwd = savedTab.claudeCwd;
     }
 
-    // Sprint 3 (pinned): restore pin state + attempt daemon reattach
-    if (savedTab.pinned && savedTab.daemonPtyId) {
-      // F5: key is daemonPtyId (unique), not label (collision risk)
-      const reattachId = pinnedReattachMap.get(savedTab.daemonPtyId);
-      if (reattachId && reattachId === savedTab.daemonPtyId) {
-        // Can reattach — mark as pinned and attach after tab is added
-        tab.pinned = true;
-        tab.daemonPtyId = savedTab.daemonPtyId;
-      } else {
-        // Fallback: keep pinned=true so it's persisted, but no live daemon PTY
-        // Sprint 1 snapshot already shown above (restorePaneTree with scrollback)
-        tab.pinned = true;
-        tab.daemonPtyId = undefined; // cleared — will get a new one next time pinned
-      }
-    }
-
     tabMap.set(tabId, tab);
     tabLabels.set(tabId, savedTab.label);
     if (savedTab.cluster) {
@@ -1005,18 +966,6 @@ async function restoreFromSaved(): Promise<boolean> {
     // Build sub-rows for multi-pane tabs
     if (typeof updateSidebarPaneRows === "function") {
       updateSidebarPaneRows(tabId);
-    }
-
-    // Sprint 3: attach streaming proxy for pinned tabs that can reattach
-    if (tab.pinned && tab.daemonPtyId && typeof attachRestoredPinnedTab === "function") {
-      attachRestoredPinnedTab(tabId, tab.daemonPtyId).catch((err) => {
-        console.warn(`[renderer] attachRestoredPinnedTab failed for tabId=${tabId}:`, err);
-      });
-    }
-
-    // Sprint 3: update pin icon
-    if (typeof updatePinIcon === "function") {
-      updatePinIcon(tabId, !!tab.pinned);
     }
   }
 
@@ -1085,8 +1034,7 @@ contextMenu.addEventListener("click", async (e) => {
 // --- Global IPC Listeners ---
 
 window.terminalAPI.onPtyData((id: number, data: string) => {
-  // F1 fix: check pinnedSessions first (localPtyId 90000+), then normal sessions.
-  (pinnedSessions.get(id) ?? sessions.get(id))?.write(data);
+  sessions.get(id)?.write(data);
 });
 
 window.terminalAPI.onPtyExit((id: number, _exitCode: number) => {
@@ -1167,10 +1115,6 @@ window.addEventListener("beforeunload", () => {
 let usageRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
 window.terminalAPI.onBeforeQuit(async () => {
-  // Sprint 3: detach pinned streams before saving (so daemon PTYs survive)
-  if (typeof detachAllPinnedStreams === "function") {
-    detachAllPinnedStreams();
-  }
   await flushSessionMetadata();
   _teardownAll();
   console.log("[renderer] quitReady");
