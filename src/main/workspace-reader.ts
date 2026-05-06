@@ -32,6 +32,19 @@ export interface CardData {
 }
 
 /**
+ * Detect which AI tool(s) are configured in this workspace.
+ * Checks for CLAUDE.md (Claude Code) and AGENTS.md (OpenAI Codex CLI).
+ */
+export function detectTool(workspacePath: string): WorkspaceTool {
+  const hasClaude = fs.existsSync(path.join(workspacePath, "CLAUDE.md"));
+  const hasAgents = fs.existsSync(path.join(workspacePath, "AGENTS.md"));
+  if (hasClaude && hasAgents) return "mixed";
+  if (hasClaude) return "claude";
+  if (hasAgents) return "codex";
+  return "none";
+}
+
+/**
  * Read CLAUDE.md from the workspace root.
  * Returns raw markdown string, or null + error message on failure.
  */
@@ -49,6 +62,51 @@ function readClaudeMd(workspacePath: string): { content: string | null; error?: 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[workspace-reader] CLAUDE.md read error: ${msg}`);
+    return { content: null, error: msg };
+  }
+}
+
+/**
+ * Read AGENTS.md from the workspace root (OpenAI Codex CLI convention).
+ * Returns raw markdown string, or null + error message on failure.
+ * Parsing strategy: same as CLAUDE.md (first paragraph after H1 / ## Overview section).
+ */
+function readAgentsMd(workspacePath: string): { content: string | null; error?: string } {
+  const filePath = path.join(workspacePath, "AGENTS.md");
+  console.log(`[workspace-reader] reading AGENTS.md at ${filePath}`);
+  try {
+    if (!fs.existsSync(filePath)) {
+      console.log(`[workspace-reader] AGENTS.md not found at ${filePath}`);
+      return { content: null, error: "not_found" };
+    }
+    const content = fs.readFileSync(filePath, "utf8");
+    console.log(`[workspace-reader] AGENTS.md read OK (${content.length} chars)`);
+    return { content };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[workspace-reader] AGENTS.md read error: ${msg}`);
+    return { content: null, error: msg };
+  }
+}
+
+/**
+ * Read handoff.md from the workspace root (Codex project state convention).
+ * Returns raw markdown string, or null + error message on failure.
+ */
+function readHandoffMd(workspacePath: string): { content: string | null; error?: string } {
+  const filePath = path.join(workspacePath, "handoff.md");
+  console.log(`[workspace-reader] reading handoff.md at ${filePath}`);
+  try {
+    if (!fs.existsSync(filePath)) {
+      console.log(`[workspace-reader] handoff.md not found at ${filePath}`);
+      return { content: null, error: "not_found" };
+    }
+    const content = fs.readFileSync(filePath, "utf8");
+    console.log(`[workspace-reader] handoff.md read OK (${content.length} chars)`);
+    return { content };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[workspace-reader] handoff.md read error: ${msg}`);
     return { content: null, error: msg };
   }
 }
@@ -149,12 +207,15 @@ export interface OverviewGit {
   notAGitRepo: boolean;
 }
 
+export type WorkspaceTool = "claude" | "codex" | "mixed" | "none";
+
 export interface OverviewSummary {
   objective: string | null;
   goal: string | null;
   currentTask: string | null;
   nextSteps: string[];
   git: OverviewGit;
+  tool: WorkspaceTool;
   errors: { claude?: string; progress?: string; git?: string };
 }
 
@@ -410,6 +471,9 @@ export async function summarizeOverview(
 
   console.log(`[workspace-reader] summarizeOverview start: ${workspacePath}`);
 
+  // Detect which AI tool(s) are configured in this workspace
+  const tool = detectTool(workspacePath);
+
   const errors: OverviewSummary["errors"] = {};
   let objective: string | null = null;
   let goal: string | null = null;
@@ -422,92 +486,148 @@ export async function summarizeOverview(
     notAGitRepo: false,
   };
 
-  // 1. CLAUDE.md → goal (fallback chain)
+  // 1. Agent config file → goal (CLAUDE.md → AGENTS.md → fallback chain)
+  // Helper: extract goal from any markdown agent config (shared parsing logic)
+  function extractGoalFromMd(content: string): { goal: string | null; objective: string | null } {
+    let goalSection: string | null = null;
+    let fallbackUsed = "none";
+
+    goalSection = extractMdSection(content, "## Overview");
+    if (goalSection) { fallbackUsed = "## Overview"; }
+
+    if (!goalSection) {
+      goalSection = extractMdSection(content, "## Project Overview");
+      if (goalSection) { fallbackUsed = "## Project Overview"; }
+    }
+
+    if (!goalSection) {
+      goalSection = extractMdSection(content, "## Project Background");
+      if (goalSection) { fallbackUsed = "## Project Background"; }
+    }
+
+    if (!goalSection) {
+      goalSection = extractFirstParagraphAfterH1(content);
+      if (goalSection) { fallbackUsed = "first-paragraph-after-h1"; }
+    }
+
+    let extractedGoal: string | null = null;
+    let extractedObjective: string | null = null;
+
+    if (goalSection) {
+      extractedGoal = goalSection.slice(0, 200).trim() || null;
+      if (fallbackUsed !== "none") {
+        console.log(`[workspace-reader] summarizeOverview: goal fallback="${fallbackUsed}" for ${workspacePath}`);
+      }
+    }
+
+    // Objective: explicit ## Objective / ## Goal / ## 목적, else first sentence of goal
+    const objectiveSection: string | null =
+      extractMdSection(content, "## Objective") ??
+      extractMdSection(content, "## Goal") ??
+      extractMdSection(content, "## 목적");
+    if (objectiveSection) {
+      extractedObjective = firstSentenceClean(objectiveSection, 140);
+    } else if (extractedGoal) {
+      extractedObjective = firstSentenceClean(extractedGoal, 140);
+    }
+
+    return { goal: extractedGoal, objective: extractedObjective };
+  }
+
   try {
-    const { content, error } = readClaudeMd(workspacePath);
-    if (content) {
-      let goalSection: string | null = null;
-      let fallbackUsed = "none";
+    // Try CLAUDE.md first (for claude/mixed/none tools)
+    const claudeResult = readClaudeMd(workspacePath);
+    if (claudeResult.content) {
+      const extracted = extractGoalFromMd(claudeResult.content);
+      goal = extracted.goal;
+      objective = extracted.objective;
+    } else if (claudeResult.error && claudeResult.error !== "not_found") {
+      errors.claude = claudeResult.error;
+    }
 
-      goalSection = extractMdSection(content, "## Overview");
-      if (goalSection) { fallbackUsed = "## Overview"; }
-
-      if (!goalSection) {
-        goalSection = extractMdSection(content, "## Project Overview");
-        if (goalSection) { fallbackUsed = "## Project Overview"; }
+    // If no goal from CLAUDE.md, try AGENTS.md (for codex/mixed/none tools)
+    if (!goal) {
+      const agentsResult = readAgentsMd(workspacePath);
+      if (agentsResult.content) {
+        const extracted = extractGoalFromMd(agentsResult.content);
+        goal = extracted.goal;
+        objective = extracted.objective;
       }
-
-      if (!goalSection) {
-        goalSection = extractMdSection(content, "## Project Background");
-        if (goalSection) { fallbackUsed = "## Project Background"; }
-      }
-
-      if (!goalSection) {
-        goalSection = extractFirstParagraphAfterH1(content);
-        if (goalSection) { fallbackUsed = "first-paragraph-after-h1"; }
-      }
-
-      if (goalSection) {
-        goal = goalSection.slice(0, 200).trim() || null;
-        if (fallbackUsed !== "none") {
-          console.log(`[workspace-reader] summarizeOverview: goal fallback used="${fallbackUsed}" for ${workspacePath}`);
-        }
-      }
-
-      // Objective: explicit ## Objective / ## Goal / ## 목적, else first sentence of goal
-      let objectiveSection: string | null =
-        extractMdSection(content, "## Objective") ??
-        extractMdSection(content, "## Goal") ??
-        extractMdSection(content, "## 목적");
-      if (objectiveSection) {
-        objective = firstSentenceClean(objectiveSection, 140);
-      } else if (goal) {
-        objective = firstSentenceClean(goal, 140);
-      }
-    } else if (error && error !== "not_found") {
-      errors.claude = error;
+      // AGENTS.md not_found is normal for non-codex projects; only log real errors
     }
   } catch (e) {
     errors.claude = e instanceof Error ? e.message : String(e);
   }
 
-  // 2. progress.md → currentTask + nextSteps (fallback chain)
+  // 2. State file → currentTask + nextSteps
+  // Priority by tool: claude/mixed → progress.md; codex → handoff.md; none → try both
+  function extractTaskFromContent(content: string): { currentTask: string | null; nextSteps: string[] } {
+    let taskSection: string | null = null;
+    let taskFallback = "none";
+
+    taskSection = extractMdSection(content, "## Current Task");
+    if (taskSection) { taskFallback = "## Current Task"; }
+
+    if (!taskSection) {
+      taskSection = extractMdSection(content, "## Current Status");
+      if (taskSection) { taskFallback = "## Current Status"; }
+    }
+
+    if (!taskSection) {
+      taskSection = extractMdSection(content, "## Status");
+      if (taskSection) { taskFallback = "## Status"; }
+    }
+
+    let extractedTask: string | null = null;
+    if (taskSection) {
+      const firstLine = taskSection.split("\n").find((l) => l.trim().length > 0);
+      if (firstLine) {
+        extractedTask = firstLine.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s+)?/, "").trim() || null;
+      }
+      if (taskFallback !== "## Current Task") {
+        console.log(`[workspace-reader] summarizeOverview: currentTask fallback="${taskFallback}" for ${workspacePath}`);
+      }
+    }
+
+    const nextSection = extractMdSection(content, "## Next Steps");
+    const extractedNextSteps = nextSection ? parseBulletItems(nextSection, 3) : [];
+
+    return { currentTask: extractedTask, nextSteps: extractedNextSteps };
+  }
+
   try {
-    const { content, error } = readProgressMd(workspacePath);
-    if (content) {
-      // currentTask fallback chain
-      let taskSection: string | null = null;
-      let taskFallback = "none";
+    // Determine which state file(s) to read based on tool detection
+    const tryProgress = tool === "claude" || tool === "mixed" || tool === "none";
+    const tryHandoff = tool === "codex" || tool === "mixed" || tool === "none";
 
-      taskSection = extractMdSection(content, "## Current Task");
-      if (taskSection) { taskFallback = "## Current Task"; }
+    let stateContent: string | null = null;
+    let stateError: string | undefined;
 
-      if (!taskSection) {
-        taskSection = extractMdSection(content, "## Current Status");
-        if (taskSection) { taskFallback = "## Current Status"; }
+    if (tryProgress) {
+      const progressResult = readProgressMd(workspacePath);
+      if (progressResult.content) {
+        stateContent = progressResult.content;
+      } else if (progressResult.error && progressResult.error !== "not_found") {
+        stateError = progressResult.error;
       }
+    }
 
-      if (!taskSection) {
-        taskSection = extractMdSection(content, "## Status");
-        if (taskSection) { taskFallback = "## Status"; }
+    // For codex/mixed/none: try handoff.md if no content yet (or as primary for codex)
+    if (!stateContent && tryHandoff) {
+      const handoffResult = readHandoffMd(workspacePath);
+      if (handoffResult.content) {
+        stateContent = handoffResult.content;
+      } else if (handoffResult.error && handoffResult.error !== "not_found") {
+        stateError = stateError ?? handoffResult.error;
       }
+    }
 
-      if (taskSection) {
-        const firstLine = taskSection.split("\n").find((l) => l.trim().length > 0);
-        if (firstLine) {
-          currentTask = firstLine.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s+)?/, "").trim() || null;
-        }
-        if (taskFallback !== "## Current Task") {
-          console.log(`[workspace-reader] summarizeOverview: currentTask fallback used="${taskFallback}" for ${workspacePath}`);
-        }
-      }
-
-      const nextSection = extractMdSection(content, "## Next Steps");
-      if (nextSection) {
-        nextSteps = parseBulletItems(nextSection, 3);
-      }
-    } else if (error && error !== "not_found") {
-      errors.progress = error;
+    if (stateContent) {
+      const extracted = extractTaskFromContent(stateContent);
+      currentTask = extracted.currentTask;
+      nextSteps = extracted.nextSteps;
+    } else if (stateError) {
+      errors.progress = stateError;
     }
   } catch (e) {
     errors.progress = e instanceof Error ? e.message : String(e);
@@ -564,8 +684,8 @@ export async function summarizeOverview(
     errors.git = e instanceof Error ? e.message : String(e);
   }
 
-  console.log(`[workspace-reader] summarizeOverview done: ${workspacePath}`);
-  return { objective, goal, currentTask, nextSteps, git, errors };
+  console.log(`[workspace-reader] summarizeOverview done: ${workspacePath}, tool=${tool}`);
+  return { objective, goal, currentTask, nextSteps, git, tool, errors };
 }
 
 /**

@@ -53,12 +53,15 @@ interface OverviewGit {
   notAGitRepo: boolean;
 }
 
+type WorkspaceTool = "claude" | "codex" | "mixed" | "none";
+
 interface OverviewSummary {
   objective: string | null;
   goal: string | null;
   currentTask: string | null;
   nextSteps: string[];
   git: OverviewGit;
+  tool: WorkspaceTool;
   errors: { claude?: string; progress?: string; git?: string };
 }
 

@@ -877,13 +877,29 @@ ipcMain.handle("workspace:list", () => {
 });
 
 ipcMain.handle("workspace:add", async () => {
-  const result = await dialog.showOpenDialog(
-    dashboardWindow ?? mainWindow!,
-    {
-      title: "Select Workspace Folder",
-      properties: ["openDirectory", "createDirectory"],
-    }
-  );
+  console.log("[workspace] add: IPC invoked");
+  const parent =
+    dashboardWindow && !dashboardWindow.isDestroyed()
+      ? dashboardWindow
+      : mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : null;
+
+  let result;
+  try {
+    result = parent
+      ? await dialog.showOpenDialog(parent, {
+          title: "Select Workspace Folder",
+          properties: ["openDirectory", "createDirectory"],
+        })
+      : await dialog.showOpenDialog({
+          title: "Select Workspace Folder",
+          properties: ["openDirectory", "createDirectory"],
+        });
+  } catch (err) {
+    console.error("[workspace] add: dialog error:", err);
+    return { workspaces, duplicate: false, cancelled: true };
+  }
 
   if (result.canceled || result.filePaths.length === 0) {
     console.log("[workspace] add: dialog cancelled");
@@ -891,8 +907,12 @@ ipcMain.handle("workspace:add", async () => {
   }
 
   const chosen = result.filePaths[0];
+  console.log(`[workspace] add: chosen path=${chosen}`);
   const addResult = addWorkspace(workspaces, chosen);
   workspaces = addResult.workspaces;
+  console.log(
+    `[workspace] add: done — duplicate=${addResult.duplicate}, total=${workspaces.length}`
+  );
 
   return {
     workspaces,
