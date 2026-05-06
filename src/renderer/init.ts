@@ -44,8 +44,6 @@ usageRefreshInterval = setInterval(() => {
     initSidebarResize();
     // Init Subagent Indicator (Sprint 3)
     initSubagentIndicator();
-    // Start periodic snapshot save (Sprint 1: Session Restore)
-    startPeriodicSnapshotSave();
   } catch (err) {
     console.error("Init error:", err);
   }

@@ -785,29 +785,10 @@ async function serializePaneTree(node: PaneNode): Promise<SavedPaneNode> {
     let cwd: string | undefined;
     try { cwd = await window.terminalAPI.getCwd(node.ptyId); } catch { /* ok */ }
 
-    // Sprint 1 (Session Restore): capture scrollback snapshot
-    let scrollback: string | undefined;
-    let snapshotSavedAt: string | undefined;
-    try {
-      const session = sessions.get(node.ptyId);
-      if (session) {
-        const snap = captureSnapshot(session);
-        if (snap.length > 0) {
-          scrollback = snap;
-          snapshotSavedAt = new Date().toISOString();
-        }
-      }
-    } catch (err) {
-      console.warn("[renderer] snapshot capture failed for pty", node.ptyId, ":", err);
-      // Non-fatal: cwd is still saved even without scrollback
-    }
-
     return {
       type: "leaf",
       sessionKey: sessionKeys.get(node.ptyId) || "",
       cwd,
-      scrollback,
-      snapshotSavedAt,
     };
   }
   const [c0, c1] = await Promise.all([
@@ -869,12 +850,6 @@ async function restorePaneTree(
   if (node.type === "leaf") {
     const leaf = await createPaneSession(parentElement, node.cwd);
     ptyToTab.set(leaf.ptyId, tabId);
-
-    // Sprint 1 (Session Restore): write snapshot + divider if available
-    if (node.scrollback && node.scrollback.length > 0) {
-      restoreSnapshot(leaf.session, node.scrollback, node.snapshotSavedAt);
-    }
-
     return leaf;
   }
 
@@ -1063,32 +1038,6 @@ const resizeObserver = new ResizeObserver(() => {
 });
 resizeObserver.observe(terminalPane);
 
-// --- Periodic Snapshot Save (Sprint 1: Session Restore) ---
-// Saves session metadata (including scrollback snapshots) every 30 seconds so
-// even if the app crashes, most recent output is captured.
-
-let _snapshotSaveInterval: ReturnType<typeof setInterval> | null = null;
-
-function startPeriodicSnapshotSave(): void {
-  if (_snapshotSaveInterval !== null) return;
-  _snapshotSaveInterval = setInterval(() => {
-    if (tabMap.size > 0) {
-      saveSessionMetadata().catch((err) => {
-        console.warn("[renderer] periodic snapshot save failed:", err);
-      });
-    }
-  }, 30_000);
-  console.log("[renderer] periodic snapshot save started (30s interval)");
-}
-
-function stopPeriodicSnapshotSave(): void {
-  if (_snapshotSaveInterval !== null) {
-    clearInterval(_snapshotSaveInterval);
-    _snapshotSaveInterval = null;
-    console.log("[renderer] periodic snapshot save stopped");
-  }
-}
-
 // --- Lifecycle Teardown ---
 
 function _teardownAll(): void {
@@ -1110,9 +1059,6 @@ function _teardownAll(): void {
 
   stopGitPolling();
   console.log("[renderer] git polling stopped");
-
-  // Stop periodic snapshot save
-  stopPeriodicSnapshotSave();
 
   // Teardown global keydown handler (keybindings.ts)
   teardownKeybindings();

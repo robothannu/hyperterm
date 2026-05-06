@@ -583,6 +583,11 @@ export async function summarizeOverview(
       if (taskSection) { taskFallback = "## Status"; }
     }
 
+    if (!taskSection) {
+      taskSection = extractMdSection(content, "## Current");
+      if (taskSection) { taskFallback = "## Current"; }
+    }
+
     let extractedTask: string | null = null;
     if (taskSection) {
       const firstLine = taskSection.split("\n").find((l) => l.trim().length > 0);
@@ -594,7 +599,9 @@ export async function summarizeOverview(
       }
     }
 
-    const nextSection = extractMdSection(content, "## Next Steps");
+    const nextSection =
+      extractMdSection(content, "## Next Steps") ??
+      extractMdSection(content, "## Next");
     const extractedNextSteps = nextSection ? parseBulletItems(nextSection, 3) : [];
 
     return { currentTask: extractedTask, nextSteps: extractedNextSteps };

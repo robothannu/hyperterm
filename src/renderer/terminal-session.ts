@@ -3,12 +3,10 @@
 // addons are namespaces (e.g. window.FitAddon = { FitAddon: class ... })
 declare const Terminal: typeof import("@xterm/xterm").Terminal;
 declare const FitAddon: { FitAddon: typeof import("@xterm/addon-fit").FitAddon };
-declare const SerializeAddon: { SerializeAddon: typeof import("@xterm/addon-serialize").SerializeAddon };
 declare const WebglAddon: { WebglAddon: typeof import("@xterm/addon-webgl").WebglAddon };
 
 type TerminalInstance = InstanceType<typeof Terminal>;
 type FitAddonInstance = InstanceType<typeof FitAddon.FitAddon>;
-type SerializeAddonInstance = InstanceType<typeof SerializeAddon.SerializeAddon>;
 
 const XTERM_THEME_DARK = {
   background: "#0e1014", foreground: "#d0d0d0", cursor: "#d0d0d0", cursorAccent: "#0e1014",
@@ -34,7 +32,6 @@ class TerminalSession {
   public readonly terminal: TerminalInstance;
   public readonly container: HTMLElement;
   private fitAddon: FitAddonInstance;
-  private serializeAddon: SerializeAddonInstance;
   private fontSize: number = 12;
   private autoCopyListener: () => void;
   private paneClickListeners: { mousedown: (e: MouseEvent) => void; mouseup: (e: MouseEvent) => void } | null = null;
@@ -102,9 +99,6 @@ class TerminalSession {
 
     this.fitAddon = new FitAddon.FitAddon();
     this.terminal.loadAddon(this.fitAddon);
-
-    this.serializeAddon = new SerializeAddon.SerializeAddon();
-    this.terminal.loadAddon(this.serializeAddon);
   }
 
   open(): void {
@@ -167,10 +161,6 @@ class TerminalSession {
 
   onResize(callback: (size: { cols: number; rows: number }) => void): void {
     this.terminal.onResize(callback);
-  }
-
-  serialize(): string {
-    return this.serializeAddon.serialize();
   }
 
   onPaneClick(callback: (col: number, row: number) => void): void {
