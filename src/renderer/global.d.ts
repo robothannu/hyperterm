@@ -31,6 +31,7 @@ interface HookEvent {
 
 interface AppSettings {
   claudeNotifications: boolean;
+  codexNotifications?: boolean;
   fontSize?: number;
   theme?: "dark" | "light";
   recentProjects?: string[];
@@ -134,18 +135,25 @@ interface TerminalAPI {
   ): void;
 
   // --- Sprint 1 (Codex 진입점): Codex PTY + IPC ---
+  // Sprint 3: optional taskText forwarded to codex as positional prompt arg.
   createPtyWithCodex(
     cols: number,
     rows: number,
-    cwd?: string
+    cwd?: string,
+    taskText?: string
   ): Promise<{ id: number; sessionKey: string }>;
 
+  // Sprint 3: payload may include optional taskText for "Ask Codex per nextStep".
   onOpenGroupWithCwdWithCodex(
-    callback: (payload: { path: string }) => void
+    callback: (payload: { path: string; taskText?: string }) => void
   ): void;
 
   // --- Sprint 2 (Codex sidebar marker): Codex process status polling ---
   getCodexStatus(id: number): Promise<{ isCodexRunning: boolean; codexPid: number | null }>;
+
+  // --- Sprint 3 (Codex usage): fetch Codex usage info ---
+  // Returns { available: false } since codex CLI has no usage subcommand.
+  fetchCodexUsage(): Promise<{ available: boolean; raw?: string }>;
 }
 
 interface SubagentAgent {
@@ -281,7 +289,8 @@ interface DashboardAPI {
   // Sprint: Run with Claude — checks if `claude` is resolvable from interactive zsh.
   claudeCheckInstalled(): Promise<boolean>;
   // Sprint 1 (Codex 진입점): opens workspace as new group + runs `codex` in initial PTY.
-  openInMainWithCodex(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  // Sprint 3: optional taskText is forwarded to codex as positional prompt arg.
+  openInMainWithCodex(workspacePath: string, taskText?: string): Promise<{ success?: boolean; error?: string }>;
   // Sprint 1 (Codex 진입점): checks if `codex` is resolvable from interactive zsh.
   codexCheckInstalled(): Promise<boolean>;
   // Sprint 4
@@ -364,6 +373,9 @@ declare var activeSessionSettings: { fontSize: number; theme: "dark" | "light" }
 
 // Toast helper defined in renderer.ts, available to all modules loaded after it
 declare function showToast(message: string, variant?: "error" | "warn" | "ok" | "done"): void;
+
+// Sprint 3: Codex usage refresh (statusbar.ts) — called from init.ts
+declare function refreshCodexUsage(): Promise<void>;
 
 // Toolbar row: layout preset functions (toolbar-row.ts)
 declare function initToolbarRow(): void;

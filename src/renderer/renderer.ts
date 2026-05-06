@@ -174,7 +174,7 @@ function shortBranchName(b: string): string {
 async function createPaneSession(
   parentElement: HTMLElement,
   cwd?: string,
-  options?: { runWithClaude?: boolean; claudePrompt?: string; runWithCodex?: boolean }
+  options?: { runWithClaude?: boolean; claudePrompt?: string; runWithCodex?: boolean; codexPrompt?: string }
 ): Promise<PaneLeaf> {
   const paneElement = document.createElement("div");
   paneElement.className = "pane-leaf";
@@ -278,7 +278,7 @@ async function createPaneSession(
           options?.claudePrompt,
         )
       : options?.runWithCodex
-      ? await window.terminalAPI.createPtyWithCodex(cols, rows, cwd)
+      ? await window.terminalAPI.createPtyWithCodex(cols, rows, cwd, options?.codexPrompt)
       : await window.terminalAPI.createPty(cols, rows, cwd);
     ptyId = result.id;
     sessionKey = result.sessionKey;
@@ -408,7 +408,7 @@ async function createPaneSession(
 async function createNewTab(
   label?: string,
   cwd?: string,
-  options?: { runWithClaude?: boolean; claudePrompt?: string; runWithCodex?: boolean }
+  options?: { runWithClaude?: boolean; claudePrompt?: string; runWithCodex?: boolean; codexPrompt?: string }
 ): Promise<number | null> {
   const displayLabel = label || `Terminal ${sessionCounter}`;
 
@@ -1257,29 +1257,37 @@ window.terminalAPI.onOpenGroupWithCwdWithClaude(async (payload: { path: string; 
 // Policy mirrors onOpenGroupWithCwdWithClaude:
 //   - Dedup: if a tab with codexCwd === requestedPath exists, switch to it.
 //   - Otherwise create a new tab with runWithCodex=true.
-window.terminalAPI.onOpenGroupWithCwdWithCodex(async (payload: { path: string }) => {
+window.terminalAPI.onOpenGroupWithCwdWithCodex(async (payload: { path: string; taskText?: string }) => {
   const requestedPath = payload?.path;
   if (!requestedPath || typeof requestedPath !== "string") {
     console.warn("[renderer] group:openWithCwdWithCodex: invalid payload", payload);
     return;
   }
 
-  console.log(`[renderer] group:openWithCwdWithCodex: requested path=${requestedPath}`);
+  const taskText = typeof payload.taskText === "string" && payload.taskText.length > 0
+    ? payload.taskText
+    : undefined;
+
+  console.log(`[renderer] group:openWithCwdWithCodex: requested path=${requestedPath} taskText=${taskText ? "yes" : "no"}`);
 
   // Dedup: switch to existing codex tab if one exists for this cwd.
-  for (const [existingTabId, existingTab] of tabMap.entries()) {
-    if (existingTab.codexCwd === requestedPath) {
-      console.log(`[renderer] group:openWithCwdWithCodex: dedup match — existing codex tab ${existingTabId} for cwd=${requestedPath}`);
-      switchToTab(existingTabId);
-      const folderName = requestedPath.split("/").filter(Boolean).pop() || "Workspace";
-      showToast(`Switched to existing Codex session: ${folderName}`, "ok");
-      return;
+  // Skip dedup when taskText is provided — Ask Codex always opens a fresh session.
+  if (!taskText) {
+    for (const [existingTabId, existingTab] of tabMap.entries()) {
+      if (existingTab.codexCwd === requestedPath) {
+        console.log(`[renderer] group:openWithCwdWithCodex: dedup match — existing codex tab ${existingTabId} for cwd=${requestedPath}`);
+        switchToTab(existingTabId);
+        const folderName = requestedPath.split("/").filter(Boolean).pop() || "Workspace";
+        showToast(`Switched to existing Codex session: ${folderName}`, "ok");
+        return;
+      }
     }
   }
 
   const folderName = requestedPath.split("/").filter(Boolean).pop() || "Workspace";
   const tabId = await createNewTab(folderName, requestedPath, {
     runWithCodex: true,
+    codexPrompt: taskText,
   });
   if (tabId === null) {
     showToast("Failed to open Codex session.", "error");

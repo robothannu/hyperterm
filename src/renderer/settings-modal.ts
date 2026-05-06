@@ -7,7 +7,7 @@
 const DEFAULT_FONT_SIZE = 14;
 
 let settingsModalEl: HTMLElement | null = null;
-let currentSettings: AppSettings = { claudeNotifications: false };
+let currentSettings: AppSettings = { claudeNotifications: false, codexNotifications: true };
 
 // ---------------------------------------------------------------------------
 // Open / Close
@@ -39,6 +39,7 @@ function populateSettingsUI(): void {
   const fontValue = document.getElementById("settings-font-size-value");
   const themeToggle = document.getElementById("settings-theme-toggle") as HTMLInputElement | null;
   const notifToggle = document.getElementById("settings-notif-toggle") as HTMLInputElement | null;
+  const codexNotifToggle = document.getElementById("settings-codex-notif-toggle") as HTMLInputElement | null;
   const hookStatus = document.getElementById("settings-hook-status");
 
   const fontSize = currentSettings.fontSize ?? DEFAULT_FONT_SIZE;
@@ -49,6 +50,8 @@ function populateSettingsUI(): void {
   if (themeToggle) themeToggle.checked = !isDark; // checked = light
 
   if (notifToggle) notifToggle.checked = currentSettings.claudeNotifications ?? false;
+  // Sprint 3: Codex notifications toggle (default ON)
+  if (codexNotifToggle) codexNotifToggle.checked = currentSettings.codexNotifications ?? true;
 
   // Hook status
   if (hookStatus) {
@@ -105,16 +108,20 @@ function saveSettingsFromUI(): void {
   const fontSlider = document.getElementById("settings-font-size-slider") as HTMLInputElement | null;
   const themeToggle = document.getElementById("settings-theme-toggle") as HTMLInputElement | null;
   const notifToggle = document.getElementById("settings-notif-toggle") as HTMLInputElement | null;
+  const codexNotifToggle = document.getElementById("settings-codex-notif-toggle") as HTMLInputElement | null;
 
   const fontSize = fontSlider ? parseInt(fontSlider.value, 10) : (currentSettings.fontSize ?? DEFAULT_FONT_SIZE);
   const theme: "dark" | "light" = themeToggle?.checked ? "light" : "dark";
   const claudeNotifications = notifToggle?.checked ?? false;
+  // Sprint 3: Codex notifications toggle (independent from Claude)
+  const codexNotifications = codexNotifToggle?.checked ?? true;
 
   const updated: AppSettings = {
     ...currentSettings,
     fontSize,
     theme,
     claudeNotifications,
+    codexNotifications,
   };
 
   window.terminalAPI.saveSettings(updated).catch((e) => {

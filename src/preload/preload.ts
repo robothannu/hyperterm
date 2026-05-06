@@ -28,6 +28,7 @@ interface HookEvent {
 
 interface AppSettings {
   claudeNotifications: boolean;
+  codexNotifications?: boolean;
   fontSize?: number;
   theme?: "dark" | "light";
   recentProjects?: string[];
@@ -129,21 +130,25 @@ export interface TerminalAPI {
   ): void;
 
   // --- Sprint 1 (Codex 진입점): Codex PTY + IPC bridges ---
-  // Spawns a PTY whose foreground command is `codex` interactive REPL.
+  // Sprint 3: optional taskText forwarded as positional prompt arg.
   createPtyWithCodex(
     cols: number,
     rows: number,
-    cwd?: string
+    cwd?: string,
+    taskText?: string
   ): Promise<{ id: number; sessionKey: string }>;
 
-  // Receives group:openWithCwdWithCodex from main process (workspace:openInMainWithCodex).
+  // Sprint 3: payload may include optional taskText for "Ask Codex per nextStep".
   onOpenGroupWithCwdWithCodex(
-    callback: (payload: { path: string }) => void
+    callback: (payload: { path: string; taskText?: string }) => void
   ): void;
 
   // --- Sprint 2 (Codex sidebar marker): Codex process status polling ---
   // Returns { isCodexRunning, codexPid } for a codex PTY session.
   getCodexStatus(id: number): Promise<{ isCodexRunning: boolean; codexPid: number | null }>;
+
+  // --- Sprint 3 (Codex usage): fetch Codex usage info ---
+  fetchCodexUsage(): Promise<{ available: boolean; raw?: string }>;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -315,16 +320,19 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   },
 
   // --- Sprint 1 (Codex 진입점): Codex PTY + IPC bridges ---
+  // Sprint 3: optional taskText forwarded to codex as positional prompt arg.
   createPtyWithCodex: (
     cols: number,
     rows: number,
-    cwd?: string
+    cwd?: string,
+    taskText?: string
   ): Promise<{ id: number; sessionKey: string }> => {
-    return ipcRenderer.invoke("pty:createWithCodex", cols, rows, cwd);
+    return ipcRenderer.invoke("pty:createWithCodex", cols, rows, cwd, taskText);
   },
 
+  // Sprint 3: payload may include optional taskText.
   onOpenGroupWithCwdWithCodex: (
-    callback: (payload: { path: string }) => void
+    callback: (payload: { path: string; taskText?: string }) => void
   ): void => {
     ipcRenderer.removeAllListeners("group:openWithCwdWithCodex");
     ipcRenderer.on("group:openWithCwdWithCodex", (_event, payload) => callback(payload));
@@ -335,5 +343,10 @@ contextBridge.exposeInMainWorld("terminalAPI", {
     id: number
   ): Promise<{ isCodexRunning: boolean; codexPid: number | null }> => {
     return ipcRenderer.invoke("pty:getCodexStatus", id);
+  },
+
+  // --- Sprint 3 (Codex usage): fetch Codex usage info ---
+  fetchCodexUsage: (): Promise<{ available: boolean; raw?: string }> => {
+    return ipcRenderer.invoke("codex:fetchUsage");
   },
 } satisfies TerminalAPI);

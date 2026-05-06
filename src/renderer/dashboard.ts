@@ -580,22 +580,28 @@ function populateCardData(m: CardMeta): void {
   }
 
   if (m.nextSteps.length > 0) {
-    // Sprint 2 (Ask Claude per nextStep): each <li> gets an inline "Ask Claude"
-    // button on the right. The raw nextStep string is NOT embedded in the
-    // markup; we store only its index in `data-todo-idx` and look up
-    // `m.nextSteps[idx]` at click time so metacharacters/newlines/emoji never
-    // pass through HTML serialization.
+    // Sprint 2 (Ask Claude per nextStep): each <li> gets inline "Ask Claude" and
+    // "Ask Codex" buttons (Sprint 3). The raw nextStep string is NOT embedded in
+    // the markup; we store only its index in `data-todo-idx` and look it up at
+    // click time so metacharacters/newlines/emoji never pass through HTML.
     var renderTodoLi = function (step: string, idx: number, extra: boolean): string {
       var cls = extra ? "todo-item todo-extra" : "todo-item";
       var styleAttr = extra ? ' style="display:none"' : "";
       return (
         '<li class="' + cls + '"' + styleAttr + '>' +
           '<span class="todo-text">' + mdInline(step) + '</span>' +
-          '<button type="button" class="todo-ask-btn" ' +
-            'data-action="ask-claude-todo" ' +
-            'data-path="' + dashEsc(m.ws.absolutePath) + '" ' +
-            'data-todo-idx="' + idx + '" ' +
-            'title="Ask Claude about this step">Ask Claude</button>' +
+          '<span class="todo-ask-btns">' +
+            '<button type="button" class="todo-ask-btn" ' +
+              'data-action="ask-claude-todo" ' +
+              'data-path="' + dashEsc(m.ws.absolutePath) + '" ' +
+              'data-todo-idx="' + idx + '" ' +
+              'title="Ask Claude about this step">Ask Claude</button>' +
+            '<button type="button" class="todo-ask-btn todo-ask-codex-btn" ' +
+              'data-action="ask-codex-todo" ' +
+              'data-path="' + dashEsc(m.ws.absolutePath) + '" ' +
+              'data-todo-idx="' + idx + '" ' +
+              'title="Ask Codex about this step">Ask Codex</button>' +
+          '</span>' +
         '</li>'
       );
     };
@@ -645,29 +651,47 @@ function populateCardData(m: CardMeta): void {
     })(toggleEl);
   }
 
-  // Sprint 2: Wire inline "Ask Claude" buttons per nextStep. Each click
+  // Wire inline "Ask Claude" + "Ask Codex" buttons per nextStep.
   //   - stops propagation so the card-level expand toggle does NOT fire
-  //   - looks up the raw nextStep text via index from m.nextSteps (raw text
-  //     never travels through HTML — protects against quote breakage)
-  //   - calls handleOpenWithClaude(path, taskText), same code path as the
-  //     footer "Claude" button but with prompt forwarded as positional argv.
+  //   - looks up the raw nextStep text via index (raw text never travels HTML)
+  //   - Claude: calls handleOpenWithClaude(path, taskText)
+  //   - Codex: calls handleOpenWithCodex(path, taskText) [Sprint 3]
   var listEl = document.getElementById("todo-list-" + m.ws.id);
   if (listEl) {
     var capturedNextSteps = m.nextSteps.slice(); // freeze ref for closure
     var capturedPath = m.ws.absolutePath;
-    listEl.querySelectorAll(".todo-ask-btn").forEach((el) => {
+
+    // Ask Claude buttons
+    listEl.querySelectorAll('[data-action="ask-claude-todo"]').forEach((el) => {
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         var btn = e.currentTarget as HTMLElement;
         var idxStr = btn.getAttribute("data-todo-idx") || "";
         var idx = parseInt(idxStr, 10);
         if (!Number.isFinite(idx) || idx < 0 || idx >= capturedNextSteps.length) {
-          console.warn("[dashboard] todo-ask-btn: invalid idx", idxStr);
+          console.warn("[dashboard] ask-claude-todo: invalid idx", idxStr);
           return;
         }
         var taskText = capturedNextSteps[idx];
         if (typeof taskText !== "string" || taskText.length === 0) return;
         void handleOpenWithClaude(capturedPath, taskText);
+      });
+    });
+
+    // Sprint 3: Ask Codex buttons — same pattern as Ask Claude
+    listEl.querySelectorAll('[data-action="ask-codex-todo"]').forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        var btn = e.currentTarget as HTMLElement;
+        var idxStr = btn.getAttribute("data-todo-idx") || "";
+        var idx = parseInt(idxStr, 10);
+        if (!Number.isFinite(idx) || idx < 0 || idx >= capturedNextSteps.length) {
+          console.warn("[dashboard] ask-codex-todo: invalid idx", idxStr);
+          return;
+        }
+        var taskText = capturedNextSteps[idx];
+        if (typeof taskText !== "string" || taskText.length === 0) return;
+        void handleOpenWithCodexTask(capturedPath, taskText);
       });
     });
   }
@@ -1101,6 +1125,31 @@ async function handleOpenWithCodex(workspacePath: string): Promise<void> {
     var msg = err instanceof Error ? err.message : String(err);
     showDashboardToast(`Failed to open Codex session: ${msg}`, "err");
     console.error("[dashboard] handleOpenWithCodex error:", err);
+  }
+}
+
+// Sprint 3: "Ask Codex" inline nextStep button — opens Codex in workspace with
+// the nextStep text as a prompt (positional argv, no shell interpolation).
+// Mirrors handleOpenWithClaude(path, taskText) exactly for the Codex path.
+async function handleOpenWithCodexTask(
+  workspacePath: string,
+  taskText: string,
+): Promise<void> {
+  try {
+    var result = await window.dashboardAPI!.openInMainWithCodex(workspacePath, taskText);
+    if (result.error) {
+      if (result.error === "path_missing") {
+        showDashboardToast("Folder not found on disk.", "warn");
+      } else if (result.error === "codex_missing") {
+        showDashboardToast("Codex CLI not installed", "err");
+      } else {
+        showDashboardToast(`Error: ${result.error}`, "err");
+      }
+    }
+  } catch (err) {
+    var msg = err instanceof Error ? err.message : String(err);
+    showDashboardToast(`Failed to open Codex session: ${msg}`, "err");
+    console.error("[dashboard] handleOpenWithCodexTask error:", err);
   }
 }
 

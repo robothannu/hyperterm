@@ -1271,9 +1271,15 @@
     }
 
     /* Sprint 2 (Ask Claude per nextStep): small ghost button right-aligned.
-       Sprint 1 polish: white-space:nowrap + flex:0 0 auto so the full
-       "Ask Claude" label is always visible regardless of text length or
-       narrow card width (3-up grid). */
+       Sprint 3: buttons are wrapped in .todo-ask-btns for Ask Claude + Ask Codex side-by-side.
+       Sprint 1 polish: white-space:nowrap + flex:0 0 auto so labels are always visible. */
+    .todo-ask-btns {
+      display: flex;
+      gap: 4px;
+      flex: 0 0 auto;
+      align-items: center;
+    }
+
     .todo-ask-btn {
       flex: 0 0 auto;
       white-space: nowrap;
@@ -1297,6 +1303,21 @@
       color: var(--accent);
       border-color: var(--accent);
       background: rgba(124,140,255,0.08);
+      opacity: 1;
+    }
+
+    /* Sprint 3: Ask Codex button — teal tint to distinguish from Claude */
+    .todo-ask-codex-btn {
+      color: #10a37f;
+      border-color: rgba(16, 163, 127, 0.35);
+    }
+
+    .todo-item:hover .todo-ask-codex-btn { opacity: 1; }
+
+    .todo-ask-codex-btn:hover {
+      color: #10a37f;
+      border-color: #10a37f;
+      background: rgba(16, 163, 127, 0.1);
       opacity: 1;
     }
 

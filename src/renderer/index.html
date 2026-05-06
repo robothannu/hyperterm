@@ -55,8 +55,11 @@
       <span id="usage-5h" class="usage-metric" title=""></span>
       <span class="usage-sep">|</span>
       <span id="usage-7d" class="usage-metric" title=""></span>
+      <!-- Sprint 3: Codex usage placeholder -->
+      <span class="usage-sep codex-usage-sep">|</span>
+      <span id="codex-usage" class="usage-metric codex-usage-placeholder" title="Codex usage unavailable"></span>
     </div>
-    <!-- statusbar layout preserved: left=counter, spacer, right=5H|7D -->
+    <!-- statusbar layout preserved: left=counter, spacer, right=5H|7D|Codex -->
   </div>
   <!-- Changed Files Panel -->
   <div id="changed-files-panel" class="changed-files-panel hidden">
@@ -214,6 +217,19 @@
             <span class="settings-toggle-label">OFF</span>
             <label class="settings-toggle-switch">
               <input id="settings-notif-toggle" type="checkbox" />
+              <span class="settings-toggle-slider"></span>
+            </label>
+            <span class="settings-toggle-label">ON</span>
+          </div>
+        </div>
+
+        <!-- Codex Notifications (Sprint 3) -->
+        <div class="settings-row">
+          <label class="settings-label" for="settings-codex-notif-toggle">Codex 알림</label>
+          <div class="settings-control settings-toggle-row">
+            <span class="settings-toggle-label">OFF</span>
+            <label class="settings-toggle-switch">
+              <input id="settings-codex-notif-toggle" type="checkbox" />
               <span class="settings-toggle-slider"></span>
             </label>
             <span class="settings-toggle-label">ON</span>

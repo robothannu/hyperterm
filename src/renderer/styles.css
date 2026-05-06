@@ -1073,6 +1073,31 @@ html, body {
   font-size: 12px;
 }
 
+/* Sprint 3: Codex usage placeholder */
+.codex-usage-placeholder {
+  color: var(--fg-3);
+  font-style: italic;
+  font-size: 10px;
+}
+
+/* Sprint 3: Ask Codex button — nextStep inline */
+.todo-ask-btns {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.todo-ask-codex-btn {
+  background: rgba(16, 163, 127, 0.15);
+  color: #10a37f;
+  border: 1px solid rgba(16, 163, 127, 0.3);
+}
+
+.todo-ask-codex-btn:hover {
+  background: rgba(16, 163, 127, 0.25);
+}
+
 .statusbar-sep {
   font-size: 11px;
   color: var(--line-2);

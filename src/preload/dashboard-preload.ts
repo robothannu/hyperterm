@@ -236,8 +236,9 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
 
   // Sprint 1 (Codex 진입점): open workspace as new group with `codex` running.
   // Pre-checks codex availability; if missing returns { error: "codex_missing" }.
-  openInMainWithCodex: (workspacePath: string): Promise<OpenInMainResult> => {
-    return ipcRenderer.invoke("workspace:openInMainWithCodex", workspacePath);
+  // Sprint 3: optional taskText forwarded to codex as positional prompt arg.
+  openInMainWithCodex: (workspacePath: string, taskText?: string): Promise<OpenInMainResult> => {
+    return ipcRenderer.invoke("workspace:openInMainWithCodex", workspacePath, taskText);
   },
 
   // Sprint 1 (Codex 진입점): checks if `codex` is resolvable from interactive zsh.

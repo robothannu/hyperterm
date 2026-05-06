@@ -46,8 +46,12 @@ function getDefaultShell(): string {
  *     PATH includes /opt/homebrew/bin (where codex binary lives).
  *   - After codex exits the user keeps an interactive shell in the same cwd.
  *
- * SECURITY: the -c script is a hardcoded literal. cwd is validated. No
- * user-controlled value is interpolated into the shell script string.
+ * Sprint 3: optional taskText is passed as codex's positional prompt argument
+ *   via the shell's argv array — NOT interpolated into any -c string. This
+ *   matches the same safe argv pattern used for Claude in pty-manager.ts.
+ *
+ * SECURITY: the -c script base is a hardcoded literal. cwd is validated.
+ * taskText is passed as a separate argv element to the shell, not embedded.
  */
 export function createSessionWithCodex(
   cols: number,
@@ -55,6 +59,7 @@ export function createSessionWithCodex(
   onData: (id: number, data: string) => void,
   onExit: (id: number, exitCode: number) => void,
   cwd?: string,
+  taskText?: string,
 ): { id: number; sessionKey: string } {
   const id = nextId++;
   const sessionKey = `session-${id}`;
@@ -70,7 +75,12 @@ export function createSessionWithCodex(
 
   // Force zsh on macOS so PATH (/opt/homebrew/bin) resolves correctly.
   const shell = platform() === "darwin" ? "/bin/zsh" : getDefaultShell();
-  const args = ["-i", "-c", "codex; exec zsh -i"];
+  // Sprint 3: if taskText provided, pass it as a positional arg to codex.
+  // We use zsh's $@ mechanism: `set -- "$1"; codex "$@"; exec zsh -i`
+  // so taskText is a separate argv element — never shell-interpolated.
+  const args = typeof taskText === "string" && taskText.length > 0
+    ? ["-i", "-c", 'codex "$@"; exec zsh -i', "--", taskText]
+    : ["-i", "-c", "codex; exec zsh -i"];
 
   console.log(`[pty-codex] spawning session id=${id} cwd=${sessionCwd}`);
 
