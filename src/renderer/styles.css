@@ -2062,9 +2062,21 @@ body.theme-light .layout-btn.active {
   box-shadow: 0 0 0 3px rgba(74,222,128,0.15);
 }
 
+/* Sprint 2 (Codex sidebar marker): Codex running — blue to distinguish from Claude green */
+.card-dot-status.dot-codex-running {
+  background: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.18);
+}
+
 .terminal-entry.active .card-dot-status {
   background: var(--ok);
   box-shadow: 0 0 0 3px rgba(74,222,128,0.15);
+}
+
+/* Sprint 2: active 탭에서도 codex blue 유지 (specificity 0,3,0 — wins over 0,2,0 above) */
+.terminal-entry.active .card-dot-status.dot-codex-running {
+  background: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.18);
 }
 
 .card-dot-status.dot-waiting {

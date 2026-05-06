@@ -143,6 +143,9 @@ interface TerminalAPI {
   onOpenGroupWithCwdWithCodex(
     callback: (payload: { path: string }) => void
   ): void;
+
+  // --- Sprint 2 (Codex sidebar marker): Codex process status polling ---
+  getCodexStatus(id: number): Promise<{ isCodexRunning: boolean; codexPid: number | null }>;
 }
 
 interface SubagentAgent {
@@ -345,8 +348,8 @@ declare function restoreSnapshot(session: TerminalSession, snapshot: string, sav
 declare function startPeriodicSnapshotSave(): void;
 declare function stopPeriodicSnapshotSave(): void;
 
-// Sidebar dot state (sidebar.ts → hook-state.ts, agent-status.ts)
-declare function setSidebarDotState(tabId: number, state: "idle" | "running" | "waiting" | "done"): void;
+// Sidebar dot state (sidebar.ts → hook-state.ts, agent-status.ts, agent-status-codex.ts)
+declare function setSidebarDotState(tabId: number, state: "idle" | "running" | "codex-running" | "waiting" | "done"): void;
 declare function applySidebarDotState(dotEl: HTMLElement): void;
 declare function updateSidebarCountPill(tabId: number): void;
 
@@ -389,3 +392,8 @@ declare function setSidebarPaneRowState(tabId: number, ptyId: number, state: "id
 // Subagent indicator (subagent-indicator.ts — Sprint 3)
 declare function initSubagentIndicator(): Promise<void>;
 declare function cleanupSubagentForPty(ptyId: number): void;
+
+// Codex agent status polling (agent-status-codex.ts — Sprint 2)
+declare function startCodexPolling(): void;
+declare function stopCodexPolling(): void;
+declare function cleanupCodexTabMarker(tabId: number): void;

@@ -19,6 +19,10 @@ function applySidebarDotState(dotEl: HTMLElement): void {
       dotEl.classList.add("dot-running");
       dotEl.title = "Claude is running";
       break;
+    case "codex-running":
+      dotEl.classList.add("dot-codex-running");
+      dotEl.title = "Codex is running";
+      break;
     case "waiting":
       dotEl.classList.add("dot-waiting");
       dotEl.title = "Waiting for approval";
@@ -34,7 +38,7 @@ function applySidebarDotState(dotEl: HTMLElement): void {
   }
 }
 
-function setSidebarDotState(tabId: number, state: "idle" | "running" | "waiting" | "done"): void {
+function setSidebarDotState(tabId: number, state: "idle" | "running" | "codex-running" | "waiting" | "done"): void {
   const li = document.querySelector(`#terminal-list [data-id="${tabId}"]`) as HTMLElement | null;
   if (!li) return;
   const dotEl = li.querySelector(".card-dot-status") as HTMLElement | null;

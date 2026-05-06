@@ -1104,6 +1104,10 @@ function _teardownAll(): void {
   stopAgentPolling();
   console.log("[renderer] agent polling stopped");
 
+  // Sprint 2 (Codex sidebar marker): stop codex polling
+  if (typeof stopCodexPolling === "function") stopCodexPolling();
+  console.log("[renderer] codex polling stopped");
+
   stopGitPolling();
   console.log("[renderer] git polling stopped");
 

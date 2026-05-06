@@ -180,6 +180,107 @@ export function hasSession(id: number): boolean {
   return sessions.has(id);
 }
 
+// ---------------------------------------------------------------------------
+// Codex process status — Sprint 2: Sidebar Running marker
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a `codex` process is running in the process tree rooted at the
+ * session's shell PID. Walks one level of children via `pgrep -P`, then
+ * checks each child's cmdline for "codex".
+ *
+ * Returns `{ isCodexRunning, codexPid }`.
+ *
+ * Mirrors pty-manager.ts getAgentStatus — separate function so Claude polling
+ * path is never touched.
+ */
+export async function getCodexStatus(
+  id: number
+): Promise<{ isCodexRunning: boolean; codexPid: number | null }> {
+  const session = sessions.get(id);
+  if (!session) return { isCodexRunning: false, codexPid: null };
+
+  try {
+    const found = await findCodexInTree(session.childPid, 3);
+    if (found !== null) {
+      return { isCodexRunning: true, codexPid: found };
+    }
+    return { isCodexRunning: false, codexPid: null };
+  } catch {
+    return { isCodexRunning: false, codexPid: null };
+  }
+}
+
+/**
+ * Recursively search process tree (BFS up to `depth` levels) for a process
+ * whose cmdline contains "codex".
+ */
+async function findCodexInTree(
+  pid: number,
+  depth: number
+): Promise<number | null> {
+  if (depth <= 0) return null;
+
+  let childPids: number[] = [];
+  try {
+    const { stdout } = await execFileAsync("pgrep", ["-P", String(pid)], {
+      encoding: "utf8",
+      timeout: 2000,
+    });
+    childPids = stdout
+      .trim()
+      .split("\n")
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => !isNaN(n) && n > 0);
+  } catch {
+    return null;
+  }
+
+  if (childPids.length === 0) return null;
+
+  for (const childPid of childPids) {
+    try {
+      const { stdout } = await execFileAsync(
+        "ps",
+        ["-o", "args=", "-p", String(childPid)],
+        { encoding: "utf8", timeout: 2000 }
+      );
+      const args = stdout.trim();
+      const parts = args.split(/\s+/);
+      const binary = path.basename(parts[0]);
+      // Match: binary named "codex" OR node running a codex script
+      const isCodexBinary = binary === "codex";
+      const isCodexNode =
+        binary === "node" &&
+        parts.length > 1 &&
+        (parts[1].includes("/codex/") ||
+          path.basename(parts[1]).startsWith("codex"));
+      if (isCodexBinary || isCodexNode) {
+        return childPid;
+      }
+    } catch {
+      // process may have already exited
+    }
+  }
+
+  // Recurse into children
+  for (const childPid of childPids) {
+    const result = await findCodexInTree(childPid, depth - 1);
+    if (result !== null) return result;
+  }
+
+  return null;
+}
+
+/**
+ * Return all active codex session IDs — used by renderer polling to check
+ * if any codex tabs exist (AC 3: no polling when no codex tabs).
+ */
+export function getActiveSessionIds(): number[] {
+  return Array.from(sessions.keys());
+}
+
+
 export async function getCwd(id: number): Promise<string> {
   const session = sessions.get(id);
   if (!session) return process.env.HOME || "/";

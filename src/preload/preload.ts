@@ -140,6 +140,10 @@ export interface TerminalAPI {
   onOpenGroupWithCwdWithCodex(
     callback: (payload: { path: string }) => void
   ): void;
+
+  // --- Sprint 2 (Codex sidebar marker): Codex process status polling ---
+  // Returns { isCodexRunning, codexPid } for a codex PTY session.
+  getCodexStatus(id: number): Promise<{ isCodexRunning: boolean; codexPid: number | null }>;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -324,5 +328,12 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   ): void => {
     ipcRenderer.removeAllListeners("group:openWithCwdWithCodex");
     ipcRenderer.on("group:openWithCwdWithCodex", (_event, payload) => callback(payload));
+  },
+
+  // --- Sprint 2 (Codex sidebar marker): Codex process status polling ---
+  getCodexStatus: (
+    id: number
+  ): Promise<{ isCodexRunning: boolean; codexPid: number | null }> => {
+    return ipcRenderer.invoke("pty:getCodexStatus", id);
   },
 } satisfies TerminalAPI);

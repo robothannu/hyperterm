@@ -831,6 +831,12 @@ ipcMain.handle("pty:getAgentStatus", async (_event, id: number) => {
   return await PtyManager.getAgentStatus(id);
 });
 
+// --- Sprint 2 (Codex sidebar marker): Codex process status IPC ---
+// Separate from Claude polling path — failure here never affects Claude.
+ipcMain.handle("pty:getCodexStatus", async (_event, id: number) => {
+  return await PtyManagerCodex.getCodexStatus(id);
+});
+
 // Renderer signals that session metadata has been saved — safe to quit
 ipcMain.on("app:quit-ready", () => {
   if (forceQuitTimer !== null) {

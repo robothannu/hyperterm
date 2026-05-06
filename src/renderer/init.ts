@@ -21,6 +21,8 @@ usageRefreshInterval = setInterval(() => {
     refreshUsage();
     // Start Claude agent status polling
     startAgentPolling();
+    // Start Codex agent status polling (Sprint 2 — 30s interval, isolated from Claude)
+    startCodexPolling();
     // Start git status polling
     startGitPolling();
     // Init Changed Files panel
