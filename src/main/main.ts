@@ -1647,8 +1647,13 @@ app.whenReady().then(() => {
   installSubagentHooks();
   // Start subagent file watcher (Sprint 2)
   startSubagentWatcher(() => mainWindow);
+  // Terminal window: restores sessions.json groups (Sprint C snapshot etc.)
   createWindow();
   createMenu();
+  // Dashboard-first launch: open dashboard after terminal window so it appears
+  // on top and gets focus. Terminal window restores previous sessions in the
+  // background. Dashboard is always shown at startup (AC #1, #5).
+  openDashboardWindow();
 });
 
 app.on("window-all-closed", () => {

@@ -970,6 +970,9 @@ async function loadAndRender(): Promise<void> {
   var api = window.dashboardAPI!;
   _workspaces = await api.listWorkspaces();
 
+  // Expose count for dashboard-autorefresh.ts cycle log (AC #7)
+  (window as any).__dashboardWorkspaceCount = _workspaces.length;
+
   console.log(`[dashboard] init: loaded ${_workspaces.length} workspace(s)`);
 
   if (_workspaces.length === 0) {
@@ -1002,6 +1005,7 @@ async function handleAdd(): Promise<void> {
   // a discovery candidate, in which case it must drop out of the banner.
   await fetchDiscoveryCandidates();
   await loadAndRender();
+  if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
   showDashboardToast("Workspace added.", "ok");
 }
 
@@ -1012,6 +1016,7 @@ async function handleRemove(id: string): Promise<void> {
   if (!confirmed) return;
   _workspaces = await window.dashboardAPI!.removeWorkspace(id);
   await loadAndRender();
+  if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
   showDashboardToast("Workspace removed.", "ok");
 }
 
@@ -1079,6 +1084,7 @@ async function handleArchiveToggle(id: string, archived: boolean): Promise<void>
     console.log(`[dashboard] archive toggle: id=${id} archived=${archived}`);
     // Rebuild metas for affected workspace only then re-render
     await loadAndRender();
+    if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
     showDashboardToast(archived ? "Moved to Archived." : "Restored from Archived.", "ok");
   } catch (err) {
     console.error("[dashboard] handleArchiveToggle error:", err);
@@ -1094,6 +1100,7 @@ async function handleRefreshAll(): Promise<void> {
   // Sprint 3: re-scan discovery candidates so banner reflects newly-cloned repos.
   await fetchDiscoveryCandidates();
   await loadAndRender();
+  if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
   showDashboardToast("Refreshed.", "ok");
 }
 
@@ -1800,6 +1807,7 @@ async function handleDiscoveryAddSelected(): Promise<void> {
     // _discoveryCandidates becomes empty after batch add — C6).
     await fetchDiscoveryCandidates();
     await loadAndRender();
+    if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
 
     if (addedN > 0 && failedN === 0) {
       showDashboardToast(
@@ -1980,6 +1988,7 @@ if (typeof window !== "undefined") {
     }
     await fetchDiscoveryCandidates();
     await loadAndRender();
+    if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
   };
   (window as any).npOpenWithClaude = (absolutePath: string) => {
     void handleOpenWithClaude(absolutePath);
@@ -2079,6 +2088,9 @@ if (typeof window !== "undefined") {
   syncViewToggle();
   updateSortUI();
 
+  // Register loadAndRender for dashboard-autorefresh.ts auto-refresh cycles (AC #2)
+  (window as any).__dashboardLoadAndRender = loadAndRender;
+
   // Load workspaces
   (async () => {
     try {
@@ -2097,6 +2109,10 @@ if (typeof window !== "undefined") {
       // initial paint when conditions match.
       await fetchDiscoveryCandidates();
       await loadAndRender();
+      // Start auto-refresh after initial load completes (AC #2, #3, #4)
+      if (typeof (window as any).setupAutoRefresh === "function") {
+        (window as any).setupAutoRefresh();
+      }
     } catch (err) {
       console.error("[dashboard] boot failed:", err);
       var grid = document.getElementById("content") as HTMLDivElement | null;
