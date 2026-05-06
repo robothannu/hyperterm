@@ -159,6 +159,16 @@ function setFocusedPane(ptyId: number): void {
 // --- Core Functions ---
 
 // Helper: shorten home dir to ~
+// Normalize a cwd string for dedup comparison: trim and drop trailing slash
+// (preserve root "/"). Main process sends path.resolve()'d values, but
+// restored sessions and ad-hoc input may carry slashes/whitespace.
+function normalizeCwd(p: string | undefined): string | undefined {
+  if (!p) return p;
+  const t = p.trim();
+  if (t.length > 1 && t.endsWith("/")) return t.slice(0, -1);
+  return t;
+}
+
 function shortenCwd(cwd: string): string {
   const home = cwd.startsWith("/Users/") || cwd.startsWith("/home/")
     ? cwd.replace(/^\/(?:Users|home)\/[^/]+/, "~")
@@ -439,11 +449,11 @@ async function createNewTab(
     // create a new tab here we still record the cwd so a subsequent
     // promptless "Run with Claude" can dedup against it.
     if (options?.runWithClaude && cwd) {
-      tab.claudeCwd = cwd;
+      tab.claudeCwd = normalizeCwd(cwd);
     }
     // Sprint 1 (Codex 진입점): mark group as codex-mode for dedup.
     if (options?.runWithCodex && cwd) {
-      tab.codexCwd = cwd;
+      tab.codexCwd = normalizeCwd(cwd);
     }
 
     tabMap.set(tabId, tab);
@@ -887,10 +897,16 @@ async function restoreFromSaved(): Promise<boolean> {
       const parsed = JSON.parse(raw);
       if (parsed.version === 2 || parsed.version === 3) {
         savedState = parsed;
+      } else if (parsed.version !== undefined) {
+        // Older/unknown schema — log so the user knows their old groups
+        // were not restored. Current writer always emits version: 3.
+        console.warn(
+          `[renderer] sessions.json version=${parsed.version} not restorable; starting fresh`
+        );
       }
     }
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.warn("[renderer] sessions.json parse failed; starting fresh:", err);
   }
 
   if (!savedState || savedState.tabs.length === 0) return false;
@@ -934,11 +950,11 @@ async function restoreFromSaved(): Promise<boolean> {
     // claude (PTYs aren't preserved), but the group meta still says "this
     // tab is for Claude on cwd X" which matches the user's mental model.
     if (savedTab.claudeCwd) {
-      tab.claudeCwd = savedTab.claudeCwd;
+      tab.claudeCwd = normalizeCwd(savedTab.claudeCwd);
     }
     // Sprint 1 (Codex 진입점): restore codexCwd for dedup across app restarts.
     if (savedTab.codexCwd) {
-      tab.codexCwd = savedTab.codexCwd;
+      tab.codexCwd = normalizeCwd(savedTab.codexCwd);
     }
 
     tabMap.set(tabId, tab);
@@ -1060,6 +1076,20 @@ function _teardownAll(): void {
   stopGitPolling();
   console.log("[renderer] git polling stopped");
 
+  // Stop changed-files panel and activity-log periodic refresh
+  if (typeof stopChangedFilesAutoRefresh === "function") stopChangedFilesAutoRefresh();
+  if (typeof stopActivityRefresh === "function") stopActivityRefresh();
+
+  // Stop per-pane CWD pollers via pane-destroy event (each pane registers a
+  // once-listener in createPaneSession; dispatching here drains them all).
+  for (const tab of tabMap.values()) {
+    for (const leaf of getAllLeaves(tab.root)) {
+      try {
+        leaf.element.dispatchEvent(new Event("pane-destroy", { bubbles: false }));
+      } catch { /* ignore */ }
+    }
+  }
+
   // Teardown global keydown handler (keybindings.ts)
   teardownKeybindings();
 
@@ -1174,8 +1204,9 @@ window.terminalAPI.onOpenGroupWithCwdWithClaude(async (payload: { path: string; 
 
   // Dedup only when no taskText (Run with Claude, not Ask Claude).
   if (!promptText) {
+    const normalizedRequested = normalizeCwd(requestedPath);
     for (const [existingTabId, existingTab] of tabMap.entries()) {
-      if (existingTab.claudeCwd === requestedPath) {
+      if (normalizeCwd(existingTab.claudeCwd) === normalizedRequested) {
         console.log(`[renderer] group:openWithCwdWithClaude: dedup match — existing claude tab ${existingTabId} for cwd=${requestedPath}`);
         switchToTab(existingTabId);
         const folderName = requestedPath.split("/").filter(Boolean).pop() || "Workspace";
@@ -1219,8 +1250,9 @@ window.terminalAPI.onOpenGroupWithCwdWithCodex(async (payload: { path: string; t
   // Dedup: switch to existing codex tab if one exists for this cwd.
   // Skip dedup when taskText is provided — Ask Codex always opens a fresh session.
   if (!taskText) {
+    const normalizedRequested = normalizeCwd(requestedPath);
     for (const [existingTabId, existingTab] of tabMap.entries()) {
-      if (existingTab.codexCwd === requestedPath) {
+      if (normalizeCwd(existingTab.codexCwd) === normalizedRequested) {
         console.log(`[renderer] group:openWithCwdWithCodex: dedup match — existing codex tab ${existingTabId} for cwd=${requestedPath}`);
         switchToTab(existingTabId);
         const folderName = requestedPath.split("/").filter(Boolean).pop() || "Workspace";

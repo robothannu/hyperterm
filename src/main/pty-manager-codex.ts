@@ -282,15 +282,6 @@ async function findCodexInTree(
   return null;
 }
 
-/**
- * Return all active codex session IDs — used by renderer polling to check
- * if any codex tabs exist (AC 3: no polling when no codex tabs).
- */
-export function getActiveSessionIds(): number[] {
-  return Array.from(sessions.keys());
-}
-
-
 export async function getCwd(id: number): Promise<string> {
   const session = sessions.get(id);
   if (!session) return process.env.HOME || "/";

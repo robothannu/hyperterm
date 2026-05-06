@@ -273,11 +273,6 @@ export function destroyAll(): void {
 // Session queries
 // ---------------------------------------------------------------------------
 
-/** Return the child PID of a session's shell process. */
-export function getSessionPid(id: number): number | null {
-  return sessions.get(id)?.childPid ?? null;
-}
-
 /** Return the sessionKey for a given session id. */
 export function getSessionKey(id: number): string | null {
   return sessions.get(id)?.sessionKey ?? null;

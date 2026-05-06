@@ -193,6 +193,13 @@ function closeChangedFilesPanel(): void {
   }
 }
 
+function stopChangedFilesAutoRefresh(): void {
+  if (changedFilesRefreshTimer !== null) {
+    clearInterval(changedFilesRefreshTimer);
+    changedFilesRefreshTimer = null;
+  }
+}
+
 function toggleChangedFilesPanel(): void {
   if (changedFilesPanelOpen) {
     closeChangedFilesPanel();

@@ -452,11 +452,11 @@ function renderCard(m: CardMeta): HTMLElement {
     <div class="card-expand" id="ce-${dashEsc(m.ws.id)}"></div>
     <div class="card-foot">
       <span class="updated" id="upd-${dashEsc(m.ws.id)}">${dashEsc(m.updatedLabel)}</span>
-      <button class="open-btn" data-action="open-claude" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Claude Code">
+      <button class="open-btn" data-action="open-claude" data-path="${dashEsc(m.ws.absolutePath)}" data-tool="${dashEsc(m.tool)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Claude Code">
         <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M8 2L3 5v6l5 3 5-3V5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
         Claude
       </button>
-      <button class="open-btn" data-action="open-codex" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Codex">
+      <button class="open-btn" data-action="open-codex" data-path="${dashEsc(m.ws.absolutePath)}" data-tool="${dashEsc(m.tool)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Codex">
         <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Codex
       </button>
@@ -480,9 +480,13 @@ function renderCard(m: CardMeta): HTMLElement {
       } else if (action === "open-main") {
         if (p) void handleOpen(p);
       } else if (action === "open-claude") {
-        if (p) void handleOpenWithClaude(p);
+        if (p && confirmCrossTool("claude", btn.getAttribute("data-tool"))) {
+          void handleOpenWithClaude(p);
+        }
       } else if (action === "open-codex") {
-        if (p) void handleOpenWithCodex(p);
+        if (p && confirmCrossTool("codex", btn.getAttribute("data-tool"))) {
+          void handleOpenWithCodex(p);
+        }
       } else if (action === "open-ide") {
         if (p) void handleOpenInIDE(p);
       } else if (action === "reveal-finder") {
@@ -773,8 +777,8 @@ function renderListRow(m: CardMeta): HTMLElement {
       <button class="qbtn" title="Open" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 5l3 3-3 3M8 11h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button class="open-btn" data-action="open-claude" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Claude Code">Claude</button>
-      <button class="open-btn" data-action="open-codex" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Codex">Codex</button>
+      <button class="open-btn" data-action="open-claude" data-path="${dashEsc(m.ws.absolutePath)}" data-tool="${dashEsc(m.tool)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Claude Code">Claude</button>
+      <button class="open-btn" data-action="open-codex" data-path="${dashEsc(m.ws.absolutePath)}" data-tool="${dashEsc(m.tool)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Codex">Codex</button>
       <button class="open-btn primary" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}">Open</button>
     </div>
   `;
@@ -786,9 +790,13 @@ function renderListRow(m: CardMeta): HTMLElement {
       var action = btn.getAttribute("data-action");
       var p = btn.getAttribute("data-path");
       if (action === "open-claude") {
-        if (p) void handleOpenWithClaude(p);
+        if (p && confirmCrossTool("claude", btn.getAttribute("data-tool"))) {
+          void handleOpenWithClaude(p);
+        }
       } else if (action === "open-codex") {
-        if (p) void handleOpenWithCodex(p);
+        if (p && confirmCrossTool("codex", btn.getAttribute("data-tool"))) {
+          void handleOpenWithCodex(p);
+        }
       } else {
         if (p) void handleOpen(p);
       }
@@ -1053,7 +1061,7 @@ async function loadAndRender(): Promise<void> {
   _workspaces = await api.listWorkspaces();
 
   // Expose count for dashboard-autorefresh.ts cycle log (AC #7)
-  (window as any).__dashboardWorkspaceCount = _workspaces.length;
+  window.__dashboardWorkspaceCount = _workspaces.length;
 
   console.log(`[dashboard] init: loaded ${_workspaces.length} workspace(s)`);
 
@@ -1087,7 +1095,7 @@ async function handleAdd(): Promise<void> {
   // a discovery candidate, in which case it must drop out of the banner.
   await fetchDiscoveryCandidates();
   await loadAndRender();
-  if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
+  if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
   showDashboardToast("Workspace added.", "ok");
 }
 
@@ -1098,7 +1106,7 @@ async function handleRemove(id: string): Promise<void> {
   if (!confirmed) return;
   _workspaces = await window.dashboardAPI!.removeWorkspace(id);
   await loadAndRender();
-  if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
+  if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
   showDashboardToast("Workspace removed.", "ok");
 }
 
@@ -1129,6 +1137,25 @@ async function handleOpen(workspacePath: string): Promise<void> {
 // arg. There is NO shell interpolation anywhere along the path, so any
 // metacharacters (`;`, `$()`, backticks, `&&`, ...) inside taskText are
 // preserved as a literal string and never executed.
+// Cross-tool guard (Phase B C.4): if the user clicks Claude on a Codex-only
+// workspace (or vice versa), the tool will start with no project guidance
+// because CLAUDE.md/AGENTS.md doesn't exist. Confirm before launching so the
+// user knows the new session won't have its usual context.
+function confirmCrossTool(clicked: "claude" | "codex", workspaceTool: string | null): boolean {
+  if (!workspaceTool) return true;
+  if (clicked === "claude" && (workspaceTool === "codex" || workspaceTool === "none")) {
+    return window.confirm(
+      "이 워크스페이스에는 CLAUDE.md가 없습니다.\nClaude를 빈 컨텍스트로 시작하시겠습니까?"
+    );
+  }
+  if (clicked === "codex" && (workspaceTool === "claude" || workspaceTool === "none")) {
+    return window.confirm(
+      "이 워크스페이스에는 AGENTS.md가 없습니다.\nCodex를 빈 컨텍스트로 시작하시겠습니까?"
+    );
+  }
+  return true;
+}
+
 async function handleOpenWithClaude(
   workspacePath: string,
   taskText?: string,
@@ -1214,7 +1241,7 @@ async function handleArchiveToggle(id: string, archived: boolean): Promise<void>
     console.log(`[dashboard] archive toggle: id=${id} archived=${archived}`);
     // Rebuild metas for affected workspace only then re-render
     await loadAndRender();
-    if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
+    if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
     showDashboardToast(archived ? "Moved to Archived." : "Restored from Archived.", "ok");
   } catch (err) {
     console.error("[dashboard] handleArchiveToggle error:", err);
@@ -1230,7 +1257,7 @@ async function handleRefreshAll(): Promise<void> {
   // Sprint 3: re-scan discovery candidates so banner reflects newly-cloned repos.
   await fetchDiscoveryCandidates();
   await loadAndRender();
-  if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
+  if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
   showDashboardToast("Refreshed.", "ok");
 }
 
@@ -1937,7 +1964,7 @@ async function handleDiscoveryAddSelected(): Promise<void> {
     // _discoveryCandidates becomes empty after batch add — C6).
     await fetchDiscoveryCandidates();
     await loadAndRender();
-    if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
+    if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
 
     if (addedN > 0 && failedN === 0) {
       showDashboardToast(
@@ -2105,27 +2132,27 @@ if (typeof window !== "undefined") {
   var newProjBtn = document.getElementById("btn-new-project") as HTMLButtonElement | null;
   if (newProjBtn) {
     newProjBtn.addEventListener("click", () => {
-      if (typeof (window as any).openNewProjectModal === "function") {
-        (window as any).openNewProjectModal(_homeDir);
+      if (typeof window.openNewProjectModal === "function") {
+        window.openNewProjectModal(_homeDir);
       }
     });
   }
 
   // Expose helpers for dashboard-newproject.ts to call back into dashboard.ts
-  (window as any).npDashboardRefresh = async (updatedWorkspaces?: WorkspaceEntry[]) => {
+  window.npDashboardRefresh = async (updatedWorkspaces?: WorkspaceEntry[]) => {
     if (updatedWorkspaces) {
       _workspaces = updatedWorkspaces;
     }
     await fetchDiscoveryCandidates();
     await loadAndRender();
-    if (typeof (window as any).resetAutoRefresh === "function") (window as any).resetAutoRefresh();
+    if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
   };
-  (window as any).npOpenWithClaude = (absolutePath: string) => {
+  window.npOpenWithClaude = (absolutePath: string) => {
     void handleOpenWithClaude(absolutePath);
   };
 
   // Sprint 1 (Codex 진입점): expose for dashboard-newproject.ts Codex tool selection
-  (window as any).npOpenWithCodex = (absolutePath: string) => {
+  window.npOpenWithCodex = (absolutePath: string) => {
     void handleOpenWithCodex(absolutePath);
   };
 
@@ -2224,7 +2251,7 @@ if (typeof window !== "undefined") {
   updateSortUI();
 
   // Register loadAndRender for dashboard-autorefresh.ts auto-refresh cycles (AC #2)
-  (window as any).__dashboardLoadAndRender = loadAndRender;
+  window.__dashboardLoadAndRender = loadAndRender;
 
   // Load workspaces
   (async () => {
@@ -2245,8 +2272,8 @@ if (typeof window !== "undefined") {
       await fetchDiscoveryCandidates();
       await loadAndRender();
       // Start auto-refresh after initial load completes (AC #2, #3, #4)
-      if (typeof (window as any).setupAutoRefresh === "function") {
-        (window as any).setupAutoRefresh();
+      if (typeof window.setupAutoRefresh === "function") {
+        window.setupAutoRefresh();
       }
     } catch (err) {
       console.error("[dashboard] boot failed:", err);

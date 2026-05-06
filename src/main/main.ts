@@ -1506,6 +1506,9 @@ interface NewProjectResult {
   workspaces?: typeof workspaces;
   error?: string;
   parentCreated?: boolean;
+  // Non-fatal step failures (git init, file writes). Renderer surfaces these
+  // to the user so partial-failure orphan dirs aren't silent.
+  warnings?: string[];
 }
 
 ipcMain.handle("workspace:newProject", async (_event, payload: NewProjectPayload): Promise<NewProjectResult> => {
@@ -1564,6 +1567,7 @@ ipcMain.handle("workspace:newProject", async (_event, payload: NewProjectPayload
 
   // AC #6: 옵션별 파일/git 초기화
   const fsp = fs.promises;
+  const warnings: string[] = [];
 
   // git init (spawn + 명시적 argv — 셸 인젝션 없음)
   if (options.gitInit) {
@@ -1572,7 +1576,7 @@ ipcMain.handle("workspace:newProject", async (_event, payload: NewProjectPayload
       console.log(`[new-project] git init OK: ${absolutePath}`);
     } catch (err) {
       console.warn("[new-project] git init failed (non-fatal):", err);
-      // non-fatal: git 없어도 폴더/워크스페이스는 정상 등록
+      warnings.push("git init 실패 — 폴더는 생성됨");
     }
   }
 
@@ -1591,6 +1595,7 @@ ipcMain.handle("workspace:newProject", async (_event, payload: NewProjectPayload
       console.log("[new-project] CLAUDE.md written");
     } catch (err) {
       console.warn("[new-project] CLAUDE.md write failed (non-fatal):", err);
+      warnings.push("CLAUDE.md 생성 실패");
     }
   }
 
@@ -1616,6 +1621,7 @@ ${today}
       console.log("[new-project] progress.md written");
     } catch (err) {
       console.warn("[new-project] progress.md write failed (non-fatal):", err);
+      warnings.push("progress.md 생성 실패");
     }
   }
 
@@ -1634,6 +1640,7 @@ coverage/
       console.log("[new-project] .gitignore written");
     } catch (err) {
       console.warn("[new-project] .gitignore write failed (non-fatal):", err);
+      warnings.push(".gitignore 생성 실패");
     }
   }
 
@@ -1647,6 +1654,7 @@ coverage/
     absolutePath,
     workspaces,
     parentCreated,
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
 });
 

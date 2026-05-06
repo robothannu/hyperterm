@@ -29,7 +29,7 @@ function _tick(): void {
   var t0 = performance.now();
 
   // loadAndRender is registered by dashboard.ts boot section
-  var renderFn = (window as any).__dashboardLoadAndRender as (() => Promise<void>) | undefined;
+  var renderFn = window.__dashboardLoadAndRender as (() => Promise<void>) | undefined;
   if (typeof renderFn !== "function") {
     console.warn("[dashboard-refresh] __dashboardLoadAndRender not registered — skipping tick");
     return;
@@ -37,7 +37,7 @@ function _tick(): void {
 
   void renderFn().then(() => {
     var ms = Math.round(performance.now() - t0);
-    var wsCount = ((window as any).__dashboardWorkspaceCount as number | undefined) ?? "?";
+    var wsCount = (window.__dashboardWorkspaceCount as number | undefined) ?? "?";
     console.log(`[dashboard-refresh] cycle ${cycleN} — ${ms}ms — ${wsCount} workspaces`);
   }).catch((err: unknown) => {
     console.error("[dashboard-refresh] cycle error:", err);
@@ -78,7 +78,7 @@ function setupVisibilityHandler(): void {
       console.log("[dashboard-refresh] paused (hidden)");
     } else {
       // Page visible again — immediate 1 refresh then restart timer
-      var renderFn = (window as any).__dashboardLoadAndRender as (() => Promise<void>) | undefined;
+      var renderFn = window.__dashboardLoadAndRender as (() => Promise<void>) | undefined;
       if (typeof renderFn === "function") {
         void renderFn().catch((err: unknown) => {
           console.error("[dashboard-refresh] visibility refresh error:", err);
@@ -101,8 +101,8 @@ function setupAutoRefresh(): void {
   }
 }
 
-// Expose to window so dashboard.ts can call via (window as any) after this
-// script loads (dashboard-autorefresh.js is listed before dashboard.js in
-// dashboard.html, so these symbols are available when dashboard.ts runs).
-(window as any).setupAutoRefresh = setupAutoRefresh;
-(window as any).resetAutoRefresh = resetAutoRefresh;
+// Expose to window so dashboard.ts can call after this script loads
+// (dashboard-autorefresh.js is listed before dashboard.js in dashboard.html,
+// so these symbols are available when dashboard.ts runs).
+window.setupAutoRefresh = setupAutoRefresh;
+window.resetAutoRefresh = resetAutoRefresh;

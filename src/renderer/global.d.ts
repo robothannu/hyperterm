@@ -379,6 +379,10 @@ declare function setTabLayoutPreset(tabId: number, presetName: string): void;
 
 // Cross-module function: changed-files-panel.ts exports this for renderer.ts to call
 declare function refreshChangedFilesPanel(): Promise<void>;
+declare function stopChangedFilesAutoRefresh(): void;
+
+// Cross-module function: activity-log.ts — stop the 30s refresh timer on teardown
+declare function stopActivityRefresh(): void;
 
 // Cross-module function: git-status.ts exports this for changed-files-panel.ts to call
 // Returns the GitCacheEntry for the given tabId, or undefined if not cached
@@ -403,3 +407,18 @@ declare function cleanupSubagentForPty(ptyId: number): void;
 declare function startCodexPolling(): void;
 declare function stopCodexPolling(): void;
 declare function cleanupCodexTabMarker(tabId: number): void;
+
+// Cross-script window globals (dashboard scripts share state via window).
+// Each entry is set in one module and read from another loaded by the same
+// HTML page. Optional because load order can vary; callers must guard.
+interface Window {
+  __dashboardWorkspaceCount?: number;
+  __dashboardLoadAndRender?: () => Promise<void>;
+  setupAutoRefresh?: () => void;
+  resetAutoRefresh?: () => void;
+  openNewProjectModal?: (homeDir: string) => void;
+  npDashboardRefresh?: (updatedWorkspaces?: WorkspaceEntry[]) => Promise<void>;
+  npOpenWithClaude?: (absolutePath: string) => void;
+  npOpenWithCodex?: (absolutePath: string) => void;
+  _npInjectedWorkspaces?: WorkspaceEntry[];
+}

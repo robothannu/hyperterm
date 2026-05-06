@@ -100,3 +100,10 @@ function initActivityLog(): void {
     activityRefreshTimer = setInterval(() => renderActivitySection(), 30000);
   }
 }
+
+function stopActivityRefresh(): void {
+  if (activityRefreshTimer !== null) {
+    clearInterval(activityRefreshTimer);
+    activityRefreshTimer = null;
+  }
+}

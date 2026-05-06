@@ -26,6 +26,7 @@ interface NewProjectResult {
   workspaces?: WorkspaceEntry[];
   error?: string;
   parentCreated?: boolean;
+  warnings?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -501,6 +502,15 @@ async function npHandleCreate(): Promise<void> {
       showDashboardToast(`Parent directory created: ${parentDir}`, "ok");
     }
 
+    // 부분 실패 (D.5): non-fatal step warnings 노출
+    if (result.warnings && result.warnings.length > 0) {
+      console.warn("[new-project] partial failures:", result.warnings);
+      showDashboardToast(
+        `프로젝트 생성됨 (일부 단계 실패: ${result.warnings.join(", ")})`,
+        "warn"
+      );
+    }
+
     await npOnSuccess(result);
   } catch (err) {
     npSetCreateBtnLoading(false);
@@ -525,15 +535,15 @@ async function npOnSuccess(result: NewProjectResult): Promise<void> {
 
   // workspaces 업데이트 (AC #7 — 즉시 카드 표시)
   if (updatedWorkspaces) {
-    (window as any)._npInjectedWorkspaces = updatedWorkspaces;
+    window._npInjectedWorkspaces = updatedWorkspaces;
   }
 
   // 모달 닫기 (AC #9)
   npCloseModal();
 
   // Dashboard 리렌더 — loadAndRender가 global scope에 선언되어 있음
-  if (typeof (window as any).npDashboardRefresh === "function") {
-    await (window as any).npDashboardRefresh(updatedWorkspaces);
+  if (typeof window.npDashboardRefresh === "function") {
+    await window.npDashboardRefresh(updatedWorkspaces);
   }
 
   showDashboardToast("Project created!", "ok");
@@ -541,14 +551,14 @@ async function npOnSuccess(result: NewProjectResult): Promise<void> {
   // Sprint 1 (Codex 진입점): 도구에 따라 Claude 또는 Codex로 오픈
   if (selectedTool === "codex") {
     // Run with Codex: npOpenWithCodex는 dashboard.ts에서 window에 노출됨
-    if (typeof (window as any).npOpenWithCodex === "function") {
-      (window as any).npOpenWithCodex(absolutePath);
+    if (typeof window.npOpenWithCodex === "function") {
+      window.npOpenWithCodex(absolutePath);
     }
   } else {
     // Run with Claude 다이얼로그 자동 오픈 (AC #8)
     // handleOpenWithClaude는 dashboard.ts global scope에서 선언됨
-    if (typeof (window as any).npOpenWithClaude === "function") {
-      (window as any).npOpenWithClaude(absolutePath);
+    if (typeof window.npOpenWithClaude === "function") {
+      window.npOpenWithClaude(absolutePath);
     }
   }
 }
