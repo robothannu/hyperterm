@@ -200,12 +200,15 @@ interface DashboardOverviewGit {
   notAGitRepo: boolean;
 }
 
+type WorkspaceTool = "claude" | "codex" | "mixed" | "none";
+
 interface DashboardOverviewSummary {
   objective: string | null;
   goal: string | null;
   currentTask: string | null;
   nextSteps: string[];
   git: DashboardOverviewGit;
+  tool: WorkspaceTool;
   errors: { claude?: string; progress?: string; git?: string };
 }
 

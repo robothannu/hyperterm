@@ -37,6 +37,7 @@ interface CardMeta {
   tags: string[];
   group: "active" | "recent" | "archived";
   updatedLabel: string;
+  tool: WorkspaceTool;
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +360,28 @@ function filterMetas(metas: CardMeta[]): CardMeta[] {
 }
 
 // ---------------------------------------------------------------------------
+// Tool marker helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a small tool marker badge for the card header.
+ * Returns an HTML string. Returns empty string for tool="none".
+ */
+function renderToolMarker(tool: WorkspaceTool): string {
+  if (tool === "claude") {
+    return '<span class="tool-marker tool-claude" title="Claude Code project (CLAUDE.md)">Claude</span>';
+  }
+  if (tool === "codex") {
+    return '<span class="tool-marker tool-codex" title="Codex project (AGENTS.md)">Codex</span>';
+  }
+  if (tool === "mixed") {
+    return '<span class="tool-marker tool-claude" title="Claude Code project (CLAUDE.md)">Claude</span>'
+         + '<span class="tool-marker tool-codex" title="Codex project (AGENTS.md)">Codex</span>';
+  }
+  return ""; // "none" → no marker
+}
+
+// ---------------------------------------------------------------------------
 // Card rendering (design-v2 structure)
 // ---------------------------------------------------------------------------
 
@@ -406,12 +429,14 @@ function renderCard(m: CardMeta): HTMLElement {
     </div>
   `;
 
+  var toolMarkerHTML = renderToolMarker(m.tool);
   card.innerHTML = `
     <div class="card-head">
       <div class="ws-icon ${dashEsc(iconInfo.color)}">${dashEsc(iconInfo.letter)}</div>
       <div class="card-titlewrap">
         <div class="card-title">${dashEsc(m.ws.name)}</div>
         <div class="card-path" title="${dashEsc(m.ws.absolutePath)}">${dashEsc(displayPath)}</div>
+        ${toolMarkerHTML ? `<div class="tool-marker-row">${toolMarkerHTML}</div>` : ""}
       </div>
       ${quickActionsHTML}
     </div>
@@ -500,6 +525,28 @@ function populateCardData(m: CardMeta): void {
 
   // Update footer timestamp
   if (updEl) updEl.textContent = m.updatedLabel;
+
+  // Update tool marker (async IPC may have changed tool from initial "none")
+  var cardEl = document.querySelector(`.ws-card[data-id="${CSS.escape(m.ws.id)}"]`);
+  if (cardEl) {
+    var existingMarkerRow = cardEl.querySelector(".tool-marker-row");
+    var toolMarkerHTML2 = renderToolMarker(m.tool);
+    if (toolMarkerHTML2) {
+      if (existingMarkerRow) {
+        existingMarkerRow.innerHTML = toolMarkerHTML2;
+      } else {
+        var cardPathEl = cardEl.querySelector(".card-path");
+        if (cardPathEl) {
+          var newMarkerRow = document.createElement("div");
+          newMarkerRow.className = "tool-marker-row";
+          newMarkerRow.innerHTML = toolMarkerHTML2;
+          cardPathEl.parentElement!.insertBefore(newMarkerRow, cardPathEl.nextSibling);
+        }
+      }
+    } else if (existingMarkerRow) {
+      existingMarkerRow.remove();
+    }
+  }
 
   // Status strip
   var statusItems: string[] = [];
@@ -919,6 +966,7 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
     tags: [],
     group: initialGroup,
     updatedLabel: relTime(ws.addedAt),
+    tool: "none",
   };
 
   // Check existence
@@ -955,6 +1003,7 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
       meta.goal = overviewResult.goal;
       meta.currentTask = overviewResult.currentTask;
       meta.nextSteps = overviewResult.nextSteps || [];
+      meta.tool = overviewResult.tool || "none";
     }
 
     // Session state
