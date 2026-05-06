@@ -506,6 +506,11 @@ export async function summarizeOverview(
     }
 
     if (!goalSection) {
+      goalSection = extractMdSection(content, "## Project Intent");
+      if (goalSection) { fallbackUsed = "## Project Intent"; }
+    }
+
+    if (!goalSection) {
       goalSection = extractFirstParagraphAfterH1(content);
       if (goalSection) { fallbackUsed = "first-paragraph-after-h1"; }
     }
