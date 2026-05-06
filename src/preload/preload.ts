@@ -127,6 +127,19 @@ export interface TerminalAPI {
   onOpenGroupWithCwdWithClaude(
     callback: (payload: { path: string; taskText?: string }) => void
   ): void;
+
+  // --- Sprint 1 (Codex 진입점): Codex PTY + IPC bridges ---
+  // Spawns a PTY whose foreground command is `codex` interactive REPL.
+  createPtyWithCodex(
+    cols: number,
+    rows: number,
+    cwd?: string
+  ): Promise<{ id: number; sessionKey: string }>;
+
+  // Receives group:openWithCwdWithCodex from main process (workspace:openInMainWithCodex).
+  onOpenGroupWithCwdWithCodex(
+    callback: (payload: { path: string }) => void
+  ): void;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -295,5 +308,21 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   ): void => {
     ipcRenderer.removeAllListeners("group:openWithCwdWithClaude");
     ipcRenderer.on("group:openWithCwdWithClaude", (_event, payload) => callback(payload));
+  },
+
+  // --- Sprint 1 (Codex 진입점): Codex PTY + IPC bridges ---
+  createPtyWithCodex: (
+    cols: number,
+    rows: number,
+    cwd?: string
+  ): Promise<{ id: number; sessionKey: string }> => {
+    return ipcRenderer.invoke("pty:createWithCodex", cols, rows, cwd);
+  },
+
+  onOpenGroupWithCwdWithCodex: (
+    callback: (payload: { path: string }) => void
+  ): void => {
+    ipcRenderer.removeAllListeners("group:openWithCwdWithCodex");
+    ipcRenderer.on("group:openWithCwdWithCodex", (_event, payload) => callback(payload));
   },
 } satisfies TerminalAPI);

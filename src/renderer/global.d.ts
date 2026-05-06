@@ -132,6 +132,17 @@ interface TerminalAPI {
   onOpenGroupWithCwdWithClaude(
     callback: (payload: { path: string; taskText?: string }) => void
   ): void;
+
+  // --- Sprint 1 (Codex 진입점): Codex PTY + IPC ---
+  createPtyWithCodex(
+    cols: number,
+    rows: number,
+    cwd?: string
+  ): Promise<{ id: number; sessionKey: string }>;
+
+  onOpenGroupWithCwdWithCodex(
+    callback: (payload: { path: string }) => void
+  ): void;
 }
 
 interface SubagentAgent {
@@ -266,6 +277,10 @@ interface DashboardAPI {
   ): Promise<{ success?: boolean; error?: string }>;
   // Sprint: Run with Claude — checks if `claude` is resolvable from interactive zsh.
   claudeCheckInstalled(): Promise<boolean>;
+  // Sprint 1 (Codex 진입점): opens workspace as new group + runs `codex` in initial PTY.
+  openInMainWithCodex(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
+  // Sprint 1 (Codex 진입점): checks if `codex` is resolvable from interactive zsh.
+  codexCheckInstalled(): Promise<boolean>;
   // Sprint 4
   overviewSummary(workspacePath: string): Promise<DashboardOverviewSummary | { error: string }>;
   statusInfo(workspacePath: string): Promise<DashboardStatusInfo | { error: string }>;

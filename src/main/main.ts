@@ -9,6 +9,7 @@ import { capSnapshotsInTree, estimateTotalSnapshotBytes } from "./snapshot-store
 
 const execFileAsync = promisify(execFile);
 import * as PtyManager from "./pty-manager";
+import * as PtyManagerCodex from "./pty-manager-codex";
 import { installSubagentHooks } from "./subagent-hook-installer";
 import {
   startSubagentWatcher,
@@ -273,6 +274,7 @@ function createWindow(): void {
       forceQuitTimer = setTimeout(() => {
         console.warn("[main] Renderer did not respond to app:before-quit in time, force-quitting.");
         PtyManager.destroyAll();
+        PtyManagerCodex.destroyAll();
         if (mainWindow) {
           mainWindow.destroy();
         }
@@ -397,20 +399,126 @@ ipcMain.handle("claude:checkInstalled", async () => {
   return await PtyManager.isClaudeAvailable();
 });
 
+// --- codex:checkInstalled IPC (Sprint 1: Codex 진입점) ---
+// Returns whether `codex` is resolvable from an interactive zsh.
+ipcMain.handle("codex:checkInstalled", async () => {
+  return await PtyManagerCodex.isCodexAvailable();
+});
+
+// --- pty:createWithCodex IPC (Sprint 1: Codex 진입점) ---
+// Spawns a PTY whose foreground command is `codex` (OpenAI Codex CLI
+// interactive REPL), then drops into an interactive zsh after codex exits.
+// Mirrors pty:createWithClaude pattern exactly.
+// SECURITY: spawn argv is hardcoded literal — no user input interpolation.
+ipcMain.handle(
+  "pty:createWithCodex",
+  (_event, cols: number, rows: number, cwd?: string) => {
+    if (!isValidDimension(cols, rows)) {
+      throw new Error(`[codex] Invalid dimensions: cols=${cols}, rows=${rows}`);
+    }
+    console.log(`[main] pty:createWithCodex IPC: cols=${cols} rows=${rows} cwd=${cwd}`);
+    const result = PtyManagerCodex.createSessionWithCodex(
+      cols,
+      rows,
+      (sessionId, data) => {
+        mainWindow?.webContents.send("pty:data", sessionId, data);
+      },
+      (sessionId, exitCode) => {
+        mainWindow?.webContents.send("pty:exit", sessionId, exitCode);
+      },
+      cwd,
+    );
+    return result; // { id, sessionKey }
+  }
+);
+
+// --- workspace:openInMainWithCodex IPC (Sprint 1: Codex 진입점) ---
+// Dashboard card "Codex" footer button → focus mainWindow + send
+// group:openWithCwdWithCodex (renderer creates a NEW tab whose initial PTY
+// runs `codex`).
+//
+// Policy mirrors workspace:openInMainWithClaude exactly:
+//   - Pre-checks codex availability before opening any window.
+//   - If codex missing, returns { error: "codex_missing" } without focusing.
+//   - Caller (renderer) shows a toast.
+ipcMain.handle("workspace:openInMainWithCodex", async (_event, workspacePath: string) => {
+  if (!workspacePath || typeof workspacePath !== "string") {
+    console.warn("[workspace] openInMainWithCodex: invalid path");
+    return { error: "invalid_path" };
+  }
+
+  if (!fs.existsSync(workspacePath)) {
+    console.warn(`[workspace] openInMainWithCodex: path does not exist: ${workspacePath}`);
+    return { error: "path_missing" };
+  }
+
+  // Pre-check codex availability before opening any window.
+  const codexAvailable = await PtyManagerCodex.isCodexAvailable();
+  if (!codexAvailable) {
+    console.warn("[workspace] openInMainWithCodex: codex CLI not found in PATH");
+    return { error: "codex_missing" };
+  }
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    console.log("[workspace] openInMainWithCodex: mainWindow does not exist, creating it");
+    if (forceQuitTimer !== null) {
+      clearTimeout(forceQuitTimer);
+      forceQuitTimer = null;
+    }
+    isQuitting = false;
+    createWindow();
+    await new Promise<void>((resolve) => {
+      const win = mainWindow!;
+      if (win.webContents.isLoading()) {
+        win.webContents.once("did-finish-load", () => resolve());
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  if (mainWindow!.isMinimized()) mainWindow!.restore();
+  mainWindow!.focus();
+  mainWindow!.show();
+
+  const normalizedPath = path.resolve(workspacePath);
+  console.log(`[workspace] openInMainWithCodex: sending group:openWithCwdWithCodex for ${normalizedPath}`);
+  mainWindow!.webContents.send("group:openWithCwdWithCodex", {
+    path: normalizedPath,
+  });
+
+  return { success: true };
+});
+
 ipcMain.on("pty:write", (_event, id: number, data: string) => {
-  PtyManager.writeToSession(id, data);
+  if (PtyManagerCodex.hasSession(id)) {
+    PtyManagerCodex.writeToSession(id, data);
+  } else {
+    PtyManager.writeToSession(id, data);
+  }
 });
 
 ipcMain.on("pty:resize", (_event, id: number, cols: number, rows: number) => {
   if (!isValidDimension(cols, rows)) return;
-  PtyManager.resizeSession(id, cols, rows);
+  if (PtyManagerCodex.hasSession(id)) {
+    PtyManagerCodex.resizeSession(id, cols, rows);
+  } else {
+    PtyManager.resizeSession(id, cols, rows);
+  }
 });
 
 ipcMain.on("pty:destroy", (_event, id: number) => {
-  PtyManager.destroySession(id);
+  if (PtyManagerCodex.hasSession(id)) {
+    PtyManagerCodex.destroySession(id);
+  } else {
+    PtyManager.destroySession(id);
+  }
 });
 
 ipcMain.handle("pty:getCwd", (_event, id: number) => {
+  if (PtyManagerCodex.hasSession(id)) {
+    return PtyManagerCodex.getCwd(id);
+  }
   return PtyManager.getCwd(id);
 });
 
@@ -730,6 +838,7 @@ ipcMain.on("app:quit-ready", () => {
     forceQuitTimer = null;
   }
   PtyManager.destroyAll(); // kill all pty processes
+  PtyManagerCodex.destroyAll(); // kill all codex pty processes
   if (hookServer) {
     hookServer.close();
     hookServer = null;

@@ -234,6 +234,17 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
     return ipcRenderer.invoke("workspace:addBatch", paths);
   },
 
+  // Sprint 1 (Codex 진입점): open workspace as new group with `codex` running.
+  // Pre-checks codex availability; if missing returns { error: "codex_missing" }.
+  openInMainWithCodex: (workspacePath: string): Promise<OpenInMainResult> => {
+    return ipcRenderer.invoke("workspace:openInMainWithCodex", workspacePath);
+  },
+
+  // Sprint 1 (Codex 진입점): checks if `codex` is resolvable from interactive zsh.
+  codexCheckInstalled: (): Promise<boolean> => {
+    return ipcRenderer.invoke("codex:checkInstalled");
+  },
+
   // Sprint 1 (New Project Wizard): create a new project directory with options.
   newProject: (payload: {
     projectName: string;
