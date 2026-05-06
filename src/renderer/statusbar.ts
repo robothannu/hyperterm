@@ -5,7 +5,10 @@
 const statusBarEl = document.getElementById("statusbar")!;
 const usage5h = document.getElementById("usage-5h")!;
 const usage7d = document.getElementById("usage-7d")!;
-const usageSeps = statusBarEl.querySelectorAll(".usage-sep");
+const usageSeps = statusBarEl.querySelectorAll(".usage-sep:not(.codex-usage-sep)");
+// Sprint 3: Codex usage elements
+const codexUsageEl = document.getElementById("codex-usage") as HTMLElement | null;
+const codexUsageSepEl = statusBarEl.querySelector(".codex-usage-sep") as HTMLElement | null;
 let usageLoading = false;
 
 function getUsageColorClass(utilization: number): string {
@@ -86,4 +89,42 @@ async function refreshUsage(): Promise<void> {
 
 statusBarEl.addEventListener("click", () => {
   refreshUsage();
+  refreshCodexUsage();
 });
+
+// ---------------------------------------------------------------------------
+// Sprint 3: Codex usage — placeholder (codex CLI has no usage subcommand)
+// ---------------------------------------------------------------------------
+
+let codexUsageLoading = false;
+
+async function refreshCodexUsage(): Promise<void> {
+  if (codexUsageLoading) return;
+  codexUsageLoading = true;
+
+  try {
+    const result = await window.terminalAPI.fetchCodexUsage();
+
+    if (!codexUsageEl) return;
+
+    if (!result.available) {
+      // Codex CLI does not support a usage subcommand — show placeholder.
+      codexUsageEl.textContent = "codex usage unavailable";
+      codexUsageEl.className = "usage-metric codex-usage-placeholder";
+      codexUsageEl.title = "Codex CLI does not expose a usage command";
+      // Show the separator so users know the section is present.
+      if (codexUsageSepEl) codexUsageSepEl.style.display = "";
+    } else if (result.raw) {
+      // Future: if codex adds a usage command, render raw text.
+      codexUsageEl.textContent = result.raw;
+      codexUsageEl.className = "usage-metric";
+      codexUsageEl.title = "";
+      if (codexUsageSepEl) codexUsageSepEl.style.display = "";
+    }
+  } catch (err) {
+    console.warn("[statusbar] Codex usage refresh failed:", err);
+    // On error keep existing placeholder — do not crash.
+  } finally {
+    codexUsageLoading = false;
+  }
+}

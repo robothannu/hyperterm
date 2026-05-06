@@ -431,6 +431,10 @@ function renderCard(m: CardMeta): HTMLElement {
         <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M8 2L3 5v6l5 3 5-3V5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
         Claude
       </button>
+      <button class="open-btn" data-action="open-codex" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Codex">
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Codex
+      </button>
       <button class="open-btn primary" data-action="open-main" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""}>
         <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M6 3H3v10h10V10M9 3h4v4M13 3L7 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Open
@@ -452,6 +456,8 @@ function renderCard(m: CardMeta): HTMLElement {
         if (p) void handleOpen(p);
       } else if (action === "open-claude") {
         if (p) void handleOpenWithClaude(p);
+      } else if (action === "open-codex") {
+        if (p) void handleOpenWithCodex(p);
       } else if (action === "open-ide") {
         if (p) void handleOpenInIDE(p);
       } else if (action === "reveal-finder") {
@@ -574,22 +580,28 @@ function populateCardData(m: CardMeta): void {
   }
 
   if (m.nextSteps.length > 0) {
-    // Sprint 2 (Ask Claude per nextStep): each <li> gets an inline "Ask Claude"
-    // button on the right. The raw nextStep string is NOT embedded in the
-    // markup; we store only its index in `data-todo-idx` and look up
-    // `m.nextSteps[idx]` at click time so metacharacters/newlines/emoji never
-    // pass through HTML serialization.
+    // Sprint 2 (Ask Claude per nextStep): each <li> gets inline "Ask Claude" and
+    // "Ask Codex" buttons (Sprint 3). The raw nextStep string is NOT embedded in
+    // the markup; we store only its index in `data-todo-idx` and look it up at
+    // click time so metacharacters/newlines/emoji never pass through HTML.
     var renderTodoLi = function (step: string, idx: number, extra: boolean): string {
       var cls = extra ? "todo-item todo-extra" : "todo-item";
       var styleAttr = extra ? ' style="display:none"' : "";
       return (
         '<li class="' + cls + '"' + styleAttr + '>' +
           '<span class="todo-text">' + mdInline(step) + '</span>' +
-          '<button type="button" class="todo-ask-btn" ' +
-            'data-action="ask-claude-todo" ' +
-            'data-path="' + dashEsc(m.ws.absolutePath) + '" ' +
-            'data-todo-idx="' + idx + '" ' +
-            'title="Ask Claude about this step">Ask Claude</button>' +
+          '<span class="todo-ask-btns">' +
+            '<button type="button" class="todo-ask-btn" ' +
+              'data-action="ask-claude-todo" ' +
+              'data-path="' + dashEsc(m.ws.absolutePath) + '" ' +
+              'data-todo-idx="' + idx + '" ' +
+              'title="Ask Claude about this step">Ask Claude</button>' +
+            '<button type="button" class="todo-ask-btn todo-ask-codex-btn" ' +
+              'data-action="ask-codex-todo" ' +
+              'data-path="' + dashEsc(m.ws.absolutePath) + '" ' +
+              'data-todo-idx="' + idx + '" ' +
+              'title="Ask Codex about this step">Ask Codex</button>' +
+          '</span>' +
         '</li>'
       );
     };
@@ -639,29 +651,47 @@ function populateCardData(m: CardMeta): void {
     })(toggleEl);
   }
 
-  // Sprint 2: Wire inline "Ask Claude" buttons per nextStep. Each click
+  // Wire inline "Ask Claude" + "Ask Codex" buttons per nextStep.
   //   - stops propagation so the card-level expand toggle does NOT fire
-  //   - looks up the raw nextStep text via index from m.nextSteps (raw text
-  //     never travels through HTML — protects against quote breakage)
-  //   - calls handleOpenWithClaude(path, taskText), same code path as the
-  //     footer "Claude" button but with prompt forwarded as positional argv.
+  //   - looks up the raw nextStep text via index (raw text never travels HTML)
+  //   - Claude: calls handleOpenWithClaude(path, taskText)
+  //   - Codex: calls handleOpenWithCodex(path, taskText) [Sprint 3]
   var listEl = document.getElementById("todo-list-" + m.ws.id);
   if (listEl) {
     var capturedNextSteps = m.nextSteps.slice(); // freeze ref for closure
     var capturedPath = m.ws.absolutePath;
-    listEl.querySelectorAll(".todo-ask-btn").forEach((el) => {
+
+    // Ask Claude buttons
+    listEl.querySelectorAll('[data-action="ask-claude-todo"]').forEach((el) => {
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         var btn = e.currentTarget as HTMLElement;
         var idxStr = btn.getAttribute("data-todo-idx") || "";
         var idx = parseInt(idxStr, 10);
         if (!Number.isFinite(idx) || idx < 0 || idx >= capturedNextSteps.length) {
-          console.warn("[dashboard] todo-ask-btn: invalid idx", idxStr);
+          console.warn("[dashboard] ask-claude-todo: invalid idx", idxStr);
           return;
         }
         var taskText = capturedNextSteps[idx];
         if (typeof taskText !== "string" || taskText.length === 0) return;
         void handleOpenWithClaude(capturedPath, taskText);
+      });
+    });
+
+    // Sprint 3: Ask Codex buttons — same pattern as Ask Claude
+    listEl.querySelectorAll('[data-action="ask-codex-todo"]').forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        var btn = e.currentTarget as HTMLElement;
+        var idxStr = btn.getAttribute("data-todo-idx") || "";
+        var idx = parseInt(idxStr, 10);
+        if (!Number.isFinite(idx) || idx < 0 || idx >= capturedNextSteps.length) {
+          console.warn("[dashboard] ask-codex-todo: invalid idx", idxStr);
+          return;
+        }
+        var taskText = capturedNextSteps[idx];
+        if (typeof taskText !== "string" || taskText.length === 0) return;
+        void handleOpenWithCodexTask(capturedPath, taskText);
       });
     });
   }
@@ -697,6 +727,7 @@ function renderListRow(m: CardMeta): HTMLElement {
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 5l3 3-3 3M8 11h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <button class="open-btn" data-action="open-claude" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Claude Code">Claude</button>
+      <button class="open-btn" data-action="open-codex" data-path="${dashEsc(m.ws.absolutePath)}" ${m.isMissing ? "disabled" : ""} title="Open in HyperTerm and start Codex">Codex</button>
       <button class="open-btn primary" data-action="open" data-path="${dashEsc(m.ws.absolutePath)}">Open</button>
     </div>
   `;
@@ -709,6 +740,8 @@ function renderListRow(m: CardMeta): HTMLElement {
       var p = btn.getAttribute("data-path");
       if (action === "open-claude") {
         if (p) void handleOpenWithClaude(p);
+      } else if (action === "open-codex") {
+        if (p) void handleOpenWithCodex(p);
       } else {
         if (p) void handleOpen(p);
       }
@@ -1069,6 +1102,54 @@ async function handleOpenWithClaude(
     var msg = err instanceof Error ? err.message : String(err);
     showDashboardToast(`Failed to open Claude session: ${msg}`, "err");
     console.error("[dashboard] handleOpenWithClaude error:", err);
+  }
+}
+
+// Sprint 1 (Codex 진입점) — footer "Codex" button. Opens workspace as a new
+// group inside the HyperTerm main window with `codex` running as the initial
+// PTY's foreground command. If the CLI is missing the main IPC returns
+// { error: "codex_missing" } and we toast without focusing the main window.
+async function handleOpenWithCodex(workspacePath: string): Promise<void> {
+  try {
+    var result = await window.dashboardAPI!.openInMainWithCodex(workspacePath);
+    if (result.error) {
+      if (result.error === "path_missing") {
+        showDashboardToast("Folder not found on disk.", "warn");
+      } else if (result.error === "codex_missing") {
+        showDashboardToast("Codex CLI not installed", "err");
+      } else {
+        showDashboardToast(`Error: ${result.error}`, "err");
+      }
+    }
+  } catch (err) {
+    var msg = err instanceof Error ? err.message : String(err);
+    showDashboardToast(`Failed to open Codex session: ${msg}`, "err");
+    console.error("[dashboard] handleOpenWithCodex error:", err);
+  }
+}
+
+// Sprint 3: "Ask Codex" inline nextStep button — opens Codex in workspace with
+// the nextStep text as a prompt (positional argv, no shell interpolation).
+// Mirrors handleOpenWithClaude(path, taskText) exactly for the Codex path.
+async function handleOpenWithCodexTask(
+  workspacePath: string,
+  taskText: string,
+): Promise<void> {
+  try {
+    var result = await window.dashboardAPI!.openInMainWithCodex(workspacePath, taskText);
+    if (result.error) {
+      if (result.error === "path_missing") {
+        showDashboardToast("Folder not found on disk.", "warn");
+      } else if (result.error === "codex_missing") {
+        showDashboardToast("Codex CLI not installed", "err");
+      } else {
+        showDashboardToast(`Error: ${result.error}`, "err");
+      }
+    }
+  } catch (err) {
+    var msg = err instanceof Error ? err.message : String(err);
+    showDashboardToast(`Failed to open Codex session: ${msg}`, "err");
+    console.error("[dashboard] handleOpenWithCodexTask error:", err);
   }
 }
 
@@ -1992,6 +2073,11 @@ if (typeof window !== "undefined") {
   };
   (window as any).npOpenWithClaude = (absolutePath: string) => {
     void handleOpenWithClaude(absolutePath);
+  };
+
+  // Sprint 1 (Codex 진입점): expose for dashboard-newproject.ts Codex tool selection
+  (window as any).npOpenWithCodex = (absolutePath: string) => {
+    void handleOpenWithCodex(absolutePath);
   };
 
   // Wire filter chips

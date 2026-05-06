@@ -1073,6 +1073,31 @@ html, body {
   font-size: 12px;
 }
 
+/* Sprint 3: Codex usage placeholder */
+.codex-usage-placeholder {
+  color: var(--fg-3);
+  font-style: italic;
+  font-size: 10px;
+}
+
+/* Sprint 3: Ask Codex button — nextStep inline */
+.todo-ask-btns {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.todo-ask-codex-btn {
+  background: rgba(16, 163, 127, 0.15);
+  color: #10a37f;
+  border: 1px solid rgba(16, 163, 127, 0.3);
+}
+
+.todo-ask-codex-btn:hover {
+  background: rgba(16, 163, 127, 0.25);
+}
+
 .statusbar-sep {
   font-size: 11px;
   color: var(--line-2);
@@ -2062,9 +2087,21 @@ body.theme-light .layout-btn.active {
   box-shadow: 0 0 0 3px rgba(74,222,128,0.15);
 }
 
+/* Sprint 2 (Codex sidebar marker): Codex running — blue to distinguish from Claude green */
+.card-dot-status.dot-codex-running {
+  background: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.18);
+}
+
 .terminal-entry.active .card-dot-status {
   background: var(--ok);
   box-shadow: 0 0 0 3px rgba(74,222,128,0.15);
+}
+
+/* Sprint 2: active 탭에서도 codex blue 유지 (specificity 0,3,0 — wins over 0,2,0 above) */
+.terminal-entry.active .card-dot-status.dot-codex-running {
+  background: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.18);
 }
 
 .card-dot-status.dot-waiting {

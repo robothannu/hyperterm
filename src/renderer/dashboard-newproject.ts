@@ -244,6 +244,27 @@ function buildModalHTML(homeDir: string): string {
       <!-- Global error -->
       <div id="np-global-err" style="font-size:12px;color:var(--err);background:rgba(255,107,107,0.08);
            border:1px solid rgba(255,107,107,0.2);border-radius:7px;padding:8px 12px;display:none;"></div>
+
+      <!-- Tool selection (Sprint 1: Codex 진입점) -->
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--fg-3);">Open with (after create)</div>
+        <div style="display:flex;gap:8px;">
+          <label style="display:flex;align-items:center;gap:7px;padding:7px 12px;
+                 border:1px solid var(--line);border-radius:7px;cursor:pointer;
+                 background:var(--bg-2);font-size:12.5px;color:var(--fg-1);flex:1;">
+            <input type="radio" id="np-tool-claude" name="np-tool" value="claude" checked
+                   style="width:14px;height:14px;accent-color:var(--accent);flex:none;" />
+            Claude
+          </label>
+          <label style="display:flex;align-items:center;gap:7px;padding:7px 12px;
+                 border:1px solid var(--line);border-radius:7px;cursor:pointer;
+                 background:var(--bg-2);font-size:12.5px;color:var(--fg-1);flex:1;">
+            <input type="radio" id="np-tool-codex" name="np-tool" value="codex"
+                   style="width:14px;height:14px;accent-color:var(--accent);flex:none;" />
+            Codex
+          </label>
+        </div>
+      </div>
     </div>
 
     <!-- Footer -->
@@ -489,10 +510,18 @@ async function npHandleCreate(): Promise<void> {
   }
 }
 
-// 성공 후처리: 모달 닫기 → Dashboard 갱신 → Run with Claude 오픈
+// 선택된 도구(claude | codex) 반환
+function npGetSelectedTool(): "claude" | "codex" {
+  var codexRadio = document.getElementById("np-tool-codex") as HTMLInputElement | null;
+  if (codexRadio && codexRadio.checked) return "codex";
+  return "claude";
+}
+
+// 성공 후처리: 모달 닫기 → Dashboard 갱신 → Run with 선택된 도구 오픈
 async function npOnSuccess(result: NewProjectResult): Promise<void> {
   var absolutePath = result.absolutePath!;
   var updatedWorkspaces = result.workspaces;
+  var selectedTool = npGetSelectedTool();
 
   // workspaces 업데이트 (AC #7 — 즉시 카드 표시)
   if (updatedWorkspaces) {
@@ -509,10 +538,18 @@ async function npOnSuccess(result: NewProjectResult): Promise<void> {
 
   showDashboardToast("Project created!", "ok");
 
-  // Run with Claude 다이얼로그 자동 오픈 (AC #8)
-  // handleOpenWithClaude는 dashboard.ts global scope에서 선언됨
-  if (typeof (window as any).npOpenWithClaude === "function") {
-    (window as any).npOpenWithClaude(absolutePath);
+  // Sprint 1 (Codex 진입점): 도구에 따라 Claude 또는 Codex로 오픈
+  if (selectedTool === "codex") {
+    // Run with Codex: npOpenWithCodex는 dashboard.ts에서 window에 노출됨
+    if (typeof (window as any).npOpenWithCodex === "function") {
+      (window as any).npOpenWithCodex(absolutePath);
+    }
+  } else {
+    // Run with Claude 다이얼로그 자동 오픈 (AC #8)
+    // handleOpenWithClaude는 dashboard.ts global scope에서 선언됨
+    if (typeof (window as any).npOpenWithClaude === "function") {
+      (window as any).npOpenWithClaude(absolutePath);
+    }
   }
 }
 

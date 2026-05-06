@@ -31,6 +31,7 @@ interface HookEvent {
 
 interface AppSettings {
   claudeNotifications: boolean;
+  codexNotifications?: boolean;
   fontSize?: number;
   theme?: "dark" | "light";
   recentProjects?: string[];
@@ -132,6 +133,27 @@ interface TerminalAPI {
   onOpenGroupWithCwdWithClaude(
     callback: (payload: { path: string; taskText?: string }) => void
   ): void;
+
+  // --- Sprint 1 (Codex 진입점): Codex PTY + IPC ---
+  // Sprint 3: optional taskText forwarded to codex as positional prompt arg.
+  createPtyWithCodex(
+    cols: number,
+    rows: number,
+    cwd?: string,
+    taskText?: string
+  ): Promise<{ id: number; sessionKey: string }>;
+
+  // Sprint 3: payload may include optional taskText for "Ask Codex per nextStep".
+  onOpenGroupWithCwdWithCodex(
+    callback: (payload: { path: string; taskText?: string }) => void
+  ): void;
+
+  // --- Sprint 2 (Codex sidebar marker): Codex process status polling ---
+  getCodexStatus(id: number): Promise<{ isCodexRunning: boolean; codexPid: number | null }>;
+
+  // --- Sprint 3 (Codex usage): fetch Codex usage info ---
+  // Returns { available: false } since codex CLI has no usage subcommand.
+  fetchCodexUsage(): Promise<{ available: boolean; raw?: string }>;
 }
 
 interface SubagentAgent {
@@ -266,6 +288,11 @@ interface DashboardAPI {
   ): Promise<{ success?: boolean; error?: string }>;
   // Sprint: Run with Claude — checks if `claude` is resolvable from interactive zsh.
   claudeCheckInstalled(): Promise<boolean>;
+  // Sprint 1 (Codex 진입점): opens workspace as new group + runs `codex` in initial PTY.
+  // Sprint 3: optional taskText is forwarded to codex as positional prompt arg.
+  openInMainWithCodex(workspacePath: string, taskText?: string): Promise<{ success?: boolean; error?: string }>;
+  // Sprint 1 (Codex 진입점): checks if `codex` is resolvable from interactive zsh.
+  codexCheckInstalled(): Promise<boolean>;
   // Sprint 4
   overviewSummary(workspacePath: string): Promise<DashboardOverviewSummary | { error: string }>;
   statusInfo(workspacePath: string): Promise<DashboardStatusInfo | { error: string }>;
@@ -330,8 +357,8 @@ declare function restoreSnapshot(session: TerminalSession, snapshot: string, sav
 declare function startPeriodicSnapshotSave(): void;
 declare function stopPeriodicSnapshotSave(): void;
 
-// Sidebar dot state (sidebar.ts → hook-state.ts, agent-status.ts)
-declare function setSidebarDotState(tabId: number, state: "idle" | "running" | "waiting" | "done"): void;
+// Sidebar dot state (sidebar.ts → hook-state.ts, agent-status.ts, agent-status-codex.ts)
+declare function setSidebarDotState(tabId: number, state: "idle" | "running" | "codex-running" | "waiting" | "done"): void;
 declare function applySidebarDotState(dotEl: HTMLElement): void;
 declare function updateSidebarCountPill(tabId: number): void;
 
@@ -346,6 +373,9 @@ declare var activeSessionSettings: { fontSize: number; theme: "dark" | "light" }
 
 // Toast helper defined in renderer.ts, available to all modules loaded after it
 declare function showToast(message: string, variant?: "error" | "warn" | "ok" | "done"): void;
+
+// Sprint 3: Codex usage refresh (statusbar.ts) — called from init.ts
+declare function refreshCodexUsage(): Promise<void>;
 
 // Toolbar row: layout preset functions (toolbar-row.ts)
 declare function initToolbarRow(): void;
@@ -374,3 +404,8 @@ declare function setSidebarPaneRowState(tabId: number, ptyId: number, state: "id
 // Subagent indicator (subagent-indicator.ts — Sprint 3)
 declare function initSubagentIndicator(): Promise<void>;
 declare function cleanupSubagentForPty(ptyId: number): void;
+
+// Codex agent status polling (agent-status-codex.ts — Sprint 2)
+declare function startCodexPolling(): void;
+declare function stopCodexPolling(): void;
+declare function cleanupCodexTabMarker(tabId: number): void;

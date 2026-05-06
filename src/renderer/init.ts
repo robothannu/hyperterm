@@ -4,9 +4,10 @@
 // --- App Startup ---
 // This file is loaded last so all module functions are available.
 
-// Auto-refresh usage every 5 minutes
+// Auto-refresh usage every 5 minutes (Claude + Codex on same interval)
 usageRefreshInterval = setInterval(() => {
   refreshUsage();
+  refreshCodexUsage();
 }, 5 * 60 * 1000);
 
 (async () => {
@@ -19,8 +20,12 @@ usageRefreshInterval = setInterval(() => {
     }
     // Load usage data
     refreshUsage();
+    // Sprint 3: load Codex usage (placeholder since codex CLI has no usage command)
+    refreshCodexUsage();
     // Start Claude agent status polling
     startAgentPolling();
+    // Start Codex agent status polling (Sprint 2 — 30s interval, isolated from Claude)
+    startCodexPolling();
     // Start git status polling
     startGitPolling();
     // Init Changed Files panel

@@ -36,6 +36,10 @@ interface Tab {
   // of spawning a duplicate. NOTE: only set for taskText-less opens — Ask
   // Claude (with a prompt) always creates a new tab.
   claudeCwd?: string;
+  // Sprint 1 (Codex 진입점): mirrors claudeCwd for codex tabs. Set when the tab
+  // is created via the "Run with Codex" footer button. Used for dedup (same
+  // policy as claudeCwd — Run with Codex reuses existing tab, no dedup on prompts).
+  codexCwd?: string;
 }
 
 // Persistence types
@@ -67,6 +71,8 @@ interface SavedTab {
   // subsequent "Run with Claude" click will switch to it instead of creating
   // a duplicate.
   claudeCwd?: string;
+  // Sprint 1 (Codex 진입점): mirrors claudeCwd for codex tabs.
+  codexCwd?: string;
 }
 interface SavedStateV2 {
   version: 3;

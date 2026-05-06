@@ -122,11 +122,16 @@ function updateSidebarAgentMarker(tabId: number, hasAgent: boolean): void {
   // Update the card-dot-status visual indicator
   const dotStatus = li.querySelector(".card-dot-status") as HTMLElement | null;
   if (dotStatus) {
+    const currentState = dotStatus.getAttribute("data-state");
     if (hasAgent) {
-      dotStatus.setAttribute("data-state", "running");
+      // WARN-2 guard: do not overwrite codex-running with Claude running.
+      // Codex marker (blue) takes priority until next codex poll clears it.
+      if (currentState !== "codex-running") {
+        dotStatus.setAttribute("data-state", "running");
+      }
     } else {
       // Only clear if not in waiting state (hook-state manages that)
-      const currentState = dotStatus.getAttribute("data-state");
+      // and not in codex-running state (codex polling manages that)
       if (currentState === "running") {
         dotStatus.setAttribute("data-state", "idle");
       }
