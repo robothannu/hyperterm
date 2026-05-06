@@ -37,21 +37,6 @@ interface AppSettings {
 }
 
 interface TerminalAPI {
-  // --- Sprint 3: Pinned PTY API ---
-  createPinnedPty(
-    cols: number,
-    rows: number,
-    cwd?: string,
-    groupLabel?: string
-  ): Promise<{ id: string; cwd: string }>;
-  attachPinnedPty(daemonPtyId: string): Promise<{ localPtyId: number }>;
-  writePinnedPty(localPtyId: number, data: string): void;
-  resizePinnedPty(localPtyId: number, cols: number, rows: number): void;
-  detachPinnedPty(localPtyId: number): void;
-  killDaemonPty(daemonPtyId: string): Promise<boolean>;
-  pinnedReconcile(expectedIds: string[]): Promise<{ canReattach: string[]; needFallback: string[] }>;
-  pinnedIsDaemonAlive(): Promise<boolean>;
-
   // --- Core pty API ---
   createPty(
     cols: number,
