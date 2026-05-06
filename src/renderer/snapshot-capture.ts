@@ -17,9 +17,17 @@
 const SNAPSHOT_BYTES_CAP = 200 * 1024; // 200 KB
 
 /**
+ * Match previously-written restore dividers so they don't accumulate
+ * across multiple restart cycles.
+ */
+const DIVIDER_PATTERN =
+  /\x1b\[0?m?\x1b\[2m—— restored from previous session \([^)]*\) ——\x1b\[0m\r?\n/g;
+
+/**
  * Capture the scrollback buffer of a TerminalSession using SerializeAddon.
  * Returns the serialized ANSI string, truncated to the last SNAPSHOT_BYTES_CAP
- * bytes if it exceeds the cap.
+ * bytes if it exceeds the cap. Strips any prior divider lines so they don't
+ * accumulate after multiple restart cycles.
  *
  * Returns empty string if serialization fails or produces no content.
  */
@@ -28,14 +36,17 @@ function captureSnapshot(session: TerminalSession): string {
     const raw = session.serialize();
     if (!raw || raw.length === 0) return "";
 
+    // Strip any previously-written restore dividers — prevents accumulation
+    const stripped = raw.replace(DIVIDER_PATTERN, "");
+
     // Truncate from the end to preserve the most recent output
-    if (raw.length > SNAPSHOT_BYTES_CAP) {
+    if (stripped.length > SNAPSHOT_BYTES_CAP) {
       console.log(
-        `[snapshot-capture] truncating snapshot: ${raw.length} → ${SNAPSHOT_BYTES_CAP} bytes`
+        `[snapshot-capture] truncating snapshot: ${stripped.length} → ${SNAPSHOT_BYTES_CAP} bytes`
       );
-      return raw.slice(raw.length - SNAPSHOT_BYTES_CAP);
+      return stripped.slice(stripped.length - SNAPSHOT_BYTES_CAP);
     }
-    return raw;
+    return stripped;
   } catch (err) {
     console.warn("[snapshot-capture] serialize failed:", err);
     return "";
@@ -57,8 +68,10 @@ function buildDivider(timestamp?: string | Date): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const mi = String(d.getMinutes()).padStart(2, "0");
   const label = `—— restored from previous session (${yyyy}-${mm}-${dd} ${hh}:${mi}) ——`;
-  // ANSI: ESC[2m = dim, ESC[0m = reset
-  return `\x1b[2m${label}\x1b[0m\r\n`;
+  // ESC[0m resets any open ANSI state from the previous (truncated) snapshot
+  // so an unterminated escape sequence doesn't bleed into the divider.
+  // ESC[2m = dim, ESC[0m = reset.
+  return `\x1b[0m\x1b[2m${label}\x1b[0m\r\n`;
 }
 
 /**
