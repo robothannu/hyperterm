@@ -1,40 +1,24 @@
 import * as pty from "node-pty";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { platform } from "os";
-import * as path from "path";
-import * as fs from "fs";
+import {
+  type SessionEntry,
+  buildSessionEnv,
+  createSessionStore,
+  findInProcessTree,
+  getDefaultShell,
+  getInteractiveShell,
+  isCommandAvailable,
+  resolveSessionCwd,
+} from "./pty-manager-base";
 
 const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
-// Types
+// Claude PTY manager — per-spawn logic + thin re-exports of shared store ops.
 // ---------------------------------------------------------------------------
 
-interface SessionEntry {
-  id: number;
-  sessionKey: string;
-  process: pty.IPty;
-  childPid: number;
-}
-
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
-let nextId = 1;
-const sessions = new Map<number, SessionEntry>();
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function getDefaultShell(): string {
-  if (platform() === "win32") {
-    return "powershell.exe";
-  }
-  return process.env.SHELL || "/bin/bash";
-}
+const store = createSessionStore(1, "[pty]");
 
 // ---------------------------------------------------------------------------
 // Session lifecycle
@@ -42,13 +26,6 @@ function getDefaultShell(): string {
 
 /**
  * Spawn a new shell via node-pty and return a session handle.
- *
- * @param cols    terminal column count
- * @param rows    terminal row count
- * @param onData  callback invoked when the pty emits data
- * @param onExit  callback invoked when the pty process exits
- * @param cwd     optional starting directory (defaults to $HOME)
- * @returns       `{ id, sessionKey }` identifying the new session
  */
 export function createSession(
   cols: number,
@@ -57,19 +34,10 @@ export function createSession(
   onExit: (id: number, exitCode: number) => void,
   cwd?: string,
 ): { id: number; sessionKey: string } {
-  const id = nextId++;
+  const id = store.nextId();
   const sessionKey = `session-${id}`;
 
-  let sessionCwd = cwd || process.env.HOME || "/";
-  // Validate cwd is an absolute path that exists
-  if (
-    typeof sessionCwd !== "string" ||
-    !path.isAbsolute(sessionCwd) ||
-    !fs.existsSync(sessionCwd)
-  ) {
-    sessionCwd = process.env.HOME || "/";
-  }
-
+  const sessionCwd = resolveSessionCwd(cwd);
   const shell = getDefaultShell();
 
   const proc = pty.spawn(shell, [], {
@@ -77,23 +45,18 @@ export function createSession(
     cols,
     rows,
     cwd: sessionCwd,
-    env: {
-      ...(process.env as { [key: string]: string }),
-      LANG: process.env.LANG || "en_US.UTF-8",
-      LC_ALL: process.env.LC_ALL || "en_US.UTF-8",
-      HYPERTERM_PTY_ID: String(id),
-    },
+    env: buildSessionEnv(id),
   });
 
   const childPid = proc.pid;
 
   proc.onData((data: string) => onData(id, data));
   proc.onExit(({ exitCode }) => {
-    sessions.delete(id);
+    store.delete(id);
     onExit(id, exitCode);
   });
 
-  sessions.set(id, { id, sessionKey, process: proc, childPid });
+  store.register({ id, sessionKey, process: proc, childPid });
   return { id, sessionKey };
 }
 
@@ -117,11 +80,6 @@ export function createSession(
  * SECURITY: the `-c` script is a hardcoded literal. The only user-controlled
  * value (`taskText`) reaches the spawned process via argv[positional], not
  * via shell parsing. cwd is validated like createSession.
- *
- * If `claude` is not installed/resolvable, `zsh -i -c` exits with code 127
- * and the second `exec zsh -i` step never runs — the PTY exits and the
- * caller (renderer onPtyExit) can react. We pre-check via
- * `isClaudeAvailable()` in main.ts, so this is a fallback.
  */
 export function createSessionWithClaude(
   cols: number,
@@ -131,28 +89,12 @@ export function createSessionWithClaude(
   cwd?: string,
   taskText?: string,
 ): { id: number; sessionKey: string } {
-  const id = nextId++;
+  const id = store.nextId();
   const sessionKey = `session-${id}`;
+  const sessionCwd = resolveSessionCwd(cwd);
 
-  let sessionCwd = cwd || process.env.HOME || "/";
-  if (
-    typeof sessionCwd !== "string" ||
-    !path.isAbsolute(sessionCwd) ||
-    !fs.existsSync(sessionCwd)
-  ) {
-    sessionCwd = process.env.HOME || "/";
-  }
-
-  // Force zsh on macOS for `claude` shell-function resolution. On non-macOS
-  // we fall back to the user's default shell + interactive flags.
-  const shell = platform() === "darwin" ? "/bin/zsh" : getDefaultShell();
-  // Two script variants — both are HARDCODED literals:
-  //   - With taskText:    `claude "$@"; exec zsh -i` — `"$@"` expands to the
-  //     positional args (we pass exactly one: taskText). Metacharacters in
-  //     taskText are NOT re-evaluated; they reach claude as one argv string.
-  //   - Without taskText: `claude; exec zsh -i` (Sprint 1 path, unchanged).
-  const hasTask =
-    typeof taskText === "string" && taskText.length > 0;
+  const shell = getInteractiveShell();
+  const hasTask = typeof taskText === "string" && taskText.length > 0;
   const args = hasTask
     ? ["-i", "-c", 'claude "$@"; exec zsh -i', "_", taskText as string]
     : ["-i", "-c", "claude; exec zsh -i"];
@@ -162,158 +104,50 @@ export function createSessionWithClaude(
     cols,
     rows,
     cwd: sessionCwd,
-    env: {
-      ...(process.env as { [key: string]: string }),
-      LANG: process.env.LANG || "en_US.UTF-8",
-      LC_ALL: process.env.LC_ALL || "en_US.UTF-8",
-      HYPERTERM_PTY_ID: String(id),
-    },
+    env: buildSessionEnv(id),
   });
 
   const childPid = proc.pid;
 
   proc.onData((data: string) => onData(id, data));
   proc.onExit(({ exitCode }) => {
-    sessions.delete(id);
+    store.delete(id);
     onExit(id, exitCode);
   });
 
-  sessions.set(id, { id, sessionKey, process: proc, childPid });
+  store.register({ id, sessionKey, process: proc, childPid });
   return { id, sessionKey };
 }
 
 /**
- * Check whether `claude` is resolvable from an interactive zsh — accounts for
- * shell functions defined in the user's zshrc (a common Claude Code install
- * pattern). Returns true iff `command -v claude` exits 0 AND prints at least
- * one stdout line that is either a token equal to "claude" or an absolute
- * path — interactive shells emit unrelated noise lines (e.g. "Restored
- * session:") on stdout, so we must filter rather than rely on length.
- *
- * SECURITY: argv has no user input.
+ * Check whether `claude` is resolvable from an interactive zsh.
  */
-export async function isClaudeAvailable(): Promise<boolean> {
-  const shell = platform() === "darwin" ? "/bin/zsh" : getDefaultShell();
-  try {
-    const { stdout } = await execFileAsync(
-      shell,
-      ["-i", "-c", "command -v claude"],
-      { encoding: "utf8", timeout: 4000 },
-    );
-    const lines = stdout.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
-    return lines.some((line) => line === "claude" || line.startsWith("/"));
-  } catch {
-    // Non-zero exit (e.g. command -v claude when missing) lands here.
-    return false;
-  }
+export function isClaudeAvailable(): Promise<boolean> {
+  return isCommandAvailable("claude");
 }
 
 // ---------------------------------------------------------------------------
-// Data I/O
+// Re-exports of shared store ops (preserve public API used by main.ts)
 // ---------------------------------------------------------------------------
 
-/** Write data (keystrokes) to a session's pty. */
-export function writeToSession(id: number, data: string): void {
-  const session = sessions.get(id);
-  if (!session) return;
-  try {
-    session.process.write(data);
-  } catch (err) {
-    sessions.delete(id);
-    console.error(
-      `writeToSession failed for session ${id}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
-
-/** Resize a session's pty. */
-export function resizeSession(id: number, cols: number, rows: number): void {
-  const session = sessions.get(id);
-  if (!session) return;
-  try {
-    session.process.resize(cols, rows);
-  } catch (err) {
-    sessions.delete(id);
-    console.error(
-      `resizeSession failed for session ${id}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
+export const writeToSession = (id: number, data: string): void => store.write(id, data);
+export const resizeSession = (id: number, cols: number, rows: number): void => store.resize(id, cols, rows);
+export const destroySession = (id: number): void => store.destroy(id);
+export const destroyAll = (): void => store.destroyAll();
+export const getSessionKey = (id: number): string | null => store.sessionKey(id);
+export const hasSession = (id: number): boolean => store.has(id);
+export const getCwd = (id: number): Promise<string> => store.cwd(id);
 
 // ---------------------------------------------------------------------------
-// Session destruction
+// Process queries — claude-specific
 // ---------------------------------------------------------------------------
-
-/** Kill a single session's pty process and remove it from the map. */
-export function destroySession(id: number): void {
-  const session = sessions.get(id);
-  if (session) {
-    try {
-      session.process.kill();
-    } catch {
-      // process may already be dead
-    }
-    sessions.delete(id);
-  }
-}
-
-/** Kill all pty processes (used on app quit). */
-export function destroyAll(): void {
-  for (const [, session] of sessions) {
-    try {
-      session.process.kill();
-    } catch {
-      // process may already be dead
-    }
-  }
-  sessions.clear();
-}
-
-// ---------------------------------------------------------------------------
-// Session queries
-// ---------------------------------------------------------------------------
-
-/** Return the sessionKey for a given session id. */
-export function getSessionKey(id: number): string | null {
-  return sessions.get(id)?.sessionKey ?? null;
-}
-
-/**
- * Query the current working directory of a session's shell via macOS `lsof`.
- * Falls back to $HOME on error or non-macOS.
- */
-export async function getCwd(id: number): Promise<string> {
-  const session = sessions.get(id);
-  if (!session) return process.env.HOME || "/";
-
-  try {
-    const { stdout } = await execFileAsync(
-      "lsof",
-      ["-p", String(session.childPid), "-a", "-d", "cwd", "-F", "n"],
-      { encoding: "utf8", timeout: 3000 },
-    );
-    // lsof -Fn output has lines like "p1234" (pid) then "ncwd" then "n/some/path"
-    // We want the last line starting with 'n' that contains a path
-    const lines = stdout.trim().split("\n");
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].startsWith("n/")) {
-        return lines[i].substring(1); // strip leading 'n'
-      }
-    }
-    return process.env.HOME || "/";
-  } catch {
-    return process.env.HOME || "/";
-  }
-}
 
 /**
  * Query the current foreground command of a session's shell via `ps`.
- * Returns the command name (e.g. "vim", "node") or empty string on error.
  */
 export async function getSessionCurrentCommand(id: number): Promise<string> {
-  const session = sessions.get(id);
+  const session = store.get(id);
   if (!session) return "";
-
   try {
     const { stdout } = await execFileAsync(
       "ps",
@@ -328,100 +162,28 @@ export async function getSessionCurrentCommand(id: number): Promise<string> {
 
 /**
  * Check if a `claude` process is running in the process tree rooted at the
- * session's shell PID. Uses `pgrep -P` to walk one level of children, then
- * checks each child's command name for "claude".
- *
- * Returns `{ isClaudeRunning, claudePid }`.
+ * session's shell PID.
  */
 export async function getAgentStatus(
-  id: number
+  id: number,
 ): Promise<{ isClaudeRunning: boolean; claudePid: number | null }> {
-  const session = sessions.get(id);
+  const session = store.get(id);
   if (!session) return { isClaudeRunning: false, claudePid: null };
-
   try {
-    // Recursively search the process tree for a process named 'claude'
-    const found = await findClaudeInTree(session.childPid, 3);
-    if (found !== null) {
-      return { isClaudeRunning: true, claudePid: found };
-    }
+    const found = await findInProcessTree(session.childPid, 3, "claude", "/claude/");
+    if (found !== null) return { isClaudeRunning: true, claudePid: found };
     return { isClaudeRunning: false, claudePid: null };
   } catch {
     return { isClaudeRunning: false, claudePid: null };
   }
-}
-
-/**
- * Recursively search process tree (BFS up to `depth` levels) for a process
- * whose comm contains "claude".
- */
-async function findClaudeInTree(
-  pid: number,
-  depth: number
-): Promise<number | null> {
-  if (depth <= 0) return null;
-
-  let childPids: number[] = [];
-  try {
-    const { stdout } = await execFileAsync("pgrep", ["-P", String(pid)], {
-      encoding: "utf8",
-      timeout: 2000,
-    });
-    childPids = stdout
-      .trim()
-      .split("\n")
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => !isNaN(n) && n > 0);
-  } catch {
-    // No children or pgrep failed
-    return null;
-  }
-
-  if (childPids.length === 0) return null;
-
-  // Check each child's command line (args includes full path, safer than comm)
-  for (const childPid of childPids) {
-    try {
-      const { stdout } = await execFileAsync(
-        "ps",
-        ["-o", "args=", "-p", String(childPid)],
-        { encoding: "utf8", timeout: 2000 }
-      );
-      const args = stdout.trim();
-      // Binary-name based matching to avoid false positives (e.g. claude.conf)
-      const parts = args.split(/\s+/);
-      const binary = path.basename(parts[0]);
-      const isClaudeBinary = binary === "claude";
-      const isClaudeNode =
-        binary === "node" &&
-        parts.length > 1 &&
-        (parts[1].includes("/claude/") ||
-          path.basename(parts[1]).startsWith("claude"));
-      if (isClaudeBinary || isClaudeNode) {
-        return childPid;
-      }
-    } catch {
-      // process may have already exited
-    }
-  }
-
-  // Recurse into children
-  for (const childPid of childPids) {
-    const result = await findClaudeInTree(childPid, depth - 1);
-    if (result !== null) return result;
-  }
-
-  return null;
 }
 
 /**
  * Query CPU and memory usage for a session's shell process.
- * Returns `{ cpu, memory }` percentages, or zeros on error.
  */
 export async function getProcessInfo(id: number): Promise<{ cpu: number; memory: number }> {
-  const session = sessions.get(id);
+  const session = store.get(id);
   if (!session) return { cpu: 0, memory: 0 };
-
   const pid = String(session.childPid);
   try {
     const { stdout } = await execFileAsync(
@@ -436,3 +198,6 @@ export async function getProcessInfo(id: number): Promise<{ cpu: number; memory:
     return { cpu: 0, memory: 0 };
   }
 }
+
+// keep type re-export for existing imports
+export type { SessionEntry };
