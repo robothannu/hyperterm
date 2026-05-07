@@ -415,6 +415,12 @@ declare function ensureGitflowForWorkspace(ws: WorkspaceEntry): void;
 declare function openGitflowModal(workspaceId: string): void;
 declare function initGitflowModalControls(): void;
 
+// Dashboard helpers exposed by dashboard-discovery.ts.
+declare function fetchDiscoveryCandidates(): Promise<void>;
+declare function renderDiscoveryBanner(content: HTMLElement): void;
+declare function closeDiscoveryModal(): void;
+declare function initDiscoveryModalControls(): void;
+
 // Cross-script window globals (dashboard scripts share state via window).
 // Each entry is set in one module and read from another loaded by the same
 // HTML page. Optional because load order can vary; callers must guard.
