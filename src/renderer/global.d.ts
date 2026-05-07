@@ -408,6 +408,13 @@ declare function startCodexPolling(): void;
 declare function stopCodexPolling(): void;
 declare function cleanupCodexTabMarker(tabId: number): void;
 
+// Dashboard helpers exposed by dashboard-gitflow.ts (loaded as <script> after
+// dashboard.js — same global scope, used by handleRefreshAll / toggleCardExpand).
+declare function clearGitflowCache(): void;
+declare function ensureGitflowForWorkspace(ws: WorkspaceEntry): void;
+declare function openGitflowModal(workspaceId: string): void;
+declare function initGitflowModalControls(): void;
+
 // Cross-script window globals (dashboard scripts share state via window).
 // Each entry is set in one module and read from another loaded by the same
 // HTML page. Optional because load order can vary; callers must guard.
