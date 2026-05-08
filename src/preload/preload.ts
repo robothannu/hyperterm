@@ -149,6 +149,22 @@ export interface TerminalAPI {
 
   // --- Sprint 3 (Codex usage): fetch Codex usage info ---
   fetchCodexUsage(): Promise<{ available: boolean; raw?: string }>;
+
+  // --- Command Palette (Cmd+K) ---
+  // Read-only list of registered workspaces (delegates to workspace:list).
+  // Tool field is enriched in main via detectTool when available.
+  listWorkspaces(): Promise<Array<{
+    id: string;
+    name: string;
+    absolutePath: string;
+    addedAt?: string;
+    archived?: boolean;
+    tool?: "claude" | "codex" | "mixed" | "none";
+  }>>;
+  // Opens a workspace in the main window with the requested tool.
+  // tool="claude" → workspace:openInMainWithClaude.
+  // tool="codex"  → workspace:openInMainWithCodex.
+  openWorkspaceWith(absPath: string, tool: "claude" | "codex"): Promise<unknown>;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -348,5 +364,12 @@ contextBridge.exposeInMainWorld("terminalAPI", {
   // --- Sprint 3 (Codex usage): fetch Codex usage info ---
   fetchCodexUsage: (): Promise<{ available: boolean; raw?: string }> => {
     return ipcRenderer.invoke("codex:fetchUsage");
+  },
+
+  // --- Command Palette (Cmd+K) ---
+  listWorkspaces: () => ipcRenderer.invoke("workspace:list"),
+  openWorkspaceWith: (absPath: string, tool: "claude" | "codex") => {
+    const channel = tool === "codex" ? "workspace:openInMainWithCodex" : "workspace:openInMainWithClaude";
+    return ipcRenderer.invoke(channel, absPath);
   },
 } satisfies TerminalAPI);

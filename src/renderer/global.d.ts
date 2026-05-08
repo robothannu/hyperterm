@@ -154,6 +154,17 @@ interface TerminalAPI {
   // --- Sprint 3 (Codex usage): fetch Codex usage info ---
   // Returns { available: false } since codex CLI has no usage subcommand.
   fetchCodexUsage(): Promise<{ available: boolean; raw?: string }>;
+
+  // --- Command Palette (Cmd+K) ---
+  listWorkspaces(): Promise<Array<{
+    id: string;
+    name: string;
+    absolutePath: string;
+    addedAt?: string;
+    archived?: boolean;
+    tool?: "claude" | "codex" | "mixed" | "none";
+  }>>;
+  openWorkspaceWith(absPath: string, tool: "claude" | "codex"): Promise<unknown>;
 }
 
 interface SubagentAgent {
@@ -407,6 +418,11 @@ declare function cleanupSubagentForPty(ptyId: number): void;
 declare function startCodexPolling(): void;
 declare function stopCodexPolling(): void;
 declare function cleanupCodexTabMarker(tabId: number): void;
+
+// Command Palette (command-palette.ts) — exposed via window for cross-module use.
+declare function openCommandPalette(): Promise<void>;
+declare function closeCommandPalette(): void;
+declare function isCommandPaletteOpen(): boolean;
 
 // Dashboard helpers exposed by dashboard-gitflow.ts (loaded as <script> after
 // dashboard.js — same global scope, used by handleRefreshAll / toggleCardExpand).

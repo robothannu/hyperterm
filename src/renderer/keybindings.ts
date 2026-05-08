@@ -7,6 +7,18 @@ function _globalKeydownHandler(e: KeyboardEvent): void {
   if (e.key === "Escape") {
     hideContextMenu();
   }
+  // Cmd+K: open Command Palette (Warp-style quick switcher)
+  if ((e.key === "k" || e.key === "K") && e.metaKey && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    if (typeof openCommandPalette === "function") {
+      if (typeof isCommandPaletteOpen === "function" && isCommandPaletteOpen()) {
+        closeCommandPalette();
+      } else {
+        openCommandPalette();
+      }
+    }
+    return;
+  }
   // Cmd+Plus: increase font size
   if ((e.key === "+" || e.key === "=") && e.metaKey && !e.shiftKey) {
     e.preventDefault();

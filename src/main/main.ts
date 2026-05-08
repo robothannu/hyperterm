@@ -24,7 +24,7 @@ import {
   archiveToggleWorkspace,
   type Workspace,
 } from "./workspaces";
-import { getCardData, summarizeOverview, getStatusInfo, getFileTree } from "./workspace-reader";
+import { getCardData, summarizeOverview, getStatusInfo, getFileTree, detectTool } from "./workspace-reader";
 
 interface Note {
   id: number;
@@ -853,7 +853,17 @@ ipcMain.on("dashboard:open", () => {
 // --- Workspace IPC ---
 
 ipcMain.handle("workspace:list", () => {
-  return workspaces;
+  // Enrich each workspace with detected tool (sync file-presence check).
+  // Backwards-compatible: existing dashboard consumers ignore the extra field.
+  return workspaces.map((w) => {
+    let tool: "claude" | "codex" | "mixed" | "none" = "none";
+    try {
+      tool = detectTool(w.absolutePath);
+    } catch {
+      tool = "none";
+    }
+    return { ...w, tool };
+  });
 });
 
 ipcMain.handle("workspace:add", async () => {
