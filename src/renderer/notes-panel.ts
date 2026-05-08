@@ -70,7 +70,8 @@ async function loadAndRenderNotes(tabId: number): Promise<void> {
 
 function renderNotes(notes: Note[]): void {
   if (notes.length === 0) {
-    notesList.innerHTML = '<div class="notes-empty">No notes yet</div>';
+    notesList.innerHTML =
+      '<div class="notes-empty">노트 없음<br><span class="notes-empty-hint">아래에 입력하고 <kbd>Cmd+Enter</kbd> 또는 Add 버튼으로 저장</span></div>';
     return;
   }
 

@@ -852,6 +852,23 @@ html, body {
   font-size: 13px;
   padding: 24px 16px;
 }
+.notes-empty-hint {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #777;
+}
+.notes-empty-hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin: 0 2px;
+  font: 500 10px/1 "JetBrains Mono", monospace;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  color: #ccc;
+}
 
 /* === New Terminal Modal === */
 .modal-overlay {
@@ -1073,11 +1090,13 @@ html, body {
   font-size: 12px;
 }
 
-/* Sprint 3: Codex usage placeholder */
+/* Sprint 3: Codex usage placeholder — rendered as a disabled marker
+   ("Codex —") rather than a sentence so it doesn't read as a fetch error. */
 .codex-usage-placeholder {
   color: var(--fg-3);
-  font-style: italic;
-  font-size: 10px;
+  font-size: 11px;
+  opacity: 0.55;
+  cursor: help;
 }
 
 /* Sprint 3: Ask Codex button — nextStep inline */

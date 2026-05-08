@@ -161,11 +161,18 @@ async function pollGitForPane(ptyId: number): Promise<GitCacheEntry> {
       window.terminalAPI.gitStatus(projectRoot),
       window.terminalAPI.gitFiles(projectRoot).catch(() => null as { path: string; x: string; y: string }[] | null),
     ]);
+    // dirtyCount = number of UNIQUE changed files. The git porcelain `files`
+    // list has one row per path, so `files.length` is the accurate count.
+    // Falling back to staged+unstaged+untracked sum can double-count when the
+    // same file is both staged and unstaged (partial stage).
     const info: GitInfo | null = status
       ? {
           branch: status.branch,
           dirty: status.dirty,
-          dirtyCount: status.stagedCount + status.unstagedCount + status.untrackedCount,
+          dirtyCount:
+            files && files.length >= 0
+              ? files.length
+              : status.stagedCount + status.unstagedCount + status.untrackedCount,
           ahead: status.aheadCount ?? 0,
         }
       : null;

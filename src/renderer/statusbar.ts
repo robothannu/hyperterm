@@ -108,10 +108,11 @@ async function refreshCodexUsage(): Promise<void> {
     if (!codexUsageEl) return;
 
     if (!result.available) {
-      // Codex CLI does not support a usage subcommand — show placeholder.
-      codexUsageEl.textContent = "codex usage unavailable";
+      // Codex CLI does not expose a usage command — render as a disabled
+      // marker rather than a sentence so it doesn't read as a fetch error.
+      codexUsageEl.textContent = "Codex —";
       codexUsageEl.className = "usage-metric codex-usage-placeholder";
-      codexUsageEl.title = "Codex CLI does not expose a usage command";
+      codexUsageEl.title = "Codex CLI는 사용량 조회 명령을 제공하지 않음";
       // Show the separator so users know the section is present.
       if (codexUsageSepEl) codexUsageSepEl.style.display = "";
     } else if (result.raw) {
