@@ -31,11 +31,12 @@ const distPath = new URL("../dist/renderer/command-palette.js", import.meta.url)
 const require = createRequire(import.meta.url);
 const mod = require(distPath);
 
-const { scoreFuzzy, scoreEntry, filterEntries, formatExplainPrompt } = mod;
+const { scoreFuzzy, scoreEntry, filterEntries, formatExplainPrompt, pathBasename } = mod;
 assert.equal(typeof scoreFuzzy, "function", "scoreFuzzy must be exported");
 assert.equal(typeof scoreEntry, "function", "scoreEntry must be exported");
 assert.equal(typeof filterEntries, "function", "filterEntries must be exported");
 assert.equal(typeof formatExplainPrompt, "function", "formatExplainPrompt must be exported");
+assert.equal(typeof pathBasename, "function", "pathBasename must be exported");
 
 console.log("\n=== scoreFuzzy ===\n");
 
@@ -206,6 +207,40 @@ test("preserves multi-line selection content", () => {
   const sel = "line1\nline2\nline3";
   const out = formatExplainPrompt(sel);
   assert.ok(out.includes(sel));
+});
+
+console.log("\n=== pathBasename ===\n");
+
+test("returns last segment of /a/b/c", () => {
+  assert.equal(pathBasename("/a/b/c"), "c");
+});
+
+test("strips trailing slash", () => {
+  assert.equal(pathBasename("/a/b/c/"), "c");
+});
+
+test("strips multiple trailing slashes", () => {
+  assert.equal(pathBasename("/a/b/c///"), "c");
+});
+
+test("returns input when no separator", () => {
+  assert.equal(pathBasename("foo"), "foo");
+});
+
+test("returns empty for empty input", () => {
+  assert.equal(pathBasename(""), "");
+});
+
+test("handles all-slash input by returning input", () => {
+  assert.equal(pathBasename("///"), "///");
+});
+
+test("handles windows-style backslash separator", () => {
+  assert.equal(pathBasename("C:\\Users\\me\\proj"), "proj");
+});
+
+test("returns last segment for nested path", () => {
+  assert.equal(pathBasename("/Users/davidhan/claude_workspace/terminal_app"), "terminal_app");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

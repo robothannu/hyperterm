@@ -13,6 +13,11 @@ let mruSectionCollapsed = false;
 // MRU data management
 // ---------------------------------------------------------------------------
 
+// Read-only snapshot for cross-script consumers (Command Palette).
+function getMruProjects(): string[] {
+  return [...mruProjects];
+}
+
 async function loadMruProjects(): Promise<void> {
   try {
     const settings = await window.terminalAPI.getSettings();

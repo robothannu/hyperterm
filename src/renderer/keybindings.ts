@@ -19,6 +19,19 @@ function _globalKeydownHandler(e: KeyboardEvent): void {
     }
     return;
   }
+  // Cmd+,: open Settings modal (matches the gear button tooltip)
+  if (e.key === "," && e.metaKey && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    const btn = document.getElementById("btn-settings") as HTMLElement | null;
+    btn?.click();
+    return;
+  }
+  // Cmd+/: open Help modal
+  if (e.key === "/" && e.metaKey && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    if (typeof showHelpGuide === "function") showHelpGuide();
+    return;
+  }
   // Cmd+Plus: increase font size
   if ((e.key === "+" || e.key === "=") && e.metaKey && !e.shiftKey) {
     e.preventDefault();

@@ -439,6 +439,13 @@ declare function openCommandPalette(): Promise<void>;
 declare function closeCommandPalette(): void;
 declare function isCommandPaletteOpen(): boolean;
 
+// MRU projects (sidebar-mru.ts) — read-only snapshot for cross-script consumers.
+declare function getMruProjects(): string[];
+
+// Help / About modals (renderer.ts)
+declare function showHelpGuide(): void;
+declare function closeHelpGuide(): void;
+
 // Dashboard helpers exposed by dashboard-gitflow.ts (loaded as <script> after
 // dashboard.js — same global scope, used by handleRefreshAll / toggleCardExpand).
 declare function clearGitflowCache(): void;

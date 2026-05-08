@@ -2788,3 +2788,9 @@ body.theme-light .layout-btn.active {
 .command-palette .palette-row-badge[class$="-action"] { /* default action stays green */ }
 /* AI badge uses cyan tint; handled via inline check below — not strictly needed since
    "Action" text is identical. Kept here as a marker for future per-id styling. */
+
+.command-palette .palette-row-badge-recent {
+  background: rgba(140,200,255,0.14);
+  color: #b9d8ff;
+  border-color: rgba(140,200,255,0.3);
+}

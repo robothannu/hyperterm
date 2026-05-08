@@ -5,8 +5,8 @@
 // Sources: open tabs, registered workspaces, quick actions.
 // Loaded as <script> with commonjs-shim — uses `export` for testability.
 
-type PaletteSource = "tab" | "workspace" | "workflow" | "action";
-type PaletteScope = "all" | "tab" | "workspace" | "workflow" | "action";
+type PaletteSource = "tab" | "workspace" | "workflow" | "recent" | "action";
+type PaletteScope = "all" | "tab" | "workspace" | "workflow" | "recent" | "action";
 
 interface PaletteEntry {
   id: string;
@@ -18,6 +18,16 @@ interface PaletteEntry {
   exec: () => void | Promise<void>;
   // Optional secondary execute when Cmd/Ctrl+Enter is pressed.
   execAlt?: () => void | Promise<void>;
+}
+
+// Pure: extract the basename (last path segment) from a posix-style absolute path.
+// Returns the path itself if no separators are present. Trims trailing slashes.
+export function pathBasename(p: string): string {
+  if (!p) return "";
+  const trimmed = p.replace(/[\/\\]+$/, "");
+  if (!trimmed) return p; // path was just slashes
+  const idx = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return idx === -1 ? trimmed : trimmed.slice(idx + 1);
 }
 
 // Pure: subsequence-style fuzzy score with prefix / word-boundary / consecutive bonuses.
@@ -91,8 +101,14 @@ export function filterEntries(
 ): PaletteEntry[] {
   const scoped = scope === "all" ? entries : entries.filter((e) => e.source === scope);
   if (!query.trim()) {
-    // No query: stable ordering — tabs, workspaces, workflows, actions.
-    const orderRank: Record<PaletteSource, number> = { tab: 0, workspace: 1, workflow: 2, action: 3 };
+    // No query: stable ordering — tabs, workspaces, workflows, recent, actions.
+    const orderRank: Record<PaletteSource, number> = {
+      tab: 0,
+      workspace: 1,
+      workflow: 2,
+      recent: 3,
+      action: 4,
+    };
     return [...scoped].sort((a, b) => orderRank[a.source] - orderRank[b.source]);
   }
   const ranked: { entry: PaletteEntry; score: number }[] = [];
@@ -245,6 +261,37 @@ function _buildWorkspaceEntries(workspaces: PaletteWorkspaceLite[]): PaletteEntr
     exec: () => _openWorkspace(w.absolutePath, _primaryToolFor(w.tool)),
     execAlt: () => _openWorkspace(w.absolutePath, _altToolFor(w.tool)),
   }));
+}
+
+function _buildRecentEntries(paths: string[]): PaletteEntry[] {
+  return paths.map((p, i) => ({
+    id: `recent:${i}:${p}`,
+    source: "recent" as PaletteSource,
+    title: pathBasename(p) || p,
+    subtitle: p,
+    badge: "Recent",
+    exec: () => _openRecentProject(p),
+  }));
+}
+
+async function _openRecentProject(projectPath: string): Promise<void> {
+  const api = (window as any).terminalAPI;
+  // Validate path existence — silently skip if missing.
+  if (api && typeof api.checkPathExists === "function") {
+    try {
+      const exists = await api.checkPathExists(projectPath);
+      if (!exists) {
+        if (typeof showToast === "function") showToast(`경로를 찾을 수 없습니다: ${projectPath}`, "error");
+        return;
+      }
+    } catch { /* ignore — proceed */ }
+  }
+  const fn = (window as any).createNewTab as
+    | ((label?: string, cwd?: string) => Promise<number | null>)
+    | undefined;
+  if (typeof fn !== "function") return;
+  const label = pathBasename(projectPath) || projectPath;
+  await fn(label, projectPath);
 }
 
 function _buildWorkflowEntries(workflows: PaletteWorkflowLite[]): PaletteEntry[] {
@@ -419,10 +466,12 @@ async function rebuildPaletteEntries(): Promise<void> {
     _fetchWorkspacesForPalette(),
     _fetchWorkflowsForPalette(),
   ]);
+  const recents = typeof getMruProjects === "function" ? getMruProjects() : [];
   const workspaces = _buildWorkspaceEntries(wsList);
   const workflows = _buildWorkflowEntries(wfList);
+  const recentEntries = _buildRecentEntries(recents);
   const actions = _buildActionEntries();
-  _paletteEntries = [...tabs, ...workspaces, ...workflows, ...actions];
+  _paletteEntries = [...tabs, ...workspaces, ...workflows, ...recentEntries, ...actions];
   _applyFilter();
 }
 
@@ -470,6 +519,7 @@ function _renderScope(): void {
     { key: "tab", label: "Tabs" },
     { key: "workspace", label: "Workspaces" },
     { key: "workflow", label: "Workflows" },
+    { key: "recent", label: "Recent" },
     { key: "action", label: "Actions" },
   ];
   root.innerHTML = scopes
@@ -536,7 +586,7 @@ function _onPaletteKeydown(e: KeyboardEvent): void {
   }
   if (e.key === "Tab") {
     e.preventDefault();
-    const order: PaletteScope[] = ["all", "tab", "workspace", "workflow", "action"];
+    const order: PaletteScope[] = ["all", "tab", "workspace", "workflow", "recent", "action"];
     const idx = order.indexOf(_paletteScope);
     _paletteScope = order[(idx + (e.shiftKey ? -1 : 1) + order.length) % order.length];
     _paletteSelected = 0;
