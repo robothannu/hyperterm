@@ -75,6 +75,14 @@ export function scoreEntry(query: string, entry: { title: string; subtitle?: str
   return best;
 }
 
+// Wraps a terminal selection in the AI explain prompt template.
+// Returns null if the selection is effectively empty after trimming.
+export function formatExplainPrompt(selection: string): string | null {
+  const trimmed = (selection || "").trim();
+  if (trimmed.length === 0) return null;
+  return `다음 터미널 출력을 분석하고 원인 + 수정 방법을 한국어로 설명해줘:\n\n${trimmed}`;
+}
+
 // Filter + rank entries given a query and scope.
 export function filterEntries(
   entries: PaletteEntry[],
@@ -131,6 +139,7 @@ declare function showClusterDialog(initial: string): Promise<string | null>;
 declare function saveSessionMetadata(): void;
 declare function renderSidebar(): void;
 declare function showToast(message: string, variant?: "error" | "warn" | "ok" | "done"): void;
+declare const sessions: Map<number, { terminal: { getSelection(): string } }>;
 
 interface PaletteWorkspaceLite {
   id: string;
@@ -346,7 +355,62 @@ function _buildActionEntries(): PaletteEntry[] {
     badge: "Action",
     exec: () => _enterComposeMode(),
   });
+  acts.push({
+    id: "act:explain-claude",
+    source: "action",
+    title: "Explain selection in Claude",
+    subtitle: "Open a new claude tab analyzing the highlighted xterm text",
+    badge: "AI",
+    exec: () => _explainSelection("claude"),
+  });
+  acts.push({
+    id: "act:explain-codex",
+    source: "action",
+    title: "Explain selection in Codex",
+    subtitle: "Open a new codex tab analyzing the highlighted xterm text",
+    badge: "AI",
+    exec: () => _explainSelection("codex"),
+  });
   return acts;
+}
+
+async function _explainSelection(tool: "claude" | "codex"): Promise<void> {
+  if (typeof activeTabId === "undefined" || activeTabId === null || typeof tabMap === "undefined") return;
+  const tab = tabMap.get(activeTabId);
+  if (!tab) {
+    if (typeof showToast === "function") showToast("활성 탭이 없습니다", "warn");
+    return;
+  }
+  const session = (typeof sessions !== "undefined") ? sessions.get(tab.focusedPtyId) : null;
+  if (!session) {
+    if (typeof showToast === "function") showToast("터미널 세션을 찾을 수 없습니다", "warn");
+    return;
+  }
+  const selection = session.terminal.getSelection() || "";
+  const prompt = formatExplainPrompt(selection);
+  if (prompt === null) {
+    if (typeof showToast === "function") showToast("터미널에서 분석할 텍스트를 먼저 선택하세요", "warn");
+    return;
+  }
+  let cwd: string | undefined;
+  try {
+    cwd = await (window as any).terminalAPI.getCwd(tab.focusedPtyId);
+  } catch {
+    cwd = undefined;
+  }
+  const fn = (window as any).createNewTab as
+    | ((label?: string, cwd?: string, options?: unknown) => Promise<number | null>)
+    | undefined;
+  if (typeof fn !== "function") {
+    if (typeof showToast === "function") showToast("createNewTab 함수가 없습니다", "error");
+    return;
+  }
+  const label = tool === "codex" ? "codex explain" : "claude explain";
+  const opts =
+    tool === "codex"
+      ? { runWithCodex: true, codexPrompt: prompt }
+      : { runWithClaude: true, claudePrompt: prompt };
+  await fn(label, cwd, opts);
 }
 
 async function rebuildPaletteEntries(): Promise<void> {

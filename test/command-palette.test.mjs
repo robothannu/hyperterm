@@ -31,10 +31,11 @@ const distPath = new URL("../dist/renderer/command-palette.js", import.meta.url)
 const require = createRequire(import.meta.url);
 const mod = require(distPath);
 
-const { scoreFuzzy, scoreEntry, filterEntries } = mod;
+const { scoreFuzzy, scoreEntry, filterEntries, formatExplainPrompt } = mod;
 assert.equal(typeof scoreFuzzy, "function", "scoreFuzzy must be exported");
 assert.equal(typeof scoreEntry, "function", "scoreEntry must be exported");
 assert.equal(typeof filterEntries, "function", "filterEntries must be exported");
+assert.equal(typeof formatExplainPrompt, "function", "formatExplainPrompt must be exported");
 
 console.log("\n=== scoreFuzzy ===\n");
 
@@ -171,6 +172,40 @@ test("scope filter combined with query", () => {
   const out = filterEntries(sample, "a", "workspace");
   assert.ok(out.length >= 1);
   assert.ok(out.every((e) => e.source === "workspace"));
+});
+
+console.log("\n=== formatExplainPrompt ===\n");
+
+test("returns null on empty string", () => {
+  assert.equal(formatExplainPrompt(""), null);
+});
+
+test("returns null on whitespace-only string", () => {
+  assert.equal(formatExplainPrompt("   \n\t  "), null);
+});
+
+test("returns null on null/undefined", () => {
+  assert.equal(formatExplainPrompt(null), null);
+  assert.equal(formatExplainPrompt(undefined), null);
+});
+
+test("wraps non-empty selection with korean instruction prefix", () => {
+  const out = formatExplainPrompt("Error: file not found");
+  assert.ok(typeof out === "string");
+  assert.ok(out.includes("Error: file not found"));
+  assert.ok(out.includes("분석") || out.includes("설명"));
+});
+
+test("trims selection before wrapping", () => {
+  const out = formatExplainPrompt("   hello   ");
+  assert.ok(out.includes("hello"));
+  assert.ok(!out.includes("   hello   "));
+});
+
+test("preserves multi-line selection content", () => {
+  const sel = "line1\nline2\nline3";
+  const out = formatExplainPrompt(sel);
+  assert.ok(out.includes(sel));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
