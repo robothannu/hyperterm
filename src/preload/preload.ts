@@ -165,6 +165,21 @@ export interface TerminalAPI {
   // tool="claude" → workspace:openInMainWithClaude.
   // tool="codex"  → workspace:openInMainWithCodex.
   openWorkspaceWith(absPath: string, tool: "claude" | "codex"): Promise<unknown>;
+
+  // --- Workflows (saved command snippets, surfaced via Command Palette) ---
+  listWorkflows(): Promise<Array<{
+    id: string;
+    label: string;
+    command: string;
+    cwd?: string;
+    createdAt: string;
+  }>>;
+  addWorkflow(input: { label: string; command: string; cwd?: string }): Promise<{
+    ok: boolean;
+    error?: string;
+    workflow?: { id: string; label: string; command: string; cwd?: string; createdAt: string };
+  }>;
+  removeWorkflow(id: string): Promise<{ ok: boolean; error?: string }>;
 }
 
 contextBridge.exposeInMainWorld("terminalAPI", {
@@ -372,4 +387,10 @@ contextBridge.exposeInMainWorld("terminalAPI", {
     const channel = tool === "codex" ? "workspace:openInMainWithCodex" : "workspace:openInMainWithClaude";
     return ipcRenderer.invoke(channel, absPath);
   },
+
+  // --- Workflows ---
+  listWorkflows: () => ipcRenderer.invoke("workflows:list"),
+  addWorkflow: (input: { label: string; command: string; cwd?: string }) =>
+    ipcRenderer.invoke("workflows:add", input),
+  removeWorkflow: (id: string) => ipcRenderer.invoke("workflows:remove", id),
 } satisfies TerminalAPI);

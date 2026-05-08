@@ -5,8 +5,8 @@
 // Sources: open tabs, registered workspaces, quick actions.
 // Loaded as <script> with commonjs-shim — uses `export` for testability.
 
-type PaletteSource = "tab" | "workspace" | "action";
-type PaletteScope = "all" | "tab" | "workspace" | "action";
+type PaletteSource = "tab" | "workspace" | "workflow" | "action";
+type PaletteScope = "all" | "tab" | "workspace" | "workflow" | "action";
 
 interface PaletteEntry {
   id: string;
@@ -83,8 +83,8 @@ export function filterEntries(
 ): PaletteEntry[] {
   const scoped = scope === "all" ? entries : entries.filter((e) => e.source === scope);
   if (!query.trim()) {
-    // No query: stable ordering — tabs first, workspaces second, actions last.
-    const orderRank: Record<PaletteSource, number> = { tab: 0, workspace: 1, action: 2 };
+    // No query: stable ordering — tabs, workspaces, workflows, actions.
+    const orderRank: Record<PaletteSource, number> = { tab: 0, workspace: 1, workflow: 2, action: 3 };
     return [...scoped].sort((a, b) => orderRank[a.source] - orderRank[b.source]);
   }
   const ranked: { entry: PaletteEntry; score: number }[] = [];
@@ -102,13 +102,13 @@ export function filterEntries(
 
 // Keep all browser code inside functions (never called from Node test context)
 // so that requiring this module from Node does not crash on top-level DOM access.
-// module from Node does not crash on top-level DOM access.
 let _paletteOpen = false;
 let _paletteQuery = "";
 let _paletteScope: PaletteScope = "all";
 let _paletteSelected = 0;
 let _paletteEntries: PaletteEntry[] = [];
 let _paletteFiltered: PaletteEntry[] = [];
+let _paletteMode: "search" | "compose" = "search";
 
 function _esc(s: string): string {
   return String(s)
@@ -130,6 +130,7 @@ declare function toggleChangedFilesPanel(): void;
 declare function showClusterDialog(initial: string): Promise<string | null>;
 declare function saveSessionMetadata(): void;
 declare function renderSidebar(): void;
+declare function showToast(message: string, variant?: "error" | "warn" | "ok" | "done"): void;
 
 interface PaletteWorkspaceLite {
   id: string;
@@ -137,6 +138,14 @@ interface PaletteWorkspaceLite {
   absolutePath: string;
   tool?: WorkspaceTool;
   archived?: boolean;
+}
+
+interface PaletteWorkflowLite {
+  id: string;
+  label: string;
+  command: string;
+  cwd?: string;
+  createdAt?: string;
 }
 
 async function _fetchWorkspacesForPalette(): Promise<PaletteWorkspaceLite[]> {
@@ -147,6 +156,18 @@ async function _fetchWorkspacesForPalette(): Promise<PaletteWorkspaceLite[]> {
     return Array.isArray(list) ? list.filter((w) => !w.archived) : [];
   } catch (e) {
     console.warn("[palette] listWorkspaces failed:", e);
+    return [];
+  }
+}
+
+async function _fetchWorkflowsForPalette(): Promise<PaletteWorkflowLite[]> {
+  const api = (window as any).terminalAPI;
+  if (!api || typeof api.listWorkflows !== "function") return [];
+  try {
+    const list: PaletteWorkflowLite[] = await api.listWorkflows();
+    return Array.isArray(list) ? list : [];
+  } catch (e) {
+    console.warn("[palette] listWorkflows failed:", e);
     return [];
   }
 }
@@ -217,6 +238,45 @@ function _buildWorkspaceEntries(workspaces: PaletteWorkspaceLite[]): PaletteEntr
   }));
 }
 
+function _buildWorkflowEntries(workflows: PaletteWorkflowLite[]): PaletteEntry[] {
+  return workflows.map((w) => ({
+    id: `wf:${w.id}`,
+    source: "workflow" as PaletteSource,
+    title: w.label,
+    subtitle: w.cwd ? `${w.command} · ${w.cwd}` : w.command,
+    badge: "Flow",
+    exec: () => _runWorkflow(w),
+  }));
+}
+
+async function _runWorkflow(w: PaletteWorkflowLite): Promise<void> {
+  const api = (window as any).terminalAPI;
+  if (!api || typeof api.writePty !== "function") return;
+  // If workflow has a cwd, open a new tab there. Otherwise run in current focused pane.
+  if (w.cwd) {
+    const fn = (window as any).createNewTab as ((label?: string, cwd?: string) => Promise<number | null>) | undefined;
+    if (typeof fn !== "function") {
+      if (typeof showToast === "function") showToast("새 탭 생성 함수 없음", "error");
+      return;
+    }
+    const tabId = await fn(w.label, w.cwd);
+    if (tabId == null) return;
+    const tab = (typeof tabMap !== "undefined") ? tabMap.get(tabId) : null;
+    const ptyId = tab?.focusedPtyId ?? tabId;
+    api.writePty(ptyId, w.command + "\r");
+    return;
+  }
+  // No cwd: run in current focused pane
+  const tab = (typeof activeTabId !== "undefined" && activeTabId !== null && typeof tabMap !== "undefined")
+    ? tabMap.get(activeTabId)
+    : null;
+  if (!tab) {
+    if (typeof showToast === "function") showToast("실행할 탭이 없습니다", "warn");
+    return;
+  }
+  api.writePty(tab.focusedPtyId, w.command + "\r");
+}
+
 function _buildActionEntries(): PaletteEntry[] {
   const acts: PaletteEntry[] = [];
   acts.push({
@@ -278,14 +338,27 @@ function _buildActionEntries(): PaletteEntry[] {
       btn?.click();
     },
   });
+  acts.push({
+    id: "act:add-workflow",
+    source: "action",
+    title: "Add Workflow…",
+    subtitle: "Save a command snippet for later",
+    badge: "Action",
+    exec: () => _enterComposeMode(),
+  });
   return acts;
 }
 
 async function rebuildPaletteEntries(): Promise<void> {
   const tabs = _buildTabEntries();
-  const workspaces = _buildWorkspaceEntries(await _fetchWorkspacesForPalette());
+  const [wsList, wfList] = await Promise.all([
+    _fetchWorkspacesForPalette(),
+    _fetchWorkflowsForPalette(),
+  ]);
+  const workspaces = _buildWorkspaceEntries(wsList);
+  const workflows = _buildWorkflowEntries(wfList);
   const actions = _buildActionEntries();
-  _paletteEntries = [...tabs, ...workspaces, ...actions];
+  _paletteEntries = [...tabs, ...workspaces, ...workflows, ...actions];
   _applyFilter();
 }
 
@@ -332,6 +405,7 @@ function _renderScope(): void {
     { key: "all", label: "All" },
     { key: "tab", label: "Tabs" },
     { key: "workspace", label: "Workspaces" },
+    { key: "workflow", label: "Workflows" },
     { key: "action", label: "Actions" },
   ];
   root.innerHTML = scopes
@@ -362,6 +436,15 @@ function _executeSelected(opts: { alt: boolean }): void {
 
 function _onPaletteKeydown(e: KeyboardEvent): void {
   if (!_paletteOpen) return;
+  // Compose-mode keys are handled inside the compose UI handlers; only Esc here.
+  if (_paletteMode === "compose") {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      _exitComposeMode();
+    }
+    return;
+  }
   if (e.key === "Escape") {
     e.preventDefault();
     e.stopPropagation();
@@ -389,7 +472,7 @@ function _onPaletteKeydown(e: KeyboardEvent): void {
   }
   if (e.key === "Tab") {
     e.preventDefault();
-    const order: PaletteScope[] = ["all", "tab", "workspace", "action"];
+    const order: PaletteScope[] = ["all", "tab", "workspace", "workflow", "action"];
     const idx = order.indexOf(_paletteScope);
     _paletteScope = order[(idx + (e.shiftKey ? -1 : 1) + order.length) % order.length];
     _paletteSelected = 0;
@@ -397,6 +480,92 @@ function _onPaletteKeydown(e: KeyboardEvent): void {
     _renderScope();
     return;
   }
+}
+
+// =====================================================================
+// Compose mode — "Add Workflow…" inline form
+// =====================================================================
+
+function _enterComposeMode(): void {
+  _paletteMode = "compose";
+  const root = document.getElementById("command-palette");
+  if (!root) return;
+  const dialog = root.querySelector(".palette-dialog") as HTMLElement | null;
+  if (!dialog) return;
+  dialog.innerHTML = `
+    <div class="palette-compose-title">Add Workflow</div>
+    <input id="palette-compose-label" type="text" class="palette-input" placeholder="Label (e.g. Run tests)" autocomplete="off" spellcheck="false" />
+    <input id="palette-compose-command" type="text" class="palette-input" placeholder="Command (e.g. npm test)" autocomplete="off" spellcheck="false" />
+    <input id="palette-compose-cwd" type="text" class="palette-input" placeholder="cwd (optional, absolute path; blank = current pane)" autocomplete="off" spellcheck="false" />
+    <div id="palette-compose-error" class="palette-compose-error" style="display:none"></div>
+    <div class="palette-footer">
+      <span><kbd>Enter</kbd> save · <kbd>Esc</kbd> cancel</span>
+      <span><button id="palette-compose-save" class="palette-compose-save">Save</button></span>
+    </div>`;
+  const labelEl = document.getElementById("palette-compose-label") as HTMLInputElement | null;
+  const commandEl = document.getElementById("palette-compose-command") as HTMLInputElement | null;
+  const cwdEl = document.getElementById("palette-compose-cwd") as HTMLInputElement | null;
+  const saveBtn = document.getElementById("palette-compose-save") as HTMLButtonElement | null;
+  labelEl?.focus();
+  const submit = async () => {
+    const label = labelEl?.value.trim() || "";
+    const command = commandEl?.value.trim() || "";
+    const cwd = cwdEl?.value.trim() || "";
+    const err = document.getElementById("palette-compose-error");
+    if (label.length === 0 || command.length === 0) {
+      if (err) {
+        err.style.display = "block";
+        err.textContent = "Label and command are required.";
+      }
+      return;
+    }
+    const api = (window as any).terminalAPI;
+    if (!api || typeof api.addWorkflow !== "function") {
+      if (err) {
+        err.style.display = "block";
+        err.textContent = "Workflows API not available.";
+      }
+      return;
+    }
+    try {
+      const res = await api.addWorkflow({ label, command, cwd: cwd || undefined });
+      if (!res?.ok) {
+        if (err) {
+          err.style.display = "block";
+          err.textContent = `Could not save: ${res?.error || "unknown"}.`;
+        }
+        return;
+      }
+      if (typeof showToast === "function") showToast(`Workflow "${label}" saved.`, "ok");
+      _exitComposeMode();
+      await rebuildPaletteEntries();
+    } catch (e) {
+      if (err) {
+        err.style.display = "block";
+        err.textContent = "Save failed: " + (e instanceof Error ? e.message : String(e));
+      }
+    }
+  };
+  saveBtn?.addEventListener("click", submit);
+  for (const el of [labelEl, commandEl, cwdEl]) {
+    el?.addEventListener("keydown", (ev) => {
+      const k = ev as KeyboardEvent;
+      if (k.key === "Enter") {
+        ev.preventDefault();
+        submit();
+      }
+    });
+  }
+}
+
+function _exitComposeMode(): void {
+  _paletteMode = "search";
+  // Re-render the search dialog from scratch.
+  const root = document.getElementById("command-palette");
+  if (!root) return;
+  root.remove();
+  _paletteOpen = false;
+  void openCommandPalette();
 }
 
 function _onPaletteInput(e: Event): void {

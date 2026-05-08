@@ -25,6 +25,15 @@ import {
   type Workspace,
 } from "./workspaces";
 import { getCardData, summarizeOverview, getStatusInfo, getFileTree, detectTool } from "./workspace-reader";
+import {
+  initWorkflows,
+  loadWorkflows,
+  saveWorkflows,
+  addWorkflow,
+  removeWorkflow,
+  makeWorkflow,
+  type Workflow,
+} from "./workflows";
 
 interface Note {
   id: number;
@@ -51,6 +60,9 @@ let hookServer: net.Server | null = null;
 
 // In-memory workspace list (persisted via workspaces module)
 let workspaces: Workspace[] = [];
+
+// In-memory workflow list (persisted via workflows module). Initialized on app ready.
+let workflows: Workflow[] = [];
 
 const sessionsFilePath = path.join(app.getPath("userData"), "sessions.json");
 const notesFilePath = path.join(app.getPath("userData"), "notes.json");
@@ -914,6 +926,42 @@ ipcMain.handle("workspace:add", async () => {
 ipcMain.handle("workspace:remove", (_event, id: string) => {
   workspaces = removeWorkspace(workspaces, id);
   return workspaces;
+});
+
+// --- Workflows IPC (Command Palette quick-runners) ---
+
+ipcMain.handle("workflows:list", () => {
+  return workflows;
+});
+
+ipcMain.handle(
+  "workflows:add",
+  (_event, input: { label?: unknown; command?: unknown; cwd?: unknown }) => {
+    const result = makeWorkflow({
+      label: typeof input?.label === "string" ? input.label : "",
+      command: typeof input?.command === "string" ? input.command : "",
+      cwd: typeof input?.cwd === "string" ? input.cwd : undefined,
+    });
+    if (!result.ok) return { ok: false, error: result.error, workflows };
+    const added = addWorkflow(workflows, result.workflow);
+    if (added.duplicate) return { ok: false, error: "duplicate", workflows };
+    workflows = added.workflows;
+    saveWorkflows(workflows);
+    return { ok: true, workflow: result.workflow, workflows };
+  }
+);
+
+ipcMain.handle("workflows:remove", (_event, id: string) => {
+  if (typeof id !== "string" || id.length === 0) {
+    return { ok: false, error: "invalid_id", workflows };
+  }
+  const next = removeWorkflow(workflows, id);
+  if (next.length === workflows.length) {
+    return { ok: false, error: "not_found", workflows };
+  }
+  workflows = next;
+  saveWorkflows(workflows);
+  return { ok: true, workflows };
 });
 
 // --- Workspace Discovery IPC (Sprint 3 — Discovery banner) ---
@@ -1789,6 +1837,8 @@ app.whenReady().then(() => {
   // Initialize workspaces persistence
   initWorkspaces(app.getPath("userData"));
   workspaces = loadWorkspaces();
+  initWorkflows(app.getPath("userData"));
+  workflows = loadWorkflows();
   hookServer = startHookServer();
   // Always re-install hooks: ensures hook.sh is refreshed to the latest template
   // even when settings.json already lists it. isHookInstalled() only checks

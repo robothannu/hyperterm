@@ -165,6 +165,21 @@ interface TerminalAPI {
     tool?: "claude" | "codex" | "mixed" | "none";
   }>>;
   openWorkspaceWith(absPath: string, tool: "claude" | "codex"): Promise<unknown>;
+
+  // --- Workflows ---
+  listWorkflows(): Promise<Array<{
+    id: string;
+    label: string;
+    command: string;
+    cwd?: string;
+    createdAt: string;
+  }>>;
+  addWorkflow(input: { label: string; command: string; cwd?: string }): Promise<{
+    ok: boolean;
+    error?: string;
+    workflow?: { id: string; label: string; command: string; cwd?: string; createdAt: string };
+  }>;
+  removeWorkflow(id: string): Promise<{ ok: boolean; error?: string }>;
 }
 
 interface SubagentAgent {
