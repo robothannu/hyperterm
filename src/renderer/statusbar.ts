@@ -112,7 +112,7 @@ async function refreshCodexUsage(): Promise<void> {
       // marker rather than a sentence so it doesn't read as a fetch error.
       codexUsageEl.textContent = "Codex —";
       codexUsageEl.className = "usage-metric codex-usage-placeholder";
-      codexUsageEl.title = "Codex CLI는 사용량 조회 명령을 제공하지 않음";
+      codexUsageEl.title = "Codex CLI does not provide a usage query command";
       // Show the separator so users know the section is present.
       if (codexUsageSepEl) codexUsageSepEl.style.display = "";
     } else if (result.raw) {

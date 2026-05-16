@@ -190,11 +190,11 @@ test("returns null on null/undefined", () => {
   assert.equal(formatExplainPrompt(undefined), null);
 });
 
-test("wraps non-empty selection with korean instruction prefix", () => {
+test("wraps non-empty selection with English instruction prefix", () => {
   const out = formatExplainPrompt("Error: file not found");
   assert.ok(typeof out === "string");
   assert.ok(out.includes("Error: file not found"));
-  assert.ok(out.includes("분석") || out.includes("설명"));
+  assert.ok(out.includes("Analyze") && out.includes("cause and fix"));
 });
 
 test("trims selection before wrapping", () => {

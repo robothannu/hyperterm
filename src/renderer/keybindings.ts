@@ -120,7 +120,7 @@ function _globalKeydownHandler(e: KeyboardEvent): void {
         return;
       }
     }
-    showHookToast("승인 대기 중인 Claude 없음", "done");
+    showHookToast("No Claude tab is waiting for approval", "done");
     return;
   }
 

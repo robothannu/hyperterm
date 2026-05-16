@@ -33,21 +33,21 @@ function openNotesPanel(tabId: number): void {
 /**
  * Attempt to close the notes panel.
  * If there is unsaved text in the textarea, show a confirmation prompt.
- * "취소" → keep panel open, text preserved.
- * "폐기" → close panel, clear textarea.
+ * "Cancel" keeps the panel open and preserves text.
+ * "Discard" closes the panel and clears the textarea.
  * Empty textarea → close immediately without prompt.
  */
 function tryCloseNotesPanel(): void {
   const unsaved = notesInput.value.trim();
   if (unsaved !== "") {
     const discard = window.confirm(
-      "저장되지 않은 노트가 있습니다.\n폐기하고 닫으시겠습니까?"
+      "You have an unsaved note.\nDiscard it and close the panel?"
     );
     if (!discard) {
-      // 취소: keep panel open, text preserved
+      // Cancel: keep panel open, text preserved
       return;
     }
-    // 폐기: clear textarea then close
+    // Discard: clear textarea then close
     notesInput.value = "";
   }
   closeNotesPanel();
@@ -71,7 +71,7 @@ async function loadAndRenderNotes(tabId: number): Promise<void> {
 function renderNotes(notes: Note[]): void {
   if (notes.length === 0) {
     notesList.innerHTML =
-      '<div class="notes-empty">노트 없음<br><span class="notes-empty-hint">아래에 입력하고 <kbd>Cmd+Enter</kbd> 또는 Add 버튼으로 저장</span></div>';
+      '<div class="notes-empty">No notes<br><span class="notes-empty-hint">Type below and press <kbd>Cmd+Enter</kbd> or Add to save.</span></div>';
     return;
   }
 

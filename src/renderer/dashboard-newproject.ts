@@ -447,7 +447,7 @@ async function npHandleCreate(): Promise<void> {
     if (result.warnings && result.warnings.length > 0) {
       console.warn("[new-project] partial failures:", result.warnings);
       showDashboardToast(
-        `프로젝트 생성됨 (일부 단계 실패: ${result.warnings.join(", ")})`,
+        `Project created with warnings: ${result.warnings.join(", ")}`,
         "warn"
       );
     }

@@ -26,8 +26,8 @@ function setAgentIpcErrorIndicator(visible: boolean): void {
       indicator = document.createElement("span");
       indicator.id = "agent-ipc-error";
       indicator.className = "agent-ipc-error";
-      indicator.title = "Agent 상태 폴링 실패 — main↔renderer IPC 응답 없음. 앱 재시작 권장.";
-      indicator.textContent = "⚠ Agent 상태 확인 불가";
+      indicator.title = "Agent status polling failed. The main-to-renderer IPC is not responding. Restart the app.";
+      indicator.textContent = "⚠ Agent status unavailable";
       // Insert before the spacer
       const spacer = statusbar.querySelector(".statusbar-spacer");
       if (spacer) {

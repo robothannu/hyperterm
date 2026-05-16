@@ -75,7 +75,7 @@ async function onMruEntryClick(projectPath: string): Promise<void> {
   try {
     const exists = await window.terminalAPI.checkPathExists(projectPath);
     if (!exists) {
-      showToast(`경로를 찾을 수 없습니다: ${projectPath}`, "error");
+      showToast(`Path not found: ${projectPath}`, "error");
       await removeMruProject(projectPath);
       return;
     }

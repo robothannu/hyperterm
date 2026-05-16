@@ -1685,7 +1685,7 @@ ipcMain.handle("workspace:newProject", async (_event, payload: NewProjectPayload
     console.log(`[new-project] git init OK: ${absolutePath}`);
   } catch (err) {
     console.warn("[new-project] git init failed (non-fatal):", err);
-    warnings.push("git init 실패 — 폴더는 생성됨");
+    warnings.push("git init failed; folder was created");
   }
 
   // CLAUDE.md 템플릿
@@ -1703,7 +1703,7 @@ ipcMain.handle("workspace:newProject", async (_event, payload: NewProjectPayload
       console.log("[new-project] CLAUDE.md written");
     } catch (err) {
       console.warn("[new-project] CLAUDE.md write failed (non-fatal):", err);
-      warnings.push("CLAUDE.md 생성 실패");
+      warnings.push("CLAUDE.md creation failed");
     }
   }
 
@@ -1729,7 +1729,7 @@ ${today}
       console.log("[new-project] progress.md written");
     } catch (err) {
       console.warn("[new-project] progress.md write failed (non-fatal):", err);
-      warnings.push("progress.md 생성 실패");
+      warnings.push("progress.md creation failed");
     }
   }
 
@@ -1748,7 +1748,7 @@ ${today}
       console.log("[new-project] AGENT.md written");
     } catch (err) {
       console.warn("[new-project] AGENT.md write failed (non-fatal):", err);
-      warnings.push("AGENT.md 생성 실패");
+      warnings.push("AGENT.md creation failed");
     }
   }
 
@@ -1774,7 +1774,7 @@ ${today}
       console.log("[new-project] codex-handoff.md written");
     } catch (err) {
       console.warn("[new-project] codex-handoff.md write failed (non-fatal):", err);
-      warnings.push("codex-handoff.md 생성 실패");
+      warnings.push("codex-handoff.md creation failed");
     }
   }
 
@@ -1793,7 +1793,7 @@ coverage/
       console.log("[new-project] .gitignore written");
     } catch (err) {
       console.warn("[new-project] .gitignore write failed (non-fatal):", err);
-      warnings.push(".gitignore 생성 실패");
+      warnings.push(".gitignore creation failed");
     }
   }
 
@@ -1846,7 +1846,7 @@ ipcMain.on("hook:notify-approval", () => {
   if (Notification.isSupported()) {
     new Notification({
       title: "HyperTerm",
-      body: "Claude가 승인을 기다리고 있습니다",
+      body: "Claude is waiting for approval",
     }).show();
   }
 });

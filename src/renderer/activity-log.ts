@@ -42,7 +42,7 @@ function renderActivitySection(): void {
   list.style.display = activitySectionCollapsed ? "none" : "";
 
   if (activityLog.length === 0) {
-    list.innerHTML = `<div class="activity-empty">없음</div>`;
+    list.innerHTML = `<div class="activity-empty">None</div>`;
     return;
   }
 
@@ -54,7 +54,7 @@ function renderActivitySection(): void {
 
     const item = document.createElement("div");
     item.className = `activity-item${tabExists ? "" : " activity-stale"}`;
-    item.title = tabExists ? `${entry.tabLabel} 탭으로 이동` : "탭이 닫혔음";
+    item.title = tabExists ? `Switch to ${entry.tabLabel}` : "Tab is closed";
     item.innerHTML = `<span class="activity-icon ${colorClass}">${icon}</span><span class="activity-label">${escapeHtml(entry.tabLabel)}</span><span class="activity-time">${formatRelativeTime(entry.ts)}</span>`;
 
     if (tabExists) {

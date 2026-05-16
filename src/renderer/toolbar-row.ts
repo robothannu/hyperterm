@@ -335,7 +335,7 @@ async function applyLayoutPreset(presetName: LayoutPresetName): Promise<void> {
         leaves.push(newLeaf);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        showToast(`Pane 생성 실패: ${msg}`, "error");
+        showToast(`Pane creation failed: ${msg}`, "error");
         return;
       }
     }

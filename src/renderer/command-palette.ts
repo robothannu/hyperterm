@@ -90,7 +90,7 @@ export function scoreEntry(query: string, entry: { title: string; subtitle?: str
 export function formatExplainPrompt(selection: string): string | null {
   const trimmed = (selection || "").trim();
   if (trimmed.length === 0) return null;
-  return `다음 터미널 출력을 분석하고 원인 + 수정 방법을 한국어로 설명해줘:\n\n${trimmed}`;
+  return `Analyze the following terminal output and explain the cause and fix:\n\n${trimmed}`;
 }
 
 // Filter + rank entries given a query and scope.
@@ -317,7 +317,7 @@ async function _openRecentProject(projectPath: string): Promise<void> {
     try {
       const exists = await api.checkPathExists(projectPath);
       if (!exists) {
-        if (typeof showToast === "function") showToast(`경로를 찾을 수 없습니다: ${projectPath}`, "error");
+        if (typeof showToast === "function") showToast(`Path not found: ${projectPath}`, "error");
         return;
       }
     } catch { /* ignore — proceed */ }
@@ -348,7 +348,7 @@ async function _runWorkflow(w: PaletteWorkflowLite): Promise<void> {
   if (w.cwd) {
     const fn = (window as any).createNewTab as ((label?: string, cwd?: string) => Promise<number | null>) | undefined;
     if (typeof fn !== "function") {
-      if (typeof showToast === "function") showToast("새 탭 생성 함수 없음", "error");
+      if (typeof showToast === "function") showToast("New tab function is unavailable", "error");
       return;
     }
     const tabId = await fn(w.label, w.cwd);
@@ -363,7 +363,7 @@ async function _runWorkflow(w: PaletteWorkflowLite): Promise<void> {
     ? tabMap.get(activeTabId)
     : null;
   if (!tab) {
-    if (typeof showToast === "function") showToast("실행할 탭이 없습니다", "warn");
+    if (typeof showToast === "function") showToast("No tab available to run this workflow", "warn");
     return;
   }
   api.writePty(tab.focusedPtyId, w.command + "\r");
@@ -461,18 +461,18 @@ async function _explainSelection(tool: "claude" | "codex"): Promise<void> {
   if (typeof activeTabId === "undefined" || activeTabId === null || typeof tabMap === "undefined") return;
   const tab = tabMap.get(activeTabId);
   if (!tab) {
-    if (typeof showToast === "function") showToast("활성 탭이 없습니다", "warn");
+    if (typeof showToast === "function") showToast("No active tab", "warn");
     return;
   }
   const session = (typeof sessions !== "undefined") ? sessions.get(tab.focusedPtyId) : null;
   if (!session) {
-    if (typeof showToast === "function") showToast("터미널 세션을 찾을 수 없습니다", "warn");
+    if (typeof showToast === "function") showToast("Terminal session not found", "warn");
     return;
   }
   const selection = session.terminal.getSelection() || "";
   const prompt = formatExplainPrompt(selection);
   if (prompt === null) {
-    if (typeof showToast === "function") showToast("터미널에서 분석할 텍스트를 먼저 선택하세요", "warn");
+    if (typeof showToast === "function") showToast("Select terminal text to analyze first", "warn");
     return;
   }
   let cwd: string | undefined;
@@ -485,7 +485,7 @@ async function _explainSelection(tool: "claude" | "codex"): Promise<void> {
     | ((label?: string, cwd?: string, options?: unknown) => Promise<number | null>)
     | undefined;
   if (typeof fn !== "function") {
-    if (typeof showToast === "function") showToast("createNewTab 함수가 없습니다", "error");
+    if (typeof showToast === "function") showToast("createNewTab is unavailable", "error");
     return;
   }
   const label = tool === "codex" ? "codex explain" : "claude explain";

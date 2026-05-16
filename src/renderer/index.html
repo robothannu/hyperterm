@@ -99,7 +99,7 @@
   <!-- Help Guide Modal -->
   <div id="help-modal" class="modal-overlay hidden">
     <div class="modal-dialog help-dialog">
-      <div class="modal-title">HyperT 매뉴얼</div>
+      <div class="modal-title">HyperTerm Manual</div>
       <div class="help-content">
         <h3>Groups &amp; Sessions</h3>
         <p>A <strong>Group</strong> is a named container for one or more terminal sessions (panes). Groups persist across app restarts — your work is automatically saved.</p>
@@ -114,9 +114,9 @@
 
         <h3>Split &amp; Arrange Panes</h3>
         <ul>
-          <li><strong>Split Horizontally</strong> — Right-click → "좌우 분할" or <kbd>Cmd+D</kbd></li>
-          <li><strong>Split Vertically</strong> — Right-click → "상하 분할"</li>
-          <li><strong>Close Pane</strong> — Right-click → "Pane 닫기"</li>
+          <li><strong>Split Horizontally</strong> — Right-click → "Split Horizontally" or <kbd>Cmd+D</kbd></li>
+          <li><strong>Split Vertically</strong> — Right-click → "Split Vertically"</li>
+          <li><strong>Close Pane</strong> — Right-click → "Close Pane"</li>
           <li><strong>Navigate Panes</strong> — <kbd>Cmd+←</kbd> <kbd>Cmd+→</kbd> <kbd>Cmd+↑</kbd> <kbd>Cmd+↓</kbd></li>
           <li><strong>Resize Dividers</strong> — Drag the divider between panes</li>
         </ul>
@@ -196,7 +196,7 @@
 
         <!-- Font Size -->
         <div class="settings-row">
-          <label class="settings-label" for="settings-font-size-slider">폰트 크기</label>
+          <label class="settings-label" for="settings-font-size-slider">Font Size</label>
           <div class="settings-control">
             <input id="settings-font-size-slider" type="range" min="10" max="24" value="14" class="settings-slider" />
             <span id="settings-font-size-value" class="settings-value-label">14px</span>
@@ -205,7 +205,7 @@
 
         <!-- Theme -->
         <div class="settings-row">
-          <label class="settings-label" for="settings-theme-toggle">테마</label>
+          <label class="settings-label" for="settings-theme-toggle">Theme</label>
           <div class="settings-control settings-toggle-row">
             <span class="settings-toggle-label">Dark</span>
             <label class="settings-toggle-switch">
@@ -218,7 +218,7 @@
 
         <!-- Claude Notifications -->
         <div class="settings-row">
-          <label class="settings-label" for="settings-notif-toggle">Claude 알림</label>
+          <label class="settings-label" for="settings-notif-toggle">Claude Notifications</label>
           <div class="settings-control settings-toggle-row">
             <span class="settings-toggle-label">OFF</span>
             <label class="settings-toggle-switch">
@@ -231,7 +231,7 @@
 
         <!-- Codex Notifications (Sprint 3) -->
         <div class="settings-row">
-          <label class="settings-label" for="settings-codex-notif-toggle">Codex 알림</label>
+          <label class="settings-label" for="settings-codex-notif-toggle">Codex Notifications</label>
           <div class="settings-control settings-toggle-row">
             <span class="settings-toggle-label">OFF</span>
             <label class="settings-toggle-switch">
@@ -244,10 +244,10 @@
 
         <!-- Hook Status -->
         <div class="settings-row">
-          <label class="settings-label">Hook 상태</label>
+          <label class="settings-label">Hook Status</label>
           <div class="settings-control settings-hook-row">
-            <span id="settings-hook-status" class="settings-hook-status">확인 중...</span>
-            <button id="settings-hook-install-btn" class="modal-btn modal-btn-ok settings-hook-install-btn" style="display:none">설치</button>
+            <span id="settings-hook-status" class="settings-hook-status">Checking...</span>
+            <button id="settings-hook-install-btn" class="modal-btn modal-btn-ok settings-hook-install-btn" style="display:none">Install</button>
           </div>
         </div>
 
@@ -268,10 +268,10 @@
 
   <!-- Context Menu -->
   <div id="terminal-context-menu" class="context-menu hidden">
-    <div class="context-menu-item" data-action="split-horizontal">↔ 좌우 분할</div>
-    <div class="context-menu-item" data-action="split-vertical">↕ 상하 분할</div>
+    <div class="context-menu-item" data-action="split-horizontal">↔ Split Horizontally</div>
+    <div class="context-menu-item" data-action="split-vertical">↕ Split Vertically</div>
     <div class="context-menu-separator"></div>
-    <div class="context-menu-item context-menu-danger" data-action="close-pane">✕ Pane 닫기</div>
+    <div class="context-menu-item context-menu-danger" data-action="close-pane">✕ Close Pane</div>
   </div>
 
   <script src="../../vendor/diff2html.min.js"></script>

@@ -482,7 +482,7 @@ async function createNewTab(
       lastTab.container.style.display = "flex";
     }
     // Notify user
-    showToast(`터미널 생성 실패: ${msg}`, "error");
+    showToast(`Terminal creation failed: ${msg}`, "error");
     return null;
   }
 }
@@ -600,7 +600,7 @@ async function splitFocusedPane(
     splitElement.replaceWith(leaf.element);
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[renderer] Failed to split pane:", msg);
-    showToast(`Pane 분할 실패: ${msg}`, "error");
+    showToast(`Pane split failed: ${msg}`, "error");
     return;
   }
   ptyToTab.set(newLeaf.ptyId, tab.id);

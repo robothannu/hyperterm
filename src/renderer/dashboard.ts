@@ -1561,12 +1561,12 @@ function confirmCrossTool(clicked: "claude" | "codex", workspaceTool: string | n
   if (!workspaceTool) return true;
   if (clicked === "claude" && (workspaceTool === "codex" || workspaceTool === "none")) {
     return window.confirm(
-      "이 워크스페이스에는 CLAUDE.md가 없습니다.\nClaude를 빈 컨텍스트로 시작하시겠습니까?"
+      "This workspace does not contain CLAUDE.md.\nStart Claude without project guidance?"
     );
   }
   if (clicked === "codex" && (workspaceTool === "claude" || workspaceTool === "none")) {
     return window.confirm(
-      "이 워크스페이스에는 AGENT.md가 없습니다.\nCodex를 빈 컨텍스트로 시작하시겠습니까?"
+      "This workspace does not contain AGENT.md.\nStart Codex without project guidance?"
     );
   }
   return true;

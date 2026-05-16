@@ -55,21 +55,21 @@ function populateSettingsUI(): void {
 
   // Hook status
   if (hookStatus) {
-    hookStatus.textContent = "확인 중...";
+    hookStatus.textContent = "Checking...";
     window.terminalAPI.hookCheckInstalled().then((installed) => {
       if (!hookStatus) return;
       const installBtn = document.getElementById("settings-hook-install-btn") as HTMLButtonElement | null;
       if (installed) {
-        hookStatus.textContent = "설치됨";
+        hookStatus.textContent = "Installed";
         hookStatus.className = "settings-hook-status installed";
         if (installBtn) installBtn.style.display = "none";
       } else {
-        hookStatus.textContent = "미설치";
+        hookStatus.textContent = "Not installed";
         hookStatus.className = "settings-hook-status not-installed";
         if (installBtn) installBtn.style.display = "inline-block";
       }
     }).catch(() => {
-      if (hookStatus) hookStatus.textContent = "알 수 없음";
+      if (hookStatus) hookStatus.textContent = "Unknown";
     });
   }
 }
@@ -178,24 +178,24 @@ async function initSettingsModal(): Promise<void> {
   installBtn?.addEventListener("click", async () => {
     if (installBtn) {
       installBtn.disabled = true;
-      installBtn.textContent = "설치 중...";
+      installBtn.textContent = "Installing...";
     }
     try {
       const ok = await window.terminalAPI.hookInstall();
       if (ok && hookStatus) {
-        hookStatus.textContent = "설치됨";
+        hookStatus.textContent = "Installed";
         hookStatus.className = "settings-hook-status installed";
         if (installBtn) installBtn.style.display = "none";
       } else {
         if (installBtn) {
           installBtn.disabled = false;
-          installBtn.textContent = "설치";
+          installBtn.textContent = "Install";
         }
       }
     } catch {
       if (installBtn) {
         installBtn.disabled = false;
-        installBtn.textContent = "설치";
+        installBtn.textContent = "Install";
       }
     }
   });

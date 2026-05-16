@@ -10,9 +10,9 @@ function createHookBanner(): HTMLElement {
   banner.className = "hook-install-banner";
   banner.innerHTML = `
     <span class="hook-banner-icon">⚡</span>
-    <span class="hook-banner-text">Claude Code hooks가 설치되지 않았습니다. HyperTerm과 통합하면 실시간 상태를 확인할 수 있습니다.</span>
-    <button id="hook-banner-install" class="hook-banner-btn">설치</button>
-    <button id="hook-banner-dismiss" class="hook-banner-dismiss" title="닫기">✕</button>
+    <span class="hook-banner-text">Claude Code hooks are not installed. Install them to enable live HyperTerm status updates.</span>
+    <button id="hook-banner-install" class="hook-banner-btn">Install</button>
+    <button id="hook-banner-dismiss" class="hook-banner-dismiss" title="Close">✕</button>
   `;
   return banner;
 }
@@ -38,24 +38,24 @@ async function initHookInstallBanner(): Promise<void> {
     const btn = document.getElementById("hook-banner-install") as HTMLButtonElement | null;
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "설치 중...";
+      btn.textContent = "Installing...";
     }
     try {
       const ok = await window.terminalAPI.hookInstall();
       if (ok) {
         banner.remove();
-        showHookInstallToast("Claude Code hooks 설치 완료!");
+        showHookInstallToast("Claude Code hooks installed.");
       } else {
         if (btn) {
           btn.disabled = false;
-          btn.textContent = "설치";
+          btn.textContent = "Install";
         }
-        showHookInstallToast("설치 실패. ~/.claude/settings.json 권한을 확인하세요.", true);
+        showHookInstallToast("Install failed. Check permissions for ~/.claude/settings.json.", true);
       }
     } catch {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = "설치";
+        btn.textContent = "Install";
       }
     }
   });
