@@ -9,6 +9,7 @@ interface Workspace {
   archived?: boolean;
   iconColor?: string;
   tags?: string[];
+  sortOrder?: number;
 }
 
 interface AddResult {
@@ -153,6 +154,10 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
 
   renameWorkspace: (id: string, newName: string): Promise<RenameResult> => {
     return ipcRenderer.invoke("workspace:rename", id, newName);
+  },
+
+  reorderWorkspaces: (orderedIds: string[]): Promise<{ workspaces: Workspace[]; success: boolean }> => {
+    return ipcRenderer.invoke("workspace:reorder", orderedIds);
   },
 
   openInMain: (workspacePath: string): Promise<OpenInMainResult> => {

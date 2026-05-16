@@ -414,6 +414,27 @@
       position: relative;
     }
 
+    .ws-card[draggable="true"],
+    .list-row[draggable="true"] {
+      cursor: grab;
+    }
+
+    .ws-card.dragging,
+    .list-row.dragging {
+      opacity: 0.45;
+      transform: scale(0.985);
+    }
+
+    .ws-card.drag-over-before,
+    .list-row.drag-over-before {
+      box-shadow: inset 0 3px 0 var(--accent);
+    }
+
+    .ws-card.drag-over-after,
+    .list-row.drag-over-after {
+      box-shadow: inset 0 -3px 0 var(--accent);
+    }
+
     .ws-card:hover {
       border-color: var(--line-2);
       transform: translateY(-1px);
@@ -530,9 +551,10 @@
 
     .tool-state-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
       gap: 8px;
       margin-top: 6px;
+      min-width: 0;
     }
 
     .tool-state-section {
@@ -541,6 +563,7 @@
       padding: 8px;
       background: rgba(255,255,255,0.02);
       min-width: 0;
+      max-width: 100%;
     }
 
     .tool-state-section.primary {
@@ -553,12 +576,16 @@
       align-items: center;
       gap: 6px;
       margin-bottom: 6px;
+      min-width: 0;
     }
 
     .tool-state-label {
       font-size: 11px;
       font-weight: 700;
       color: var(--fg-0);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .tool-state-primary {
@@ -575,6 +602,8 @@
       margin-left: auto;
       font-size: 10px;
       color: var(--fg-3);
+      white-space: nowrap;
+      flex: 0 0 auto;
     }
 
     .tool-state-next {
@@ -586,6 +615,9 @@
 
     .tool-state-next li {
       margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .tool-state-empty {
@@ -680,6 +712,7 @@
       grid-template-columns: 76px 1fr;
       column-gap: 12px;
       align-items: start;
+      min-width: 0;
     }
 
     .field-label {
@@ -695,9 +728,22 @@
       font-size: 12px;
       color: var(--fg-1);
       line-height: 1.5;
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .field-value strong { color: var(--fg-0); font-weight: 600; }
+    .field-value code,
+    .field-value pre,
+    .field-value span,
+    .field-value p,
+    .field-value li {
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
 
     /* Todo list */
     .todo-list {
@@ -818,6 +864,73 @@
     .gitflow-head .lg-item { display: inline-flex; align-items: center; gap: 4px; }
     .gitflow-head .lg-dot {
       width: 7px; height: 7px; border-radius: 50%;
+    }
+    .gitflow-insights {
+      margin: 0 14px 6px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: rgba(255,255,255,0.02);
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+    .gf-insight-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 11px;
+      color: var(--fg-2);
+      min-width: 0;
+    }
+    .gf-insight-main strong {
+      color: var(--fg-0);
+      font-weight: 700;
+    }
+    .gf-insight-main span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .gf-insight-sub {
+      font-size: 11.5px;
+      color: var(--fg-1);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .gf-branch-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      min-width: 0;
+    }
+    .gf-branch-chip,
+    .gf-branch-more {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 100%;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.025);
+      color: var(--fg-2);
+      font-size: 10px;
+      line-height: 1.2;
+    }
+    .gf-branch-chip.current {
+      border-color: rgba(96,165,250,0.35);
+      color: var(--fg-0);
+      background: rgba(96,165,250,0.08);
+    }
+    .gf-branch-chip span {
+      color: var(--fg-3);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .gitflow-scroll {
       width: 100%;
@@ -1616,6 +1729,10 @@
             </svg>
           </button>
           <div class="sort-menu" id="sort-menu" role="menu">
+            <button class="sort-menu-item" role="menuitem" data-sort="custom">
+              <svg class="check" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Custom order
+            </button>
             <button class="sort-menu-item" role="menuitem" data-sort="recent">
               <svg class="check" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Recently active

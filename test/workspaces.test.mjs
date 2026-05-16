@@ -12,7 +12,7 @@ import os from "node:os";
 // We test the compiled JS in dist/main/workspaces.js
 // -------------------------------------------------------------------
 const distPath = new URL("../dist/main/workspaces.js", import.meta.url).pathname;
-const { initWorkspaces, loadWorkspaces, saveWorkspaces, addWorkspace, removeWorkspace, renameWorkspace } =
+const { initWorkspaces, loadWorkspaces, saveWorkspaces, addWorkspace, removeWorkspace, renameWorkspace, reorderWorkspaces } =
   await import(distPath);
 
 let passed = 0;
@@ -108,6 +108,17 @@ test("loadWorkspaces restores persisted data", () => {
   assert.equal(loaded[0].name, "test-proj");
 });
 
+test("loadWorkspaces migrates missing sortOrder", () => {
+  const ws = [
+    { id: "ws-sort-1", name: "one", absolutePath: "/tmp/one", addedAt: new Date().toISOString() },
+    { id: "ws-sort-2", name: "two", absolutePath: "/tmp/two", addedAt: new Date().toISOString() },
+  ];
+  saveWorkspaces(ws);
+  const loaded = loadWorkspaces();
+  assert.equal(loaded[0].sortOrder, 0);
+  assert.equal(loaded[1].sortOrder, 1);
+});
+
 test("loadWorkspaces falls back to [] on corrupt JSON", () => {
   // Write corrupt JSON
   const filePath = path.join(tmpDir, "workspaces.json");
@@ -174,6 +185,32 @@ test("renameWorkspace: persisted name survives loadWorkspaces", () => {
   const found = reloaded.find((w) => w.id === ws.id);
   assert.ok(found, "workspace should be found after reload");
   assert.equal(found.name, "Persisted Name");
+});
+
+// ---------------------------------------------------------------------------
+// Sprint: manual dashboard ordering
+// ---------------------------------------------------------------------------
+
+console.log("\n=== manual workspace ordering tests ===\n");
+
+test("reorderWorkspaces: persists explicit id order", () => {
+  const first = addWorkspace([], "/tmp/order-a").workspaces;
+  const second = addWorkspace(first, "/tmp/order-b").workspaces;
+  const third = addWorkspace(second, "/tmp/order-c").workspaces;
+  const updated = reorderWorkspaces(third, [third[2].id, third[0].id, third[1].id]);
+  assert.notEqual(updated, null);
+  assert.deepEqual(updated.map((w) => w.name), ["order-c", "order-a", "order-b"]);
+  assert.deepEqual(updated.map((w) => w.sortOrder), [0, 1, 2]);
+});
+
+test("reorderWorkspaces: keeps unspecified workspaces after explicit block", () => {
+  const first = addWorkspace([], "/tmp/order-x").workspaces;
+  const second = addWorkspace(first, "/tmp/order-y").workspaces;
+  const third = addWorkspace(second, "/tmp/order-z").workspaces;
+  const updated = reorderWorkspaces(third, [third[1].id]);
+  assert.notEqual(updated, null);
+  assert.equal(updated[0].name, "order-y");
+  assert.equal(updated.length, 3);
 });
 
 // ---------------------------------------------------------------------------

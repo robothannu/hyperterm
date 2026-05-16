@@ -123,6 +123,46 @@ function gitflowDataTooltip(data: DashboardGitFlowData): string {
   return lines.join("\n");
 }
 
+function gitflowRemoteLabel(remoteUrl: string | null): string {
+  if (!remoteUrl) return "No remote";
+  var match = remoteUrl.match(/github\.com[:/](.+?)(?:\.git)?$/i);
+  if (match && match[1]) return match[1];
+  return remoteUrl.replace(/^https?:\/\//, "").replace(/\.git$/, "");
+}
+
+function renderGitflowInsights(data: DashboardGitFlowData): string {
+  var summaries = Array.isArray(data.branchSummaries) ? data.branchSummaries : [];
+  var current = summaries.find((b) => b.name === data.branch) ?? null;
+  var currentPush = gitflowPushSummary(data.ahead, data.behind);
+  var latestMsg = current?.lastMessage || data.commits[0]?.msg || "No recent commit message";
+  var branchList = summaries
+    .slice()
+    .sort((a, b) => {
+      if (a.name === data.branch) return -1;
+      if (b.name === data.branch) return 1;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 4);
+  var branchChips = branchList.map((b) => {
+    var push = gitflowPushSummary(b.ahead, b.behind);
+    var currentClass = b.name === data.branch ? " current" : "";
+    return `<span class="gf-branch-chip${currentClass}" title="${dashEsc(gitflowBranchTooltip(data, b.name))}">${dashEsc(b.name)}<span>${dashEsc(push)}</span></span>`;
+  }).join("");
+  var more = summaries.length > branchList.length
+    ? `<span class="gf-branch-more">+${summaries.length - branchList.length} more</span>`
+    : "";
+
+  return ""
+    + `<div class="gitflow-insights">`
+    + `<div class="gf-insight-main">`
+    + `<span><strong>${dashEsc(data.branch || "unknown")}</strong> · ${dashEsc(currentPush)}</span>`
+    + `<span>${dashEsc(gitflowRemoteLabel(data.remoteUrl))}</span>`
+    + `</div>`
+    + `<div class="gf-insight-sub" title="${dashEsc(latestMsg)}">${dashEsc(latestMsg)}</div>`
+    + `<div class="gf-branch-chips">${branchChips}${more}</div>`
+    + `</div>`;
+}
+
 interface GitflowLaneRow {
   key: string;
   label: string;
@@ -242,6 +282,7 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
       + `<line class="lane-line" x1="${padL - 6}" y1="${y}" x2="${W - padR}" y2="${y}"/>`
       + `<g class="lane-meta">`
       + `<title>${dashEsc(tooltip)}</title>`
+      + `<rect x="${padL - labelW - 14}" y="${y - 18}" width="${W - padL + labelW + 6}" height="36" fill="transparent" pointer-events="all"/>`
       + `<rect x="${padL - labelW - 8}" y="${y - 12}" width="${labelW}" height="24" rx="12" fill="${bg}" stroke="${color}" stroke-opacity="0.4"/>`
       + `<text x="${padL - labelW - 8 + labelW / 2}" y="${y + 4}" text-anchor="middle" class="lane-label" fill="${color}">${dashEsc(l.label)}</text>`
       + `</g>`;
@@ -297,6 +338,7 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
     return ""
       + tagSVG
       + `<g class="commit ${c.isHead ? "head" : ""}">`
+      + `<circle class="commit-hit" cx="${p.x}" cy="${p.y}" r="18" fill="transparent" pointer-events="all"/>`
       + `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${color}"/>`
       + headSVG
       + `<title>${dashEsc(titleText)}</title>`
@@ -316,6 +358,7 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
     + `<span>Git Flow · ${dashEsc(data.summary || "")}</span>`
     + `<span class="legend">${legendItems}</span>`
     + `</div>`
+    + renderGitflowInsights(data)
     + `<div class="gitflow-scroll">`
     + `<svg class="gitflow-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
     + `<defs>`

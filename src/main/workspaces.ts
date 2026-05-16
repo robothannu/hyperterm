@@ -10,6 +10,7 @@ export interface Workspace {
   archived?: boolean;
   iconColor?: string;
   tags?: string[];
+  sortOrder?: number;
 }
 
 type WorkspacesFile = {
@@ -23,7 +24,7 @@ type WorkspacesFile = {
  */
 function migrateWorkspaces(workspaces: Workspace[]): { workspaces: Workspace[]; changed: boolean } {
   let changed = false;
-  const migrated = workspaces.map((ws) => {
+  const migrated = workspaces.map((ws, index) => {
     let updated = ws;
     if (ws.archived === undefined) {
       updated = { ...updated, archived: false };
@@ -35,6 +36,10 @@ function migrateWorkspaces(workspaces: Workspace[]): { workspaces: Workspace[]; 
     }
     if (ws.tags === undefined) {
       updated = { ...updated, tags: [] };
+      changed = true;
+    }
+    if (ws.sortOrder === undefined || !Number.isFinite(ws.sortOrder)) {
+      updated = { ...updated, sortOrder: index };
       changed = true;
     }
     return updated;
@@ -121,11 +126,18 @@ export function addWorkspace(
   }
 
   const name = path.basename(normalized) || normalized; // fallback for root "/"
+  const maxSortOrder = existing.reduce((max, ws, index) => {
+    const order = typeof ws.sortOrder === "number" && Number.isFinite(ws.sortOrder)
+      ? ws.sortOrder
+      : index;
+    return Math.max(max, order);
+  }, -1);
   const newEntry: Workspace = {
     id: `ws-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name,
     absolutePath: normalized,
     addedAt: new Date().toISOString(),
+    sortOrder: maxSortOrder + 1,
   };
 
   const updated = [...existing, newEntry];
@@ -146,6 +158,40 @@ export function removeWorkspace(
   const updated = existing.filter((w) => w.id !== id);
   saveWorkspaces(updated);
   return updated;
+}
+
+/**
+ * Persist a user-defined dashboard order.
+ * Unknown ids are ignored; workspaces not included in orderedIds keep their
+ * relative order after the explicitly ordered block.
+ */
+export function reorderWorkspaces(existing: Workspace[], orderedIds: string[]): Workspace[] | null {
+  if (!Array.isArray(orderedIds)) return null;
+  const knownIds = new Set(existing.map((w) => w.id));
+  const seen = new Set<string>();
+  const validIds = orderedIds.filter((id) => {
+    if (typeof id !== "string" || !knownIds.has(id) || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  if (validIds.length === 0) return null;
+
+  const byId = new Map(existing.map((w) => [w.id, w]));
+  const explicit = validIds.map((id) => byId.get(id)).filter((w): w is Workspace => !!w);
+  const remaining = existing
+    .filter((w) => !seen.has(w.id))
+    .slice()
+    .sort((a, b) => {
+      const ao = typeof a.sortOrder === "number" ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+      const bo = typeof b.sortOrder === "number" ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+      if (ao !== bo) return ao - bo;
+      return a.addedAt.localeCompare(b.addedAt);
+    });
+
+  const reordered = [...explicit, ...remaining].map((w, index) => ({ ...w, sortOrder: index }));
+  saveWorkspaces(reordered);
+  console.log(`[workspaces] reorder: persisted ${validIds.length} explicit workspace id(s)`);
+  return reordered;
 }
 
 /**

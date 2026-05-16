@@ -85,18 +85,16 @@ const makeToolState = (overrides = {}) => ({
   ...overrides,
 });
 
-await test("getProjectStateDisplays: orders Codex first when primary tool is codex", () => {
+await test("getProjectStateDisplays: shows only Codex when Codex is primary", () => {
   const displays = getProjectStateDisplays(
     "codex",
     makeToolState({ goal: "Claude goal" }),
     makeToolState({ goal: "Codex goal" })
   );
-  assert.equal(displays.length, 2);
+  assert.equal(displays.length, 1);
   assert.equal(displays[0].label, "Codex");
   assert.equal(displays[0].primary, true);
   assert.equal(displays[0].state.goal, "Codex goal");
-  assert.equal(displays[1].label, "Claude");
-  assert.equal(displays[1].primary, false);
 });
 
 await test("getProjectStateDisplays: returns only Claude state when Codex is absent", () => {
@@ -111,17 +109,15 @@ await test("getProjectStateDisplays: returns empty array when no state exists", 
   assert.deepEqual(displays, []);
 });
 
-await test("getProjectStateDisplays: returns Claude first when Claude is primary", () => {
+await test("getProjectStateDisplays: shows only Claude when Claude is primary", () => {
   const displays = getProjectStateDisplays(
     "claude",
     makeToolState({ goal: "Claude goal" }),
     makeToolState({ goal: "Codex goal" })
   );
-  assert.equal(displays.length, 2);
+  assert.equal(displays.length, 1);
   assert.equal(displays[0].label, "Claude");
   assert.equal(displays[0].primary, true);
-  assert.equal(displays[1].label, "Codex");
-  assert.equal(displays[1].primary, false);
 });
 
 // ============================================================

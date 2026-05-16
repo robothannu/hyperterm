@@ -30,6 +30,8 @@ interface CardMeta {
   gitLastCommit: string | null;
   gitDirty: boolean;
   isRunning: boolean;    // harnessPhase != null OR codexRunning
+  codexRunning: boolean;
+  harnessPhase: string | null;
   isOpen: boolean;       // sessions.json has open cwd
   isMissing: boolean;
   goal: string | null;
@@ -48,7 +50,7 @@ interface CardMeta {
 // State
 // ---------------------------------------------------------------------------
 
-type SortKey = "recent" | "name" | "lastCommit";
+type SortKey = "custom" | "recent" | "name" | "lastCommit";
 type WorkspaceGroup = "active" | "archived";
 
 var _workspaces: WorkspaceEntry[] = [];
@@ -62,6 +64,8 @@ var _homeDir: string = "";
 var _expandedIds: Set<string> = new Set();
 var _loadRenderSeq = 0;
 var _renderedCardKeys: Map<string, string> = new Map();
+var _dragWorkspaceId: string | null = null;
+var _dragMoved = false;
 
 // Sprint 2: gitflow cache (`_gitFlowCache`, `_gitFlowInflight`) lives in
 // dashboard-gitflow.ts. Use clearGitflowCache() / ensureGitflowForWorkspace().
@@ -79,6 +83,7 @@ var PREF_SORT = "dashboard.v2.sort";
 var PREF_EXPANDED = "dashboard.v2.expandedIds";
 
 var SORT_LABELS: Record<SortKey, string> = {
+  custom: "Custom order",
   recent: "Recently active",
   name: "Name (A→Z)",
   lastCommit: "Last commit",
@@ -91,7 +96,7 @@ function loadPrefs(): void {
     var f = localStorage.getItem(PREF_FILTER);
     if (f) _filter = f;
     var s = localStorage.getItem(PREF_SORT);
-    if (s === "recent" || s === "name" || s === "lastCommit") _sort = s;
+    if (s === "custom" || s === "recent" || s === "name" || s === "lastCommit") _sort = s;
     var ex = localStorage.getItem(PREF_EXPANDED);
     if (ex) {
       try {
@@ -275,7 +280,14 @@ function abbreviateHomePath(absPath: string, homeDir: string): string {
 
 function sortMetas(metas: CardMeta[]): CardMeta[] {
   var copy = metas.slice();
-  if (_sort === "name") {
+  if (_sort === "custom") {
+    copy.sort((a, b) => {
+      var ao = typeof a.ws.sortOrder === "number" ? a.ws.sortOrder : Number.MAX_SAFE_INTEGER;
+      var bo = typeof b.ws.sortOrder === "number" ? b.ws.sortOrder : Number.MAX_SAFE_INTEGER;
+      if (ao !== bo) return ao - bo;
+      return a.ws.addedAt.localeCompare(b.ws.addedAt);
+    });
+  } else if (_sort === "name") {
     copy.sort((a, b) => a.ws.name.localeCompare(b.ws.name, undefined, { sensitivity: "base" }));
   } else if (_sort === "lastCommit") {
     // Smaller age (more recent) first; null/unparseable → last.
@@ -315,6 +327,8 @@ function makeInitialCardMeta(ws: WorkspaceEntry): CardMeta {
     gitLastCommit: null,
     gitDirty: false,
     isRunning: false,
+    codexRunning: false,
+    harnessPhase: null,
     isOpen: false,
     isMissing: false,
     goal: null,
@@ -428,14 +442,13 @@ function renderToolMarker(tool: WorkspaceTool, primaryTool: WorkspacePrimaryTool
     return '<span class="tool-marker tool-codex" title="Codex project (AGENTS.md)">Codex</span>';
   }
   if (tool === "mixed") {
-    var primaryIsCodex = primaryTool === "codex";
-    var first = primaryIsCodex
-      ? '<span class="tool-marker tool-codex tool-primary" title="Most recently updated: Codex">Codex</span>'
-      : '<span class="tool-marker tool-claude tool-primary" title="Most recently updated: Claude">Claude</span>';
-    var second = primaryIsCodex
-      ? '<span class="tool-marker tool-claude" title="Claude Code project (CLAUDE.md)">Claude</span>'
-      : '<span class="tool-marker tool-codex" title="Codex project (AGENTS.md)">Codex</span>';
-    return first + second;
+    if (primaryTool === "codex") {
+      return '<span class="tool-marker tool-codex tool-primary" title="Most recently updated: Codex">Codex</span>';
+    }
+    if (primaryTool === "claude") {
+      return '<span class="tool-marker tool-claude tool-primary" title="Most recently updated: Claude">Claude</span>';
+    }
+    return '<span class="tool-marker tool-primary" title="Mixed project">Mixed</span>';
   }
   return ""; // "none" → no marker
 }
@@ -483,21 +496,13 @@ export function getProjectStateDisplays(
 ): ProjectStateDisplay[] {
   if (!claudeState && !codexState) return [];
   if (claudeState && codexState) {
-    if (primaryTool === "codex") {
-      return [
-        { label: "Codex", state: codexState, primary: true },
-        { label: "Claude", state: claudeState, primary: false },
-      ];
-    }
-    return [
-      { label: "Claude", state: claudeState, primary: true },
-      { label: "Codex", state: codexState, primary: false },
-    ];
+    if (primaryTool === "codex") return [{ label: "Codex", state: codexState, primary: true }];
+    return [{ label: "Claude", state: claudeState, primary: true }];
   }
   if (claudeState) {
-    return [{ label: "Claude", state: claudeState, primary: primaryTool === "claude" }];
+    return [{ label: "Claude", state: claudeState, primary: true }];
   }
-  return [{ label: "Codex", state: codexState!, primary: primaryTool === "codex" }];
+  return [{ label: "Codex", state: codexState!, primary: true }];
 }
 
 // ---------------------------------------------------------------------------
@@ -519,6 +524,8 @@ function renderCard(m: CardMeta): HTMLElement {
     + (m.isMissing ? " missing" : "")
     + (isExpanded ? "" : " collapsed");
   card.dataset.id = m.ws.id;
+  card.draggable = true;
+  card.title = "Drag to reorder";
 
   var iconInfo = wsIconInfo(m.ws.name);
   var displayPath = abbreviateHomePath(m.ws.absolutePath, _homeDir);
@@ -631,8 +638,14 @@ function renderCard(m: CardMeta): HTMLElement {
   // Card-level click = expand/collapse toggle.
   // Footer Open and quick-actions stop propagation above, so they won't trigger this.
   card.addEventListener("click", () => {
+    if (_dragMoved) {
+      _dragMoved = false;
+      return;
+    }
     toggleCardExpand(m.ws.id);
   });
+
+  wireWorkspaceDrag(card, m.ws.id);
 
   return card;
 }
@@ -684,7 +697,13 @@ function populateCardData(m: CardMeta): void {
     statusItems.push(`<span class="ss-item live"><span class="dot"></span>live</span>`);
   }
   if (m.isRunning) {
-    statusItems.push(`<span class="ss-item"><span style="color:var(--warn)">&#9679;</span> running</span>`);
+    if (m.codexRunning) {
+      statusItems.push(`<span class="ss-item"><span style="color:var(--warn)">&#9679;</span> codex running</span>`);
+    } else if (m.harnessPhase) {
+      statusItems.push(`<span class="ss-item"><span style="color:var(--warn)">&#9679;</span> claude ${dashEsc(m.harnessPhase)}</span>`);
+    } else {
+      statusItems.push(`<span class="ss-item"><span style="color:var(--warn)">&#9679;</span> running</span>`);
+    }
   }
   if (m.gitBranch) {
     statusItems.push(`<span class="ss-item"><span class="branch">&#10567; ${dashEsc(m.gitBranch)}</span></span>`);
@@ -737,25 +756,30 @@ function populateCardData(m: CardMeta): void {
 
   var bodyParts: string[] = [];
 
-  if (m.goal) {
-    bodyParts.push(`
-      <div class="field">
-        <div class="field-label">Goal</div>
-        <div class="field-value">${mdInline(m.goal)}</div>
-      </div>
-    `);
+  var stateDisplays = getProjectStateDisplays(m.primaryTool, m.claudeState, m.codexState);
+  var renderPrimaryOverview = stateDisplays.length === 0;
+
+  if (renderPrimaryOverview) {
+    if (m.goal) {
+      bodyParts.push(`
+        <div class="field">
+          <div class="field-label">Goal</div>
+          <div class="field-value">${mdInline(m.goal)}</div>
+        </div>
+      `);
+    }
+
+    if (m.currentTask) {
+      bodyParts.push(`
+        <div class="field">
+          <div class="field-label">Current</div>
+          <div class="field-value">${mdInline(m.currentTask)}</div>
+        </div>
+      `);
+    }
   }
 
-  if (m.currentTask) {
-    bodyParts.push(`
-      <div class="field">
-        <div class="field-label">Current</div>
-        <div class="field-value">${mdInline(m.currentTask)}</div>
-      </div>
-    `);
-  }
-
-  if (m.nextSteps.length > 0) {
+  if (renderPrimaryOverview && m.nextSteps.length > 0) {
     // Sprint 2 (Ask Claude per nextStep): each <li> gets inline "Ask Claude" and
     // "Ask Codex" buttons (Sprint 3). The raw nextStep string is NOT embedded in
     // the markup; we store only its index in `data-todo-idx` and look it up at
@@ -802,7 +826,6 @@ function populateCardData(m: CardMeta): void {
     `);
   }
 
-  var stateDisplays = getProjectStateDisplays(m.primaryTool, m.claudeState, m.codexState);
   if (stateDisplays.length > 0) {
     bodyParts.push(`
       <div class="tool-state-wrap">
@@ -912,6 +935,8 @@ function renderListRow(m: CardMeta): HTMLElement {
   var row = document.createElement("div");
   row.className = "list-row";
   row.dataset.id = m.ws.id;
+  row.draggable = true;
+  row.title = "Drag to reorder";
 
   var iconInfo = wsIconInfo(m.ws.name);
 
@@ -960,11 +985,121 @@ function renderListRow(m: CardMeta): HTMLElement {
   });
 
   row.addEventListener("click", () => {
+    if (_dragMoved) {
+      _dragMoved = false;
+      return;
+    }
     if (m.isMissing) { showDashboardToast("Folder not found on disk.", "warn"); return; }
     void handleOpen(m.ws.absolutePath);
   });
 
+  wireWorkspaceDrag(row, m.ws.id);
+
   return row;
+}
+
+function isReorderableTarget(el: HTMLElement): boolean {
+  return !!el.closest(".ws-grid, .ws-list");
+}
+
+function clearDragMarkers(): void {
+  document.querySelectorAll(".dragging, .drag-over-before, .drag-over-after").forEach((el) => {
+    el.classList.remove("dragging", "drag-over-before", "drag-over-after");
+  });
+}
+
+function dragHostFor(el: HTMLElement): HTMLElement | null {
+  return el.closest(".ws-grid, .ws-list") as HTMLElement | null;
+}
+
+function orderedIdsFromDom(): string[] {
+  var ids: string[] = [];
+  document.querySelectorAll<HTMLElement>(".ws-grid .ws-card[data-id], .ws-list .list-row[data-id]").forEach((el) => {
+    var id = el.dataset.id;
+    if (id && !ids.includes(id)) ids.push(id);
+  });
+  return ids;
+}
+
+function applyWorkspaceOrder(workspaces: WorkspaceEntry[]): void {
+  var byId = new Map(workspaces.map((w) => [w.id, w]));
+  _workspaces = workspaces;
+  _cardMetas = _cardMetas.map((meta) => {
+    var updated = byId.get(meta.ws.id);
+    return updated ? { ...meta, ws: updated } : meta;
+  });
+}
+
+async function persistWorkspaceOrderFromDom(): Promise<void> {
+  var api = window.dashboardAPI;
+  if (!api || typeof api.reorderWorkspaces !== "function") return;
+  var orderedIds = orderedIdsFromDom();
+  if (orderedIds.length === 0) return;
+  try {
+    var result = await api.reorderWorkspaces(orderedIds);
+    if (!result.success) {
+      showDashboardToast("Workspace order could not be saved.", "warn");
+      return;
+    }
+    applyWorkspaceOrder(result.workspaces);
+    _sort = "custom";
+    savePrefs();
+    updateSortUI();
+    _renderedCardKeys.clear();
+    showDashboardToast("Workspace order saved.", "ok");
+  } catch (err) {
+    var msg = err instanceof Error ? err.message : String(err);
+    console.warn("[dashboard] reorder failed:", err);
+    showDashboardToast(`Workspace order failed: ${msg}`, "err");
+  }
+}
+
+function wireWorkspaceDrag(el: HTMLElement, workspaceId: string): void {
+  el.addEventListener("dragstart", (e) => {
+    if (!isReorderableTarget(el)) return;
+    _dragWorkspaceId = workspaceId;
+    _dragMoved = false;
+    el.classList.add("dragging");
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", workspaceId);
+    }
+  });
+
+  el.addEventListener("dragover", (e) => {
+    if (!_dragWorkspaceId || _dragWorkspaceId === workspaceId) return;
+    var dragged = document.querySelector<HTMLElement>(`[data-id="${cssAttrEsc(_dragWorkspaceId)}"]`);
+    var host = dragHostFor(el);
+    if (!dragged || !host || dragHostFor(dragged) !== host) return;
+    e.preventDefault();
+    var rect = el.getBoundingClientRect();
+    var before = e.clientY < rect.top + rect.height / 2;
+    el.classList.toggle("drag-over-before", before);
+    el.classList.toggle("drag-over-after", !before);
+  });
+
+  el.addEventListener("dragleave", () => {
+    el.classList.remove("drag-over-before", "drag-over-after");
+  });
+
+  el.addEventListener("drop", (e) => {
+    if (!_dragWorkspaceId || _dragWorkspaceId === workspaceId) return;
+    var dragged = document.querySelector<HTMLElement>(`[data-id="${cssAttrEsc(_dragWorkspaceId)}"]`);
+    var host = dragHostFor(el);
+    if (!dragged || !host || dragHostFor(dragged) !== host) return;
+    e.preventDefault();
+    var rect = el.getBoundingClientRect();
+    var before = e.clientY < rect.top + rect.height / 2;
+    host.insertBefore(dragged, before ? el : el.nextSibling);
+    _dragMoved = true;
+    clearDragMarkers();
+    void persistWorkspaceOrderFromDom();
+  });
+
+  el.addEventListener("dragend", () => {
+    _dragWorkspaceId = null;
+    clearDragMarkers();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1153,7 +1288,7 @@ function updateGroupHeaderCounts(metas: CardMeta[]): void {
 
 function getRenderedCardsMap(): Map<string, HTMLElement> {
   var cards = new Map<string, HTMLElement>();
-  document.querySelectorAll<HTMLElement>(".ws-card[data-id]").forEach((el) => {
+  document.querySelectorAll<HTMLElement>(".ws-card[data-id], .list-row[data-id]").forEach((el) => {
     cards.set(el.dataset.id || "", el);
   });
   return cards;
@@ -1245,10 +1380,14 @@ function reconcileRenderedList(metas: CardMeta[]): void {
     _renderedCardKeys.set(meta.ws.id, key);
   }
 
+  var seenIds = new Set<string>();
   list.querySelectorAll<HTMLElement>(".list-row").forEach((row) => {
-    if (!desiredIds.has(row.dataset.id || "")) {
+    var id = row.dataset.id || "";
+    if (!desiredIds.has(id) || seenIds.has(id)) {
       row.remove();
+      return;
     }
+    seenIds.add(id);
   });
 }
 
@@ -1362,6 +1501,8 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
     gitLastCommit: null,
     gitDirty: false,
     isRunning: false,
+    codexRunning: false,
+    harnessPhase: null,
     isOpen: false,
     isMissing: false,
     goal: null,
@@ -1424,6 +1565,8 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
     // Session state
     if (sessionResult) {
       meta.isOpen = sessionResult.open;
+      meta.codexRunning = !!sessionResult.codexRunning;
+      meta.harnessPhase = sessionResult.harnessPhase || null;
       meta.isRunning = !!sessionResult.harnessPhase || !!sessionResult.codexRunning;
     }
 

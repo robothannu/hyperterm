@@ -332,6 +332,7 @@ interface DashboardAPI {
   checkPathExists(p: string): Promise<boolean>;
   readCardData(workspacePath: string): Promise<DashboardCardData | { error: string }>;
   renameWorkspace(id: string, newName: string): Promise<{ workspaces: WorkspaceEntry[]; success: boolean }>;
+  reorderWorkspaces(orderedIds: string[]): Promise<{ workspaces: WorkspaceEntry[]; success: boolean }>;
   openInMain(workspacePath: string): Promise<{ success?: boolean; error?: string }>;
   // Sprint: Run with Claude — opens workspace as new group + runs `claude` in initial PTY.
   // Pre-checks claude availability; if missing returns { error: "claude_missing" } and
@@ -400,6 +401,7 @@ interface WorkspaceEntry {
   archived?: boolean;
   iconColor?: string;
   tags?: string[];
+  sortOrder?: number;
 }
 
 // Cross-module teardown helpers (defined in their respective modules,

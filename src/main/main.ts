@@ -23,6 +23,7 @@ import {
   removeWorkspace,
   renameWorkspace,
   archiveToggleWorkspace,
+  reorderWorkspaces,
   type Workspace,
 } from "./workspaces";
 import { getCardData, summarizeOverview, getStatusInfo, getFileTree, detectTool } from "./workspace-reader";
@@ -68,6 +69,20 @@ let workflows: Workflow[] = [];
 const sessionsFilePath = path.join(app.getPath("userData"), "sessions.json");
 const notesFilePath = path.join(app.getPath("userData"), "notes.json");
 const settingsFilePath = path.join(app.getPath("userData"), "settings.json");
+
+function confirmQuitWithTerminalWarning(parent: BrowserWindow): boolean {
+  const response = dialog.showMessageBoxSync(parent, {
+    type: "warning",
+    buttons: ["Cancel", "Close HyperT"],
+    defaultId: 0,
+    cancelId: 0,
+    title: "Close HyperT?",
+    message: "Close HyperT?",
+    detail: "Closing this application will terminate all terminal sessions. Any running commands, Claude sessions, and Codex sessions in HyperT will be stopped.",
+    noLink: true,
+  });
+  return response === 1;
+}
 
 // --- App Settings ---
 
@@ -280,6 +295,9 @@ function createWindow(): void {
   mainWindow.on("close", (e) => {
     if (!isQuitting) {
       e.preventDefault();
+      if (!mainWindow || !confirmQuitWithTerminalWarning(mainWindow)) {
+        return;
+      }
       isQuitting = true;
       mainWindow?.webContents.send("app:before-quit");
 
@@ -1161,6 +1179,17 @@ ipcMain.handle("workspace:rename", (_event, id: string, newName: string) => {
   }
   workspaces = updated;
   console.log(`[workspace] rename: IPC success id=${id}`);
+  return { workspaces, success: true };
+});
+
+ipcMain.handle("workspace:reorder", (_event, orderedIds: string[]) => {
+  const updated = reorderWorkspaces(workspaces, orderedIds);
+  if (updated === null) {
+    console.warn("[workspace] reorder: failed");
+    return { workspaces, success: false };
+  }
+  workspaces = updated;
+  console.log(`[workspace] reorder: IPC success count=${orderedIds.length}`);
   return { workspaces, success: true };
 });
 
