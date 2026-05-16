@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 declare function dashEsc(s: string): string;
+declare function cssAttrEsc(s: string): string;
 declare var _workspaces: WorkspaceEntry[];
 declare var _expandedIds: Set<string>;
 
@@ -146,7 +147,7 @@ function renderGitflowInsights(data: DashboardGitFlowData): string {
   var branchChips = branchList.map((b) => {
     var push = gitflowPushSummary(b.ahead, b.behind);
     var currentClass = b.name === data.branch ? " current" : "";
-    return `<span class="gf-branch-chip${currentClass}" title="${dashEsc(gitflowBranchTooltip(data, b.name))}">${dashEsc(b.name)}<span>${dashEsc(push)}</span></span>`;
+    return `<button type="button" class="gf-branch-chip${currentClass}" data-gf-type="branch" data-gf-id="${dashEsc(b.name)}" title="${dashEsc(gitflowBranchTooltip(data, b.name))}">${dashEsc(b.name)}<span>${dashEsc(push)}</span></button>`;
   }).join("");
   var more = summaries.length > branchList.length
     ? `<span class="gf-branch-more">+${summaries.length - branchList.length} more</span>`
@@ -247,6 +248,116 @@ function gitflowAssignLanes(
   return { lanes, commits: layoutCommits };
 }
 
+function gitflowFindCommit(data: DashboardGitFlowData, commitId: string): DashboardGitFlowCommit | null {
+  return data.commits.find((c) => c.id === commitId || c.shortHash === commitId) ?? null;
+}
+
+function gitflowFindBranch(data: DashboardGitFlowData, branchName: string): DashboardGitFlowBranchSummary | null {
+  var summaries = Array.isArray(data.branchSummaries) ? data.branchSummaries : [];
+  return summaries.find((b) => b.name === branchName) ?? null;
+}
+
+function gitflowDetailKV(label: string, value: string | null | undefined): string {
+  return ""
+    + `<div class="gf-detail-kv">`
+    + `<div>${dashEsc(label)}</div>`
+    + `<div>${dashEsc(value && value.length > 0 ? value : "—")}</div>`
+    + `</div>`;
+}
+
+function renderGitflowOverviewDetail(data: DashboardGitFlowData): string {
+  var summaries = Array.isArray(data.branchSummaries) ? data.branchSummaries : [];
+  var currentPush = gitflowPushSummary(data.ahead, data.behind);
+  var branchRows = summaries
+    .slice()
+    .sort((a, b) => {
+      if (a.name === data.branch) return -1;
+      if (b.name === data.branch) return 1;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 8)
+    .map((b) => {
+      var current = b.name === data.branch ? `<span class="gf-detail-pill">current</span>` : "";
+      return `<button type="button" class="gf-detail-branch" data-gf-type="branch" data-gf-id="${dashEsc(b.name)}"><strong>${dashEsc(b.name)}</strong>${current}<span>${dashEsc(gitflowPushSummary(b.ahead, b.behind))}</span></button>`;
+    }).join("");
+  return ""
+    + `<div class="gf-detail-title">Repository</div>`
+    + `<div class="gf-detail-sub">${dashEsc(data.summary || data.commits.length + " commits")}</div>`
+    + `<div class="gf-detail-grid">`
+    + gitflowDetailKV("Current branch", data.branch || "unknown")
+    + gitflowDetailKV("Remote", gitflowRemoteLabel(data.remoteUrl))
+    + gitflowDetailKV("Push status", currentPush)
+    + gitflowDetailKV("HEAD", data.head ? data.head.slice(0, 12) : null)
+    + `</div>`
+    + `<div class="gf-detail-section-title">Branches</div>`
+    + `<div class="gf-detail-branches">${branchRows || '<div class="gf-detail-empty">No branch summary available.</div>'}</div>`;
+}
+
+function renderGitflowBranchDetail(data: DashboardGitFlowData, branchName: string): string {
+  var b = gitflowFindBranch(data, branchName);
+  var laneCommits = data.commits.filter((c) => c.branch === branchName);
+  var latest = b?.shortHash || laneCommits[0]?.shortHash || null;
+  var latestMessage = b?.lastMessage || laneCommits[0]?.msg || null;
+  var current = branchName === data.branch;
+  return ""
+    + `<div class="gf-detail-title">${dashEsc(branchName)}${current ? ' <span class="gf-detail-pill">current</span>' : ""}</div>`
+    + `<div class="gf-detail-sub">Branch details</div>`
+    + `<div class="gf-detail-grid">`
+    + gitflowDetailKV("Latest commit", latest)
+    + gitflowDetailKV("Latest message", latestMessage)
+    + gitflowDetailKV("Updated", b?.lastCommitRelTime || laneCommits[0]?.relTime || null)
+    + gitflowDetailKV("Upstream", b?.upstream || null)
+    + gitflowDetailKV("Push status", b ? gitflowPushSummary(b.ahead, b.behind) : "No upstream tracking")
+    + gitflowDetailKV("Visible commits", laneCommits.length > 0 ? String(laneCommits.length) : "0")
+    + `</div>`
+    + `<div class="gf-detail-section-title">Recent commits on this lane</div>`
+    + `<div class="gf-detail-commit-list">`
+    + laneCommits.slice(0, 6).map((c) => `<button type="button" class="gf-detail-commit" data-gf-type="commit" data-gf-id="${dashEsc(c.id)}"><strong>${dashEsc(c.shortHash)}</strong><span>${dashEsc(c.msg || "(no message)")}</span></button>`).join("")
+    + (laneCommits.length === 0 ? '<div class="gf-detail-empty">No visible commits for this branch in the current graph.</div>' : "")
+    + `</div>`;
+}
+
+function renderGitflowCommitDetail(data: DashboardGitFlowData, commitId: string): string {
+  var c = gitflowFindCommit(data, commitId);
+  if (!c) {
+    return `<div class="gf-detail-title">Commit not found</div><div class="gf-detail-empty">Refresh Git Flow and try again.</div>`;
+  }
+  var parents = c.parents.length > 0 ? c.parents.map((p) => p.slice(0, 12)).join(", ") : "—";
+  return ""
+    + `<div class="gf-detail-title">${dashEsc(c.shortHash)}${c.isHead ? ' <span class="gf-detail-pill">HEAD</span>' : ""}</div>`
+    + `<div class="gf-detail-sub">${dashEsc(c.msg || "(no message)")}</div>`
+    + `<div class="gf-detail-grid">`
+    + gitflowDetailKV("Branch", c.branch || "unknown")
+    + gitflowDetailKV("Author", c.author)
+    + gitflowDetailKV("Date", c.relTime)
+    + gitflowDetailKV("Full hash", c.id)
+    + gitflowDetailKV("Parents", parents)
+    + gitflowDetailKV("Tag", c.tag || null)
+    + `</div>`;
+}
+
+function renderGitflowDetail(data: DashboardGitFlowData, type: string, id: string | null): string {
+  if (type === "branch" && id) return renderGitflowBranchDetail(data, id);
+  if (type === "commit" && id) return renderGitflowCommitDetail(data, id);
+  return renderGitflowOverviewDetail(data);
+}
+
+function setGitflowSelection(type: string, id: string | null): void {
+  var detail = document.getElementById("gf-detail");
+  if (!_gitflowModalWorkspaceId || !detail) return;
+  var data = _gitFlowCache.get(_gitflowModalWorkspaceId);
+  if (!data) return;
+  detail.innerHTML = renderGitflowDetail(data, type, id);
+  document.querySelectorAll<HTMLElement>("#gf-canvas [data-gf-selected]").forEach((el) => {
+    el.removeAttribute("data-gf-selected");
+  });
+  if (id) {
+    document.querySelectorAll<HTMLElement>(`#gf-canvas [data-gf-type="${cssAttrEsc(type)}"][data-gf-id="${cssAttrEsc(id)}"]`).forEach((el) => {
+      el.setAttribute("data-gf-selected", "true");
+    });
+  }
+}
+
 function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): string {
   var laid = gitflowAssignLanes(data);
   var lanes = laid.lanes;
@@ -280,7 +391,7 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
     var tooltip = gitflowBranchTooltip(data, l.label);
     return ""
       + `<line class="lane-line" x1="${padL - 6}" y1="${y}" x2="${W - padR}" y2="${y}"/>`
-      + `<g class="lane-meta">`
+      + `<g class="lane-meta" data-gf-type="branch" data-gf-id="${dashEsc(l.label)}">`
       + `<title>${dashEsc(tooltip)}</title>`
       + `<rect x="${padL - labelW - 14}" y="${y - 18}" width="${W - padL + labelW + 6}" height="36" fill="transparent" pointer-events="all"/>`
       + `<rect x="${padL - labelW - 8}" y="${y - 12}" width="${labelW}" height="24" rx="12" fill="${bg}" stroke="${color}" stroke-opacity="0.4"/>`
@@ -337,7 +448,7 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
     var titleText = gitflowCommitTooltip(c);
     return ""
       + tagSVG
-      + `<g class="commit ${c.isHead ? "head" : ""}">`
+      + `<g class="commit ${c.isHead ? "head" : ""}" data-gf-type="commit" data-gf-id="${dashEsc(c.id)}">`
       + `<circle class="commit-hit" cx="${p.x}" cy="${p.y}" r="18" fill="transparent" pointer-events="all"/>`
       + `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${color}"/>`
       + headSVG
@@ -348,13 +459,13 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
   var legendItems = lanes.map(function (l) {
     var color = GITFLOW_LANE_COLORS[l.colorKey] || "#888";
     var tooltip = gitflowBranchTooltip(data, l.label);
-    return `<span class="lg-item" title="${dashEsc(tooltip)}"><span class="lg-dot" style="background:${color}"></span>${dashEsc(l.label)}</span>`;
+    return `<button type="button" class="lg-item" data-gf-type="branch" data-gf-id="${dashEsc(l.label)}" title="${dashEsc(tooltip)}"><span class="lg-dot" style="background:${color}"></span>${dashEsc(l.label)}</button>`;
   }).join("");
   var flowTooltip = gitflowDataTooltip(data);
 
   return ""
     + `<div class="gitflow-wrap">`
-    + `<div class="gitflow-head" title="${dashEsc(flowTooltip)}">`
+    + `<div class="gitflow-head" data-gf-type="overview" title="${dashEsc(flowTooltip)}">`
     + `<span>Git Flow · ${dashEsc(data.summary || "")}</span>`
     + `<span class="legend">${legendItems}</span>`
     + `</div>`
@@ -421,6 +532,7 @@ function openGitflowModal(workspaceId: string): void {
   if (!data) return;
   var modal = document.getElementById("gitflow-modal");
   var canvas = document.getElementById("gf-canvas");
+  var detail = document.getElementById("gf-detail");
   var titleEl = document.getElementById("gf-modal-title");
   if (!modal || !canvas) return;
   _gitflowModalWorkspaceId = workspaceId;
@@ -429,6 +541,7 @@ function openGitflowModal(workspaceId: string): void {
     titleEl.textContent = "Git Flow — " + (ws ? ws.name : workspaceId) + " · " + (data.summary || "");
   }
   canvas.innerHTML = renderGitflowSVG("modal-" + workspaceId, data);
+  if (detail) detail.innerHTML = renderGitflowOverviewDetail(data);
   modal.classList.add("open");
   requestAnimationFrame(function () {
     setGitflowZoomFit();
@@ -443,6 +556,8 @@ function closeGitflowModal(): void {
   _gitflowModalScale = 1;
   var canvas = document.getElementById("gf-canvas");
   if (canvas) canvas.innerHTML = "";
+  var detail = document.getElementById("gf-detail");
+  if (detail) detail.innerHTML = "";
 }
 
 function setGitflowZoom(scale: number): void {
@@ -455,7 +570,7 @@ function setGitflowZoom(scale: number): void {
 }
 
 function setGitflowZoomFit(): void {
-  var body = document.getElementById("gf-modal-body");
+  var body = document.getElementById("gf-stage") || document.getElementById("gf-modal-body");
   var canvas = document.getElementById("gf-canvas");
   if (!body || !canvas) return;
   var svg = canvas.querySelector("svg.gitflow-svg") as SVGSVGElement | null;
@@ -514,7 +629,7 @@ function initGitflowModalControls(): void {
   if (zfit) zfit.addEventListener("click", setGitflowZoomFit);
   var zreset = document.getElementById("gf-zoom-reset");
   if (zreset) zreset.addEventListener("click", function () { setGitflowZoom(1); });
-  var body = document.getElementById("gf-modal-body");
+  var body = document.getElementById("gf-stage") || document.getElementById("gf-modal-body");
   if (body) {
     body.addEventListener("wheel", function (e) {
       if (!e.ctrlKey && !e.metaKey) return;
@@ -522,6 +637,38 @@ function initGitflowModalControls(): void {
       var delta = e.deltaY > 0 ? -GITFLOW_ZOOM_STEP : GITFLOW_ZOOM_STEP;
       setGitflowZoom(_gitflowModalScale + delta);
     }, { passive: false });
+  }
+  var canvas = document.getElementById("gf-canvas");
+  if (canvas) {
+    canvas.addEventListener("click", function (e) {
+      var target = e.target as Element | null;
+      var el = target?.closest("[data-gf-type]") as HTMLElement | null;
+      if (!el) return;
+      var type = el.getAttribute("data-gf-type") || "overview";
+      var id = el.getAttribute("data-gf-id");
+      if (type === "overview") {
+        setGitflowSelection("overview", null);
+        return;
+      }
+      if (type === "branch" || type === "commit") {
+        e.stopPropagation();
+        setGitflowSelection(type, id);
+      }
+    });
+  }
+  var detail = document.getElementById("gf-detail");
+  if (detail) {
+    detail.addEventListener("click", function (e) {
+      var target = e.target as Element | null;
+      var el = target?.closest("[data-gf-type]") as HTMLElement | null;
+      if (!el) return;
+      var type = el.getAttribute("data-gf-type") || "";
+      var id = el.getAttribute("data-gf-id");
+      if (type === "branch" || type === "commit") {
+        e.stopPropagation();
+        setGitflowSelection(type, id);
+      }
+    });
   }
 }
 
