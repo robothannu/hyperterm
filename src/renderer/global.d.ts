@@ -197,6 +197,7 @@ interface SubagentStatusPayload {
 interface Window {
   terminalAPI: TerminalAPI;
   dashboardAPI?: DashboardAPI;
+  openNewProjectModal?: (homeDir: string, onClose?: () => void) => void;
 }
 
 // Dashboard API (exposed only in dashboard.html window context)
@@ -227,6 +228,15 @@ interface DashboardOverviewGit {
 }
 
 type WorkspaceTool = "claude" | "codex" | "mixed" | "none";
+type WorkspacePrimaryTool = "claude" | "codex";
+
+interface DashboardToolState {
+  objective: string | null;
+  goal: string | null;
+  currentTask: string | null;
+  nextSteps: string[];
+  updatedAt: string | null;
+}
 
 interface DashboardOverviewSummary {
   objective: string | null;
@@ -235,7 +245,10 @@ interface DashboardOverviewSummary {
   nextSteps: string[];
   git: DashboardOverviewGit;
   tool: WorkspaceTool;
-  errors: { claude?: string; progress?: string; git?: string };
+  primaryTool: WorkspacePrimaryTool | null;
+  claudeState: DashboardToolState | null;
+  codexState: DashboardToolState | null;
+  errors: { claude?: string; agent?: string; progress?: string; handoff?: string; git?: string };
 }
 
 interface DashboardStatusInfo {
@@ -327,7 +340,7 @@ interface DashboardAPI {
   statusInfo(workspacePath: string): Promise<DashboardStatusInfo | { error: string }>;
   fileTree(workspacePath: string): Promise<DashboardFileTreeResult>;
   // Sprint 5: session state badges
-  sessionState(workspacePath: string): Promise<{ open: boolean; harnessPhase: string | null }>;
+  sessionState(workspacePath: string): Promise<{ open: boolean; harnessPhase: string | null; codexRunning: boolean }>;
   // Sprint 2: archive toggle
   archiveToggle(id: string, archived: boolean): Promise<{ workspaces: WorkspaceEntry[]; success: boolean }>;
   // Sprint 1 UX Polish
@@ -341,14 +354,18 @@ interface DashboardAPI {
   discoverCandidates(): Promise<DashboardDiscoveryCandidate[]>;
   addWorkspacesBatch(paths: string[]): Promise<DashboardBatchAddResult>;
   // Sprint 1 (New Project Wizard): create a new project directory + register workspace.
+  pickParentDirectory(defaultPath?: string): Promise<{ canceled: boolean; path?: string }>;
   newProject(payload: {
     projectName: string;
     parentDir: string;
     options: {
-      gitInit: boolean;
-      claudeMd: boolean;
-      progressMd: boolean;
-      gitignoreNode: boolean;
+      tool?: "claude" | "codex";
+      gitInit?: boolean;
+      claudeMd?: boolean;
+      progressMd?: boolean;
+      agentMd?: boolean;
+      handoffMd?: boolean;
+      gitignoreNode?: boolean;
     };
     createParent?: boolean;
   }): Promise<{
@@ -432,6 +449,7 @@ declare function cleanupSubagentForPty(ptyId: number): void;
 // Codex agent status polling (agent-status-codex.ts — Sprint 2)
 declare function startCodexPolling(): void;
 declare function stopCodexPolling(): void;
+declare function cleanupCodexPaneMarker(ptyId: number): void;
 declare function cleanupCodexTabMarker(tabId: number): void;
 
 // Command Palette (command-palette.ts) — exposed via window for cross-module use.
@@ -455,6 +473,7 @@ declare function initGitflowModalControls(): void;
 
 // Dashboard helpers exposed by dashboard-discovery.ts.
 declare function fetchDiscoveryCandidates(): Promise<void>;
+declare function scheduleDiscoveryRefresh(): void;
 declare function renderDiscoveryBanner(content: HTMLElement): void;
 declare function closeDiscoveryModal(): void;
 declare function initDiscoveryModalControls(): void;
@@ -465,9 +484,10 @@ declare function initDiscoveryModalControls(): void;
 interface Window {
   __dashboardWorkspaceCount?: number;
   __dashboardLoadAndRender?: () => Promise<void>;
+  __dashboardRefreshCards?: () => Promise<void>;
   setupAutoRefresh?: () => void;
   resetAutoRefresh?: () => void;
-  openNewProjectModal?: (homeDir: string) => void;
+  openNewProjectModal?: (homeDir: string, onClose?: () => void) => void;
   npDashboardRefresh?: (updatedWorkspaces?: WorkspaceEntry[]) => Promise<void>;
   npOpenWithClaude?: (absolutePath: string) => void;
   npOpenWithCodex?: (absolutePath: string) => void;

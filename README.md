@@ -1,6 +1,6 @@
 # HyperTerm
 
-An Electron terminal app for macOS, designed for multi-session work alongside Claude Code.
+An Electron terminal app for macOS, designed for multi-session work alongside Claude Code and OpenAI Codex.
 
 Built on xterm.js with per-pane PTY processes. Group names, clusters, and layouts are persisted and restored on relaunch.
 
@@ -8,13 +8,36 @@ Built on xterm.js with per-pane PTY processes. Group names, clusters, and layout
 
 ## Features
 
+### Workspace Dashboard
+- **Workspace cards** — show goal, current task, next steps, git status, open state, running state, and changed-file state
+- **Claude/Codex awareness** — reads Claude files and Codex files separately, then chooses the most recently updated side as primary
+- **State filters** — filter by All, Active, Has changes, Running, or Archived
+- **Manual archive** — archived workspaces are only those the user explicitly archives
+- **Incremental refresh** — refreshes changed cards without rebuilding the entire dashboard when possible
+
+### Claude and Codex project files
+HyperTerm uses repo-local files to understand workspace state:
+
+| Tool | Files |
+|------|-------|
+| Claude | `CLAUDE.md`, `progress.md` |
+| Codex | `AGENT.md`, `.codex/HANDOFF.md`, `codex-handoff.md`, `HANDOFF.md`, `handoff.md` |
+
+If both sides exist, the dashboard uses the side with the most recently modified state file as primary. If multiple Codex handoff files exist, the newest handoff file is read.
+
+### New Project
+- **macOS folder picker** — choose the parent directory with the system picker
+- **Git by default** — every new project runs `git init`
+- **Tool starter files** — create either Claude starter files or Codex starter files
+- **Immediate registration** — add the new folder as a workspace and open it with the selected tool
+
 ### Terminal group management
 - **Sidebar** — list of terminal groups; click to switch
 - **Rename group** — double-click to edit inline
 - **Group clusters** — set a project-level cluster name with `Cmd+Shift+G`
-- **Metadata persistence** — group names, clusters, and layouts are saved to `sessions.json` and restored on relaunch
+- **Metadata persistence** — group names, clusters, cwd metadata, and layouts are saved to `sessions.json` and restored on relaunch
 
-> Note: PTY processes themselves are not preserved across app restarts. Only group metadata (name, cluster, layout) is restored; terminals start fresh.
+> Note: PTY processes themselves are not preserved across app restarts. Only group metadata and layout are restored; terminals start fresh.
 
 ### Multi-pane splits
 - Horizontal / vertical splits (right-click context menu)
@@ -22,16 +45,16 @@ Built on xterm.js with per-pane PTY processes. Group names, clusters, and layout
 - Layout presets in the toolbar (single / 2-split / 3-split)
 
 ### Claude Code integration
-- **Running / Waiting badges** — `⚙ Running` while Claude is working, `⚠ Waiting` when permission is required
-- **Completion badge** — `✓ Done` shown for 5 seconds after a task finishes
+- **Running / Waiting badges** — Running while Claude is working, Waiting when permission is required
+- **Completion badge** — Done shown briefly after a task finishes
 - **Multi-tab monitoring** — background tabs are polled so their Claude state stays live
 - **Jump to waiting** — `Cmd+Shift+A` jumps to any tab awaiting approval
 - **Claude Usage** — status bar shows Claude Code plan usage (5h / 7d windows, refreshed every 5 minutes)
 
-### Sidebar sub-rows
-Each group entry shows a per-pane status row:
+### Sidebar and status indicators
+Each group entry shows state and git metadata:
+- **Status dot** — idle, Claude running, Codex running, waiting, or done
 - **Git branch** — current working branch
-- **Status indicator** — idle (gray) / running (green) / waiting (pulsing orange) / done (green flash)
 - **Changed file count** — `●N` for uncommitted changes
 
 ### Theme
@@ -110,6 +133,19 @@ npm start
 ---
 
 ## Usage
+
+### Dashboard
+
+| State | Meaning |
+|-------|---------|
+| Active | Workspace is not archived. Running, open, changed, and recent git activity affect filters and sorting. |
+| Has changes | Git staged, unstaged, or untracked changes exist. |
+| Running | Claude/Codex is running, or Claude harness phase is `building`, `evaluating`, or `running`. |
+| Archived | Workspace was manually archived by the user. Old git activity does not archive a workspace automatically. |
+
+`Recently active` is a sort mode, not a workspace status.
+
+Workspace open detection includes child directories. For example, a pane at `/project/src` marks `/project` as open.
 
 ### Terminal groups
 

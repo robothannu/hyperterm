@@ -233,22 +233,58 @@ async function _openWorkspace(absPath: string, kind: "claude" | "codex"): Promis
   }
 }
 
-function _buildTabEntries(): PaletteEntry[] {
-  const out: PaletteEntry[] = [];
-  if (typeof tabMap === "undefined") return out;
-  for (const [tabId] of tabMap) {
+async function _buildTabEntries(): Promise<PaletteEntry[]> {
+  const out: { entry: PaletteEntry; active: boolean; running: boolean }[] = [];
+  if (typeof tabMap === "undefined") return [];
+  const api = (window as any).terminalAPI;
+  const tasks = Array.from(tabMap.entries()).map(async ([tabId, tab]) => {
     const label = (typeof tabLabels !== "undefined" && tabLabels.get(tabId)) || `Terminal ${tabId}`;
     const cluster = (typeof tabClusters !== "undefined" && tabClusters.get(tabId)) || "";
+    const ptyId = tab.focusedPtyId;
+    let cwd = "";
+    try {
+      if (api && typeof api.getCwd === "function") {
+        cwd = await api.getCwd(ptyId);
+      }
+    } catch {
+      cwd = "";
+    }
+    let claudeRunning = false;
+    let codexRunning = false;
+    try {
+      const [claudeStatus, codexStatus] = await Promise.all([
+        api && typeof api.getAgentStatus === "function" ? api.getAgentStatus(ptyId).catch(() => null) : Promise.resolve(null),
+        api && typeof api.getCodexStatus === "function" ? api.getCodexStatus(ptyId).catch(() => null) : Promise.resolve(null),
+      ]);
+      claudeRunning = !!claudeStatus && !!claudeStatus.isClaudeRunning;
+      codexRunning = !!codexStatus && !!codexStatus.isCodexRunning;
+    } catch {
+      claudeRunning = false;
+      codexRunning = false;
+    }
+    const running = claudeRunning || codexRunning;
+    const subtitleParts = [cwd, cluster ? `cluster: ${cluster}` : ""].filter((x) => x.length > 0);
+    const badge = running ? (claudeRunning ? "Claude running" : "Codex running") : cluster ? "Session" : "Tab";
     out.push({
-      id: `tab:${tabId}`,
-      source: "tab",
-      title: label,
-      subtitle: cluster ? `cluster: ${cluster}` : undefined,
-      badge: "Tab",
-      exec: () => switchToTab(tabId),
+      entry: {
+        id: `tab:${tabId}`,
+        source: "tab",
+        title: label,
+        subtitle: subtitleParts.length > 0 ? subtitleParts.join(" · ") : undefined,
+        badge,
+        exec: () => switchToTab(tabId),
+      },
+      active: typeof activeTabId !== "undefined" && activeTabId === tabId,
+      running,
     });
-  }
-  return out;
+  });
+  await Promise.all(tasks);
+  out.sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    if (a.running !== b.running) return a.running ? -1 : 1;
+    return a.entry.title.localeCompare(b.entry.title, undefined, { sensitivity: "base" });
+  });
+  return out.map((r) => r.entry);
 }
 
 function _buildWorkspaceEntries(workspaces: PaletteWorkspaceLite[]): PaletteEntry[] {
@@ -461,7 +497,7 @@ async function _explainSelection(tool: "claude" | "codex"): Promise<void> {
 }
 
 async function rebuildPaletteEntries(): Promise<void> {
-  const tabs = _buildTabEntries();
+  const tabs = await _buildTabEntries();
   const [wsList, wfList] = await Promise.all([
     _fetchWorkspacesForPalette(),
     _fetchWorkflowsForPalette(),

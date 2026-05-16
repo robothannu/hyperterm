@@ -231,7 +231,7 @@ html, body {
 
 .terminal-entry-row {
   display: grid;
-  grid-template-columns: 14px 1fr auto auto auto auto;
+  grid-template-columns: 14px 1fr auto auto auto;
   align-items: center;
   column-gap: 8px;
   row-gap: 3px;
@@ -512,6 +512,13 @@ html, body {
 
 .agent-marker.hidden {
   display: none;
+}
+
+/* Pane header Codex marker */
+.codex-marker {
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.35);
 }
 
 /* Git badge — shown below tab label */
@@ -2146,6 +2153,7 @@ body.theme-light .layout-btn.active {
 
 /* === Sidebar Card: Count Pill === */
 .card-count-pill {
+  display: none;
   font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
   font-size: 10.5px;
   color: var(--fg-3);
@@ -2170,14 +2178,14 @@ body.theme-light .layout-btn.active {
   border-color: rgba(245,181,71,0.2);
 }
 
-/* tab-notif: column 4 */
+/* tab-notif: column 3 */
 .terminal-entry-row .tab-notif {
-  grid-column: 4;
+  grid-column: 3;
 }
 
-/* subagent-indicator-slot: column 5 */
+/* subagent-indicator-slot: column 4 */
 .terminal-entry-row .subagent-indicator-slot {
-  grid-column: 5;
+  grid-column: 4;
 }
 
 /* === Sidebar Card: Meta Row === */

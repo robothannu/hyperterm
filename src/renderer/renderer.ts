@@ -690,6 +690,9 @@ function closePaneByPtyId(ptyId: number): void {
   ptyToTab.delete(ptyId);
   cleanupPaneAgentMarker(ptyId);
   cleanupPaneHookMarker(ptyId);
+  if (typeof cleanupCodexPaneMarker === "function") {
+    cleanupCodexPaneMarker(ptyId);
+  }
   // Clean up per-pane git cache
   if (typeof cleanupPaneGitCache === "function") {
     cleanupPaneGitCache(ptyId);
@@ -750,6 +753,9 @@ function closeTab(tabId: number): void {
     sessions.delete(leaf.ptyId);
     sessionKeys.delete(leaf.ptyId);
     ptyToTab.delete(leaf.ptyId);
+    if (typeof cleanupCodexPaneMarker === "function") {
+      cleanupCodexPaneMarker(leaf.ptyId);
+    }
     // Clean up per-pane git cache
     if (typeof cleanupPaneGitCache === "function") {
       cleanupPaneGitCache(leaf.ptyId);
@@ -764,6 +770,9 @@ function closeTab(tabId: number): void {
   tabMap.delete(tabId);
   tabLabels.delete(tabId);
   tabClusters.delete(tabId);
+  if (typeof cleanupCodexTabMarker === "function") {
+    cleanupCodexTabMarker(tabId);
+  }
   removeSidebarEntry(tabId);
   cleanupGitBadge(tabId);
 

@@ -41,6 +41,18 @@ async function fetchDiscoveryCandidates(): Promise<void> {
   }
 }
 
+// Refresh discovery data without blocking the core dashboard render.
+async function refreshDiscoveryCandidatesAndRender(): Promise<void> {
+  await fetchDiscoveryCandidates();
+  await loadAndRender();
+}
+
+function scheduleDiscoveryRefresh(): void {
+  void refreshDiscoveryCandidatesAndRender().catch((err: unknown) => {
+    console.warn("[dashboard] discovery refresh failed:", err);
+  });
+}
+
 function shouldShowDiscoveryBanner(): boolean {
   if (_discoveryDismissed) return false;
   if (_discoveryCandidates.length === 0) return false;
@@ -219,8 +231,8 @@ async function handleDiscoveryAddSelected(): Promise<void> {
 
     closeDiscoveryModal();
 
-    await fetchDiscoveryCandidates();
     await loadAndRender();
+    scheduleDiscoveryRefresh();
     if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
 
     if (addedN > 0 && failedN === 0) {

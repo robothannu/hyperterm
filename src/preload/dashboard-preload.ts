@@ -62,7 +62,7 @@ interface OverviewSummary {
   nextSteps: string[];
   git: OverviewGit;
   tool: WorkspaceTool;
-  errors: { claude?: string; progress?: string; git?: string };
+  errors: { claude?: string; agent?: string; progress?: string; handoff?: string; git?: string };
 }
 
 interface StatusInfo {
@@ -123,6 +123,11 @@ interface BatchAddResult {
   workspaces: Workspace[];
   added: string[];
   failed: { path: string; reason: string }[];
+}
+
+interface PickDirectoryResult {
+  canceled: boolean;
+  path?: string;
 }
 
 contextBridge.exposeInMainWorld("dashboardAPI", {
@@ -191,7 +196,7 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   },
 
   // Sprint 5: session state badges
-  sessionState: (workspacePath: string): Promise<{ open: boolean; harnessPhase: string | null }> => {
+  sessionState: (workspacePath: string): Promise<{ open: boolean; harnessPhase: string | null; codexRunning: boolean }> => {
     return ipcRenderer.invoke("workspace:sessionState", workspacePath);
   },
 
@@ -250,14 +255,21 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   },
 
   // Sprint 1 (New Project Wizard): create a new project directory with options.
+  pickParentDirectory: (defaultPath?: string): Promise<PickDirectoryResult> => {
+    return ipcRenderer.invoke("workspace:pickParentDirectory", defaultPath);
+  },
+
   newProject: (payload: {
     projectName: string;
     parentDir: string;
     options: {
-      gitInit: boolean;
-      claudeMd: boolean;
-      progressMd: boolean;
-      gitignoreNode: boolean;
+      tool?: "claude" | "codex";
+      gitInit?: boolean;
+      claudeMd?: boolean;
+      progressMd?: boolean;
+      agentMd?: boolean;
+      handoffMd?: boolean;
+      gitignoreNode?: boolean;
     };
     createParent?: boolean;
   }): Promise<{

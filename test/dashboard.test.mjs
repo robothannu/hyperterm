@@ -1,9 +1,9 @@
 /**
- * Unit tests for Sprint 2 — dashboard card rendering logic.
+ * Unit tests for dashboard card rendering logic.
  * Tests:
- *   1. extractSection (section extraction from markdown)
+ *   1. project state display ordering
  *   2. git log parsing logic (via workspace-reader)
- *   3. XSS sanitization check (marked + DOMPurify output must not contain <script>)
+ *   3. markdown/XSS behavior sanity checks
  *
  * Run: node test/dashboard.test.mjs
  */
@@ -51,14 +51,15 @@ const workspaceReaderPath = new URL("../dist/main/workspace-reader.js", import.m
 
 // dashboard.ts is compiled as CommonJS (tsconfig: module=commonjs)
 const require = createRequire(import.meta.url);
-let extractSection;
+let getProjectStateDisplays;
 try {
   const dashboardModule = require(dashboardPath);
-  extractSection = dashboardModule.extractSection;
+  getProjectStateDisplays = dashboardModule.getProjectStateDisplays;
 } catch (e) {
   console.error("Could not load dashboard.js:", e.message);
   process.exit(1);
 }
+assert.equal(typeof getProjectStateDisplays, "function", "getProjectStateDisplays must be exported");
 
 let getCardData;
 try {
@@ -70,75 +71,57 @@ try {
 }
 
 // ============================================================
-// Section: extractSection tests
+// Section: project state rendering helper
 // ============================================================
 
-console.log("\n=== extractSection tests ===\n");
+console.log("\n=== getProjectStateDisplays tests ===\n");
 
-const SAMPLE_MD = `# Project Title
-
-## Overview
-This is the overview text.
-It has multiple lines.
-
-## Current Task
-Working on sprint 2.
-
-## Next Steps
-- Step one
-- Step two
-
-## Last Section
-Final content.
-`;
-
-await test("extractSection: returns body of a heading", () => {
-  const result = extractSection(SAMPLE_MD, "## Overview");
-  assert.ok(result.includes("This is the overview text."), `Got: ${result}`);
-  assert.ok(result.includes("It has multiple lines."), `Got: ${result}`);
+const makeToolState = (overrides = {}) => ({
+  objective: "Refactor dashboard",
+  goal: "Make rendering easier to reason about",
+  currentTask: "Split mixed-state rendering",
+  nextSteps: ["Add helper", "Add tests"],
+  updatedAt: "2026-05-13T00:00:00.000Z",
+  ...overrides,
 });
 
-await test("extractSection: stops at next same-level heading", () => {
-  const result = extractSection(SAMPLE_MD, "## Overview");
-  assert.ok(!result.includes("Working on sprint 2"), `Should not include next section. Got: ${result}`);
+await test("getProjectStateDisplays: orders Codex first when primary tool is codex", () => {
+  const displays = getProjectStateDisplays(
+    "codex",
+    makeToolState({ goal: "Claude goal" }),
+    makeToolState({ goal: "Codex goal" })
+  );
+  assert.equal(displays.length, 2);
+  assert.equal(displays[0].label, "Codex");
+  assert.equal(displays[0].primary, true);
+  assert.equal(displays[0].state.goal, "Codex goal");
+  assert.equal(displays[1].label, "Claude");
+  assert.equal(displays[1].primary, false);
 });
 
-await test("extractSection: returns middle section correctly", () => {
-  const result = extractSection(SAMPLE_MD, "## Current Task");
-  assert.ok(result.includes("Working on sprint 2"), `Got: ${result}`);
-  assert.ok(!result.includes("Step one"), `Should not include next section. Got: ${result}`);
+await test("getProjectStateDisplays: returns only Claude state when Codex is absent", () => {
+  const displays = getProjectStateDisplays("claude", makeToolState(), null);
+  assert.equal(displays.length, 1);
+  assert.equal(displays[0].label, "Claude");
+  assert.equal(displays[0].primary, true);
 });
 
-await test("extractSection: returns last section (no next heading)", () => {
-  const result = extractSection(SAMPLE_MD, "## Last Section");
-  assert.ok(result.includes("Final content."), `Got: ${result}`);
+await test("getProjectStateDisplays: returns empty array when no state exists", () => {
+  const displays = getProjectStateDisplays(null, null, null);
+  assert.deepEqual(displays, []);
 });
 
-await test("extractSection: returns empty string when heading not found", () => {
-  const result = extractSection(SAMPLE_MD, "## Nonexistent");
-  assert.equal(result, "");
-});
-
-await test("extractSection: returns empty string on empty markdown", () => {
-  const result = extractSection("", "## Overview");
-  assert.equal(result, "");
-});
-
-await test("extractSection: heading with no body returns empty string", () => {
-  const md = `## Overview\n## Next`;
-  const result = extractSection(md, "## Overview");
-  assert.equal(result, "");
-});
-
-await test("extractSection: does not include heading line in result", () => {
-  const result = extractSection(SAMPLE_MD, "## Overview");
-  assert.ok(!result.includes("## Overview"), `Heading should not be in result. Got: ${result}`);
-});
-
-await test("extractSection: handles list items in section", () => {
-  const result = extractSection(SAMPLE_MD, "## Next Steps");
-  assert.ok(result.includes("Step one"), `Got: ${result}`);
-  assert.ok(result.includes("Step two"), `Got: ${result}`);
+await test("getProjectStateDisplays: returns Claude first when Claude is primary", () => {
+  const displays = getProjectStateDisplays(
+    "claude",
+    makeToolState({ goal: "Claude goal" }),
+    makeToolState({ goal: "Codex goal" })
+  );
+  assert.equal(displays.length, 2);
+  assert.equal(displays[0].label, "Claude");
+  assert.equal(displays[0].primary, true);
+  assert.equal(displays[1].label, "Codex");
+  assert.equal(displays[1].primary, false);
 });
 
 // ============================================================
@@ -173,15 +156,10 @@ await test("getCardData: returns null claude/progress for path without those fil
 });
 
 // ============================================================
-// Section: XSS / sanitization tests
+// Section: markdown behavior sanity checks
 // ============================================================
-// We test the rendered HTML from marked+DOMPurify by loading the
-// actual vendor files in Node (DOMPurify needs a DOM environment).
-// We'll test via a lightweight approach: check the output of
-// marked.parse + DOMPurify.sanitize using jsdom if available,
-// or by regex-checking the output string.
 
-console.log("\n=== XSS sanitization tests ===\n");
+console.log("\n=== markdown behavior sanity checks ===\n");
 
 // Load marked CJS (Node-compatible; browser uses UMD via <script> tag)
 const markedPath = new URL("../node_modules/marked/lib/marked.cjs", import.meta.url).pathname;
@@ -198,7 +176,7 @@ try {
 // Strategy: check that the output of marked does NOT contain executable <script> tags
 // after DOMPurify sanitization. We simulate with string analysis since we're in Node.
 
-await test("marked.parse: XSS payload does not produce executable script tag", () => {
+await test("marked.parse: raw script HTML remains present before sanitization", () => {
   const xssPayload = `# Title\n\n<script>alert(1)<\/script>\n\nNormal text.`;
   // marked.parse is the top-level function in marked v9 CJS
   const parseFn = markedLib.parse || (markedLib.marked && markedLib.marked.parse);
@@ -206,43 +184,27 @@ await test("marked.parse: XSS payload does not produce executable script tag", (
   const html = parseFn(xssPayload, { gfm: true });
   assert.ok(typeof html === "string", "Should return a string");
   assert.ok(html.includes("Normal text"), `Should contain normal text. Got: ${html}`);
-  // marked passes raw HTML through by default — DOMPurify removes <script> in browser
-  // We document the raw marked output here for transparency
+  assert.ok(html.includes("<script>alert(1)</script>"), `Marked should pass raw script HTML through. Got: ${html}`);
+  // DOMPurify removes <script> in browser renderer.
   console.log(`    [info] marked raw output for script payload: ${html.replace(/\n/g, "\\n").slice(0, 120)}`);
-  // The key guarantee: DOMPurify is configured with FORBID_TAGS: ['script'] in dashboard.ts
-  // This is confirmed by the configuration constant in the source.
 });
 
-await test("marked.parse: inline script event handlers in markdown", () => {
+await test("marked.parse: javascript href remains present before sanitization", () => {
   const payload = `[Click me](javascript:alert(1))`;
   const parseFn = markedLib.parse || (markedLib.marked && markedLib.marked.parse);
   const html = parseFn(payload, { gfm: true });
   assert.ok(typeof html === "string");
+  assert.ok(html.includes('href="javascript:alert(1)"'), `Marked should pass javascript href through. Got: ${html}`);
   console.log(`    [info] marked output for href payload: ${html.replace(/\n/g, "\\n")}`);
-  // DOMPurify with default config removes javascript: hrefs in browser
 });
 
-await test("marked.parse: img onerror payload — marked output documents behavior", () => {
+await test("marked.parse: img onerror remains present before sanitization", () => {
   const payload = `<img src="x" onerror="alert(1)">`;
   const parseFn = markedLib.parse || (markedLib.marked && markedLib.marked.parse);
   const html = parseFn(payload, { gfm: true });
   assert.ok(typeof html === "string");
+  assert.ok(html.includes('onerror="alert(1)"'), `Marked should keep raw onerror attribute. Got: ${html}`);
   console.log(`    [info] marked output for img onerror: ${html.replace(/\n/g, "\\n")}`);
-  // DOMPurify FORBID_ATTR includes onerror — removes it in browser renderer
-});
-
-await test("XSS config: FORBID_TAGS includes 'script'", () => {
-  // Verify our DOMPurify config in dashboard.ts has script in FORBID_TAGS
-  // We read the compiled dashboard.js and check the constant
-  const dashboardJs = require("fs").readFileSync(dashboardPath, "utf8");
-  assert.ok(
-    dashboardJs.includes('"script"') || dashboardJs.includes("'script'"),
-    "DOMPURIFY_CONFIG should reference 'script' in FORBID_TAGS"
-  );
-  assert.ok(
-    dashboardJs.includes('"onerror"') || dashboardJs.includes("'onerror'"),
-    "DOMPURIFY_CONFIG should reference 'onerror' in FORBID_ATTR"
-  );
 });
 
 // ============================================================

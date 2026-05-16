@@ -1,4 +1,5 @@
 import * as pty from "node-pty";
+import * as path from "path";
 import {
   buildSessionEnv,
   createSessionStore,
@@ -91,6 +92,27 @@ export const destroyAll = (): void => store.destroyAll();
 export const getSessionKey = (id: number): string | null => store.sessionKey(id);
 export const hasSession = (id: number): boolean => store.has(id);
 export const getCwd = (id: number): Promise<string> => store.cwd(id);
+
+/**
+ * Check whether any running Codex session is rooted in the given cwd.
+ */
+export async function hasRunningSessionAtCwd(targetCwd: string): Promise<boolean> {
+  const normalizedTarget = path.resolve(targetCwd);
+  const sessions = Array.from(store.values());
+  const results = await Promise.all(
+    sessions.map(async (session) => {
+      try {
+        const cwd = path.resolve(await store.cwd(session.id));
+        if (cwd !== normalizedTarget) return false;
+        const status = await getCodexStatus(session.id);
+        return status.isCodexRunning;
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return results.some(Boolean);
+}
 
 // ---------------------------------------------------------------------------
 // Codex process status — Sprint 2: Sidebar Running marker

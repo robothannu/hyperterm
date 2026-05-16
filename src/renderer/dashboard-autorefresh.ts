@@ -28,10 +28,13 @@ function _tick(): void {
   var cycleN = _cycleCount;
   var t0 = performance.now();
 
-  // loadAndRender is registered by dashboard.ts boot section
-  var renderFn = window.__dashboardLoadAndRender as (() => Promise<void>) | undefined;
+  // Prefer the partial refresh hook; fall back to a full render if needed.
+  var renderFn = window.__dashboardRefreshCards as (() => Promise<void>) | undefined;
   if (typeof renderFn !== "function") {
-    console.warn("[dashboard-refresh] __dashboardLoadAndRender not registered — skipping tick");
+    renderFn = window.__dashboardLoadAndRender as (() => Promise<void>) | undefined;
+  }
+  if (typeof renderFn !== "function") {
+    console.warn("[dashboard-refresh] no refresh hook registered — skipping tick");
     return;
   }
 
@@ -78,7 +81,10 @@ function setupVisibilityHandler(): void {
       console.log("[dashboard-refresh] paused (hidden)");
     } else {
       // Page visible again — immediate 1 refresh then restart timer
-      var renderFn = window.__dashboardLoadAndRender as (() => Promise<void>) | undefined;
+      var renderFn = window.__dashboardRefreshCards as (() => Promise<void>) | undefined;
+      if (typeof renderFn !== "function") {
+        renderFn = window.__dashboardLoadAndRender as (() => Promise<void>) | undefined;
+      }
       if (typeof renderFn === "function") {
         void renderFn().catch((err: unknown) => {
           console.error("[dashboard-refresh] visibility refresh error:", err);

@@ -1,7 +1,13 @@
 # Work Progress
 
 ## Current Task
-- **completed** — 10항목 audit (정적, 두 패스) → 발견사항 기반 Phase 1·2·3 리팩터링 5 commit. 사용자 시각 검증 대기.
+- **completed** — New Project 플로우 개편:
+  - parent directory를 OS 디렉터리 선택창으로 고르게 변경
+  - git init은 항상 수행
+  - Claude / Codex 선택에 따라 초기 파일 생성 분기
+  - Codex는 `AGENT.md` + `codex-handoff.md` 생성
+  - dashboard card는 `codex-handoff.md`를 읽어 Codex 상태를 갱신
+  - `npm run build`, `npm run dist`, 관련 테스트 통과
 
 ## Last Session (2026-05-06 ~ 05-07)
 
@@ -21,7 +27,7 @@
 - 결과: ocr_app_ios의 handoff.md 템플릿(옵션 A)에서 Current/Next 자동 매칭 확인.
   - dev 로그: `summarizeOverview: currentTask fallback="## Current" for /Users/davidhan/minimax_workspace/ocr_app_ios`
 - ocr_app_ios에 `handoff.md` placeholder 생성 (Current 빈 본문 + Next 3 항목).
-- quizplatform에 AGENTS.md 추가 (CLAUDE.md 복사) → 카드 마커 Mixed 전환.
+- quizplatform에 AGENT.md 추가 (CLAUDE.md 복사) → 카드 마커 Mixed 전환.
 
 ### 3. 10항목 audit (Plan/Build/Evaluate 대신 정적 두 패스)
 - **Agent A (모듈화/품질)**: dashboard.ts 7분할 권고, pty-manager*/agent-status* 거울 코드 base 추출 권고, `(window as any)` 30+건 → Window augmentation 1회 처방.
@@ -77,13 +83,16 @@ dashboard.ts → 두 모듈에 declare로 cross-script 함수 호출. _workspace
 - 기존 release/HyperTerm-0.1.0-arm64.dmg(05-06 22:11)은 phase 1-3 미반영.
 
 ## Next Steps
-- [ ] **HIGH: Phase 1-3 시각 검증** (dev 모드 또는 새 dist 빌드)
+- [ ] **HIGH: 새 프로젝트 모달 실사용 검증**
+  - `release/mac-arm64/HyperTerm.app`에서 아이콘 클릭 후 새 프로젝트 생성
+  - macOS 디렉터리 선택창이 뜨는지 확인
+  - Claude / Codex 선택에 따라 `CLAUDE.md` / `AGENT.md` + `codex-handoff.md`가 생기는지 확인
+  - 생성 직후 dashboard 카드와 tool 표시가 바로 갱신되는지 확인
+- [ ] **MEDIUM: 남은 UI 검증**
   - 카드 expand → Git Flow 트리거(`paintGitflowInto`) + 모달 zoom/keyboard
   - Discovery 배너 + Review 모달 + batch add
   - cross-tool 카드(예: codex 워크스페이스에서 Claude 클릭) → confirm 다이얼로그
   - Run with Claude/Codex dedup (path normalize 적용 후 trailing slash 흡수)
-  - newProject 부분 실패 시나리오 (git init 없는 상태 등)
-- [ ] **MEDIUM: 패키지 빌드 + .dmg 재빌드** — phase 1-3 반영본 (`npm run dist`)
 - [ ] **MEDIUM (남은 audit 권고, 미진행)**:
   - main.ts 4-5분할 (1800 lines, IPC 핸들러 결합도 높음 — 분할 시 위험 평가 필요)
   - workspace-reader.ts:summarizeOverview 235줄 → 섹션별 분할
@@ -103,7 +112,7 @@ dashboard.ts → 두 모듈에 declare로 cross-script 함수 호출. _workspace
 ### 이번 세션 결정
 - **Session Restore 통째 제거**: divider 누적 fix 시도(정규식 완화) 대신 기능 자체 제거. 사용자 의도가 "안 쓴다"이므로 strip 정규식만 손보는 부분 수정보다 깔끔.
 - **handoff.md 헤더 = 옵션 A**: 짧은 `## Current` / `## Next` 채택. progress.md 컨벤션과 충돌하지 않게 fallback 끝쪽에 배치 (Current Task / Current Status / Status보다 후순위).
-- **quizplatform: 옵션 2 (Mixed) 선택**: AGENTS.md 신규 추가, CLAUDE.md 그대로 복사. 도구 분담 가이드는 향후 필요 시.
+- **quizplatform: 옵션 2 (Mixed) 선택**: AGENT.md 신규 추가, CLAUDE.md 그대로 복사. 도구 분담 가이드는 향후 필요 시.
 - **거울 코드 통합 범위**: pty-manager 두 파일만 base 추출. agent-status 두 파일은 알고리즘이 다른 책임(IPC fail counter + 전체 탭 vs prev-cache + 필터 + per-pane silent fail)이라 ROI 낮음으로 skip. main.ts pty:create* 핸들러 통합도 IPC 시그니처가 달라 skip.
 - **dashboard.ts 분할 범위**: gitflow + discovery 두 분할만 진행. cards/render/handlers/meta는 populateCardData(229줄) 등 dashboard.ts 본문 흐름과 결합도가 높아 다음 sprint로 미룸.
 - **분할 패턴**: dashboard 자식 모듈은 모두 `<script>` (non-module) 모드 + `declare` cross-file globals. 같은 window scope에서 `var` 공유. dashboard.html script 순서 의존(자식이 dashboard.js 다음).

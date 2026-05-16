@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 import * as PtyManager from "./pty-manager";
 import * as PtyManagerCodex from "./pty-manager-codex";
 import { installSubagentHooks } from "./subagent-hook-installer";
+import { isActiveHarnessPhase, isWorkspaceOpenFromCwds } from "./session-state";
 import {
   startSubagentWatcher,
   stopSubagentWatcher,
@@ -865,7 +866,7 @@ ipcMain.on("dashboard:open", () => {
 // --- Workspace IPC ---
 
 ipcMain.handle("workspace:list", () => {
-  // Enrich each workspace with detected tool (sync file-presence check).
+  // Enrich each workspace with detected tool (mtime-based Claude/Codex selection).
   // Backwards-compatible: existing dashboard consumers ignore the extra field.
   return workspaces.map((w) => {
     let tool: "claude" | "codex" | "mixed" | "none" = "none";
@@ -921,6 +922,36 @@ ipcMain.handle("workspace:add", async () => {
     duplicate: addResult.duplicate,
     cancelled: false,
   };
+});
+
+ipcMain.handle("workspace:pickParentDirectory", async (_event, defaultPath?: string) => {
+  const parent = BrowserWindow.fromWebContents(_event.sender);
+  const safeDefaultPath =
+    defaultPath && typeof defaultPath === "string" && path.isAbsolute(defaultPath)
+      ? defaultPath
+      : undefined;
+
+  try {
+    const result = parent && !parent.isDestroyed()
+      ? await dialog.showOpenDialog(parent, {
+          title: "Select Parent Directory",
+          defaultPath: safeDefaultPath,
+          properties: ["openDirectory", "createDirectory"],
+        })
+      : await dialog.showOpenDialog({
+          title: "Select Parent Directory",
+          defaultPath: safeDefaultPath,
+          properties: ["openDirectory", "createDirectory"],
+        });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { canceled: true };
+    }
+    return { canceled: false, path: result.filePaths[0] };
+  } catch (err) {
+    console.error("[workspace] pickParentDirectory dialog error:", err);
+    return { canceled: true };
+  }
 });
 
 ipcMain.handle("workspace:remove", (_event, id: string) => {
@@ -1254,9 +1285,11 @@ ipcMain.handle("workspace:openInMainWithClaude", async (_event, workspacePath: s
 });
 
 // --- Session State IPC (Sprint 5: badges) ---
-// Returns { open: boolean, harnessPhase: string | null } for a given workspace path.
-// - open: true if sessions.json has any tab leaf with cwd matching workspacePath
+// Returns { open: boolean, harnessPhase: string | null, codexRunning: boolean }
+// for a given workspace path.
+// - open: true if sessions.json has any tab leaf with cwd at or under workspacePath
 // - harnessPhase: current_phase from .claude/harness/state.json (null if idle/complete/missing)
+// - codexRunning: true if any Codex PTY rooted at workspacePath is still active
 
 function getOpenCwds(): Set<string> {
   try {
@@ -1295,7 +1328,7 @@ function getHarnessPhase(workspacePath: string): string | null {
     const raw = fs.readFileSync(stateFile, "utf8");
     const parsed = JSON.parse(raw) as { current_phase?: string };
     const phase = parsed.current_phase ?? null;
-    if (!phase || phase === "idle" || phase === "complete") return null;
+    if (!isActiveHarnessPhase(phase)) return null;
     return phase;
   } catch (err) {
     console.warn(`[dashboard] getHarnessPhase: failed to parse state.json for ${workspacePath}:`, err);
@@ -1303,21 +1336,29 @@ function getHarnessPhase(workspacePath: string): string | null {
   }
 }
 
-ipcMain.handle("workspace:sessionState", (_event, workspacePath: string) => {
+ipcMain.handle("workspace:sessionState", async (_event, workspacePath: string) => {
   if (!workspacePath || typeof workspacePath !== "string") {
-    return { open: false, harnessPhase: null };
+    return { open: false, harnessPhase: null, codexRunning: false };
   }
   const normalized = path.resolve(workspacePath);
   let open = false;
   try {
     const openCwds = getOpenCwds();
-    open = openCwds.has(normalized);
+    open = isWorkspaceOpenFromCwds(openCwds, normalized);
   } catch (err) {
     console.warn(`[dashboard] session-state: open check failed for ${normalized}:`, err);
   }
-  const harnessPhase = getHarnessPhase(normalized);
-  console.log(`[dashboard] session-state ws=${normalized} open=${open} harness=${harnessPhase ?? "null"}`);
-  return { open, harnessPhase };
+  const [harnessPhase, codexRunning] = await Promise.all([
+    Promise.resolve(getHarnessPhase(normalized)),
+    PtyManagerCodex.hasRunningSessionAtCwd(normalized).catch((err) => {
+      console.warn(`[dashboard] session-state: codex check failed for ${normalized}:`, err);
+      return false;
+    }),
+  ]);
+  console.log(
+    `[dashboard] session-state ws=${normalized} open=${open} harness=${harnessPhase ?? "null"} codex=${codexRunning ? "running" : "idle"}`
+  );
+  return { open, harnessPhase, codexRunning };
 });
 
 // --- Path Existence IPC ---
@@ -1549,11 +1590,14 @@ ipcMain.handle("workspace:gitFlow", async (_event, workspacePath: string): Promi
 interface NewProjectPayload {
   projectName: string;
   parentDir: string;
-  options: {
-    gitInit: boolean;
-    claudeMd: boolean;
-    progressMd: boolean;
-    gitignoreNode: boolean;
+  options?: {
+    tool?: "claude" | "codex";
+    gitInit?: boolean;
+    claudeMd?: boolean;
+    progressMd?: boolean;
+    agentMd?: boolean;
+    handoffMd?: boolean;
+    gitignoreNode?: boolean;
   };
   createParent?: boolean;
 }
@@ -1570,7 +1614,8 @@ interface NewProjectResult {
 }
 
 ipcMain.handle("workspace:newProject", async (_event, payload: NewProjectPayload): Promise<NewProjectResult> => {
-  const { projectName, parentDir, options, createParent } = payload;
+  const { projectName, parentDir, createParent } = payload;
+  const options = payload.options ?? {};
 
   console.log(`[new-project] received: name="${projectName}" parent="${parentDir}" options=${JSON.stringify(options)}`);
 
@@ -1626,20 +1671,25 @@ ipcMain.handle("workspace:newProject", async (_event, payload: NewProjectPayload
   // AC #6: 옵션별 파일/git 초기화
   const fsp = fs.promises;
   const warnings: string[] = [];
+  const isToolPayload = options.tool === "claude" || options.tool === "codex";
+  const selectedTool: "claude" | "codex" =
+    options.tool === "codex" ? "codex" : "claude";
+  const shouldCreateClaudeConfig = isToolPayload ? selectedTool === "claude" : options.claudeMd === true;
+  const shouldCreateClaudeProgress = isToolPayload ? selectedTool === "claude" : options.progressMd === true;
+  const shouldCreateCodexConfig = isToolPayload ? selectedTool === "codex" : options.agentMd === true;
+  const shouldCreateCodexHandoff = isToolPayload ? selectedTool === "codex" : options.handoffMd === true;
 
   // git init (spawn + 명시적 argv — 셸 인젝션 없음)
-  if (options.gitInit) {
-    try {
-      await execFileAsync("git", ["init", absolutePath]);
-      console.log(`[new-project] git init OK: ${absolutePath}`);
-    } catch (err) {
-      console.warn("[new-project] git init failed (non-fatal):", err);
-      warnings.push("git init 실패 — 폴더는 생성됨");
-    }
+  try {
+    await execFileAsync("git", ["init", absolutePath]);
+    console.log(`[new-project] git init OK: ${absolutePath}`);
+  } catch (err) {
+    console.warn("[new-project] git init failed (non-fatal):", err);
+    warnings.push("git init 실패 — 폴더는 생성됨");
   }
 
   // CLAUDE.md 템플릿
-  if (options.claudeMd) {
+  if (shouldCreateClaudeConfig) {
     const claudeContent = `# ${projectName}
 
 ## Objective
@@ -1658,7 +1708,7 @@ ipcMain.handle("workspace:newProject", async (_event, payload: NewProjectPayload
   }
 
   // progress.md 템플릿 (startwork 형식 준수)
-  if (options.progressMd) {
+  if (shouldCreateClaudeProgress) {
     const today = new Date().toISOString().split("T")[0];
     const progressContent = `# Progress — ${projectName}
 
@@ -1680,6 +1730,51 @@ ${today}
     } catch (err) {
       console.warn("[new-project] progress.md write failed (non-fatal):", err);
       warnings.push("progress.md 생성 실패");
+    }
+  }
+
+  if (shouldCreateCodexConfig) {
+    const agentsContent = `# ${projectName}
+
+## Objective
+(Describe the goal of this project)
+
+## Instructions
+- Keep changes scoped.
+- Verify with the relevant local checks before reporting completion.
+`;
+    try {
+      await fsp.writeFile(path.join(absolutePath, "AGENT.md"), agentsContent, "utf8");
+      console.log("[new-project] AGENT.md written");
+    } catch (err) {
+      console.warn("[new-project] AGENT.md write failed (non-fatal):", err);
+      warnings.push("AGENT.md 생성 실패");
+    }
+  }
+
+  if (shouldCreateCodexHandoff) {
+    const today = new Date().toISOString().split("T")[0];
+    const handoffContent = `# Handoff — ${projectName}
+
+## Goal
+(What should Codex help complete?)
+
+## Current
+(Current state)
+
+## Next
+- (First next step)
+
+## Git Flow
+- Branch: main
+- Last checked: ${today}
+`;
+    try {
+      await fsp.writeFile(path.join(absolutePath, "codex-handoff.md"), handoffContent, "utf8");
+      console.log("[new-project] codex-handoff.md written");
+    } catch (err) {
+      console.warn("[new-project] codex-handoff.md write failed (non-fatal):", err);
+      warnings.push("codex-handoff.md 생성 실패");
     }
   }
 

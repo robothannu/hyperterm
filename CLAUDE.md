@@ -18,9 +18,9 @@ HyperTerm — an Electron terminal app for macOS, built on xterm.js with direct 
 - On restore: `savedTab.label → tabLabels.set(tabId, savedTab.label)`.
 
 ## Multi-tool support (Claude + Codex)
-- Tool detection (`workspace-reader.ts:detectTool`): file presence only. CLAUDE.md → claude, AGENTS.md → codex, both → mixed, neither → none. Card footer always shows `[Claude] [Codex] [Open]`.
+- Tool detection (`workspace-reader.ts:detectTool`): file presence first, then modified-time tie break. CLAUDE.md + progress.md → claude side, AGENT.md + handoff files → codex side.
 - Cross-tool click(예: codex 워크스페이스에서 Claude) → `confirmCrossTool` 다이얼로그로 빈 컨텍스트 진입 확인.
-- State files: progress.md(claude/mixed), handoff.md(codex/mixed). 둘 다 `## Current Task | ## Current Status | ## Status | ## Current` + `## Next Steps | ## Next` fallback chain.
+- State files: progress.md(claude side), codex-handoff.md/handoff.md(codex side). 둘 다 `## Current Task | ## Current Status | ## Status | ## Current` + `## Next Steps | ## Next` fallback chain.
 - PTY managers split by tool — see Architecture below.
 
 ## Architecture: PTY managers

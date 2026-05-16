@@ -8,10 +8,13 @@
 // ---------------------------------------------------------------------------
 
 interface NewProjectOptions {
-  gitInit: boolean;
-  claudeMd: boolean;
-  progressMd: boolean;
-  gitignoreNode: boolean;
+  tool: "claude" | "codex";
+  gitInit: true;
+  claudeMd?: boolean;
+  progressMd?: boolean;
+  agentMd?: boolean;
+  handoffMd?: boolean;
+  gitignoreNode?: boolean;
 }
 
 interface NewProjectPayload {
@@ -28,12 +31,6 @@ interface NewProjectResult {
   parentCreated?: boolean;
   warnings?: string[];
 }
-
-// ---------------------------------------------------------------------------
-// Discovery roots — reuse same constant as main.ts (~/dev, ~/work, ~/projects)
-// ---------------------------------------------------------------------------
-
-var DISCOVERY_ROOT_NAMES = ["dev", "work", "projects"] as const;
 
 // ---------------------------------------------------------------------------
 // State
@@ -88,10 +85,7 @@ function validateProjectName(name: string): string | null {
 // ---------------------------------------------------------------------------
 
 function buildModalHTML(homeDir: string): string {
-  var roots = DISCOVERY_ROOT_NAMES.map((r) => {
-    var absPath = homeDir ? homeDir + "/" + r : "~/" + r;
-    return `<option value="${npEsc(absPath)}">${npEsc("~/" + r)}</option>`;
-  }).join("");
+  var defaultParent = homeDir ? homeDir + "/dev" : "";
 
   return `
 <div id="np-modal" role="dialog" aria-modal="true" aria-labelledby="np-modal-title"
@@ -148,49 +142,29 @@ function buildModalHTML(homeDir: string): string {
 
       <!-- Parent directory -->
       <div style="display:flex;flex-direction:column;gap:6px;">
-        <label style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--fg-3);">
+        <label for="np-parent-dir" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--fg-3);">
           Parent Directory <span style="color:var(--err)">*</span>
         </label>
-        <!-- Mode toggle -->
-        <div style="display:flex;gap:6px;margin-bottom:4px;">
-          <button id="np-mode-preset" class="np-mode-btn np-mode-active" data-mode="preset"
-                  style="height:26px;padding:0 12px;border:1px solid var(--line);border-radius:6px;
-                         background:rgba(124,140,255,0.15);color:var(--accent);font-size:11.5px;
-                         font-family:inherit;cursor:pointer;font-weight:500;">
-            Quick select
-          </button>
-          <button id="np-mode-custom" class="np-mode-btn" data-mode="custom"
-                  style="height:26px;padding:0 12px;border:1px solid var(--line);border-radius:6px;
-                         background:transparent;color:var(--fg-2);font-size:11.5px;
-                         font-family:inherit;cursor:pointer;font-weight:500;">
-            Custom path
-          </button>
-        </div>
-
-        <!-- Preset select -->
-        <div id="np-parent-preset-wrap">
-          <select id="np-parent-preset"
-                  style="
-                    width:100%;height:34px;padding:0 12px;
-                    background:var(--bg-2);border:1px solid var(--line);border-radius:8px;
-                    color:var(--fg-0);font-size:13px;font-family:inherit;outline:none;
-                    appearance:none;-webkit-appearance:none;cursor:pointer;
-                  ">
-            ${roots}
-          </select>
-        </div>
-
-        <!-- Custom path input -->
-        <div id="np-parent-custom-wrap" style="display:none;">
-          <input id="np-parent-custom" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="/Users/you/projects"
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;">
+          <input id="np-parent-dir" type="text" readonly
+                 value="${npEsc(defaultParent)}"
+                 placeholder="Choose a parent folder"
                  style="
                    width:100%;height:34px;padding:0 12px;
                    background:var(--bg-2);border:1px solid var(--line);border-radius:8px;
                    color:var(--fg-0);font-size:13px;font-family:var(--mono,monospace);outline:none;
+                   cursor:default;
                  " />
+          <button id="np-parent-choose" type="button"
+                  style="
+                    height:34px;padding:0 12px;
+                    background:var(--bg-2);border:1px solid var(--line);border-radius:8px;
+                    color:var(--fg-1);font-size:12px;font-family:inherit;cursor:pointer;
+                    white-space:nowrap;
+                  ">
+            Choose…
+          </button>
         </div>
-
         <div id="np-parent-err" style="font-size:11.5px;color:var(--err);display:none;"></div>
       </div>
 
@@ -207,57 +181,18 @@ function buildModalHTML(homeDir: string): string {
               ">—</span>
       </div>
 
-      <!-- Options -->
+      <!-- Initialization -->
       <div style="display:flex;flex-direction:column;gap:10px;">
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--fg-3);">Initialize with</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-          <label class="np-opt-label" style="display:flex;align-items:center;gap:8px;padding:8px 10px;
-                 border:1px solid var(--line);border-radius:7px;cursor:pointer;
-                 background:var(--bg-2);font-size:12.5px;color:var(--fg-1);">
-            <input type="checkbox" id="np-opt-git" checked
-                   style="width:14px;height:14px;accent-color:var(--accent);flex:none;" />
-            git init
-          </label>
-          <label class="np-opt-label" style="display:flex;align-items:center;gap:8px;padding:8px 10px;
-                 border:1px solid var(--line);border-radius:7px;cursor:pointer;
-                 background:var(--bg-2);font-size:12.5px;color:var(--fg-1);">
-            <input type="checkbox" id="np-opt-claude" checked
-                   style="width:14px;height:14px;accent-color:var(--accent);flex:none;" />
-            CLAUDE.md
-          </label>
-          <label class="np-opt-label" style="display:flex;align-items:center;gap:8px;padding:8px 10px;
-                 border:1px solid var(--line);border-radius:7px;cursor:pointer;
-                 background:var(--bg-2);font-size:12.5px;color:var(--fg-1);">
-            <input type="checkbox" id="np-opt-progress" checked
-                   style="width:14px;height:14px;accent-color:var(--accent);flex:none;" />
-            progress.md
-          </label>
-          <label class="np-opt-label" style="display:flex;align-items:center;gap:8px;padding:8px 10px;
-                 border:1px solid var(--line);border-radius:7px;cursor:pointer;
-                 background:var(--bg-2);font-size:12.5px;color:var(--fg-1);">
-            <input type="checkbox" id="np-opt-gitignore"
-                   style="width:14px;height:14px;accent-color:var(--accent);flex:none;" />
-            .gitignore (Node)
-          </label>
-        </div>
-      </div>
-
-      <!-- Global error -->
-      <div id="np-global-err" style="font-size:12px;color:var(--err);background:rgba(255,107,107,0.08);
-           border:1px solid rgba(255,107,107,0.2);border-radius:7px;padding:8px 12px;display:none;"></div>
-
-      <!-- Tool selection (Sprint 1: Codex 진입점) -->
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--fg-3);">Open with (after create)</div>
         <div style="display:flex;gap:8px;">
-          <label style="display:flex;align-items:center;gap:7px;padding:7px 12px;
+          <label style="display:flex;align-items:center;gap:7px;padding:8px 12px;
                  border:1px solid var(--line);border-radius:7px;cursor:pointer;
                  background:var(--bg-2);font-size:12.5px;color:var(--fg-1);flex:1;">
             <input type="radio" id="np-tool-claude" name="np-tool" value="claude" checked
                    style="width:14px;height:14px;accent-color:var(--accent);flex:none;" />
             Claude
           </label>
-          <label style="display:flex;align-items:center;gap:7px;padding:7px 12px;
+          <label style="display:flex;align-items:center;gap:7px;padding:8px 12px;
                  border:1px solid var(--line);border-radius:7px;cursor:pointer;
                  background:var(--bg-2);font-size:12.5px;color:var(--fg-1);flex:1;">
             <input type="radio" id="np-tool-codex" name="np-tool" value="codex"
@@ -265,7 +200,19 @@ function buildModalHTML(homeDir: string): string {
             Codex
           </label>
         </div>
+        <div style="
+             background:var(--bg-2);border:1px solid var(--line);border-radius:8px;
+             padding:8px 12px;display:flex;align-items:center;gap:8px;
+             ">
+          <span style="font-size:11px;color:var(--fg-3);font-weight:600;white-space:nowrap;">Creates</span>
+          <span id="np-init-files" style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--fg-2);
+                overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">git, CLAUDE.md, progress.md</span>
+        </div>
       </div>
+
+      <!-- Global error -->
+      <div id="np-global-err" style="font-size:12px;color:var(--err);background:rgba(255,107,107,0.08);
+           border:1px solid rgba(255,107,107,0.2);border-radius:7px;padding:8px 12px;display:none;"></div>
     </div>
 
     <!-- Footer -->
@@ -295,19 +242,9 @@ function buildModalHTML(homeDir: string): string {
 // Modal state helpers
 // ---------------------------------------------------------------------------
 
-function npGetMode(): "preset" | "custom" {
-  var btn = document.querySelector(".np-mode-btn.np-mode-active") as HTMLElement | null;
-  if (btn && btn.dataset.mode === "custom") return "custom";
-  return "preset";
-}
-
 function npGetParentDir(): string {
-  if (npGetMode() === "custom") {
-    var inp = document.getElementById("np-parent-custom") as HTMLInputElement | null;
-    return inp ? inp.value.trim() : "";
-  }
-  var sel = document.getElementById("np-parent-preset") as HTMLSelectElement | null;
-  return sel ? sel.value : "";
+  var inp = document.getElementById("np-parent-dir") as HTMLInputElement | null;
+  return inp ? inp.value.trim() : "";
 }
 
 function npGetProjectName(): string {
@@ -382,39 +319,39 @@ function npSetCreateBtnLoading(loading: boolean): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Mode toggle
-// ---------------------------------------------------------------------------
-
-function npSetMode(mode: "preset" | "custom"): void {
-  var presetBtn = document.getElementById("np-mode-preset") as HTMLButtonElement | null;
-  var customBtn = document.getElementById("np-mode-custom") as HTMLButtonElement | null;
-  var presetWrap = document.getElementById("np-parent-preset-wrap") as HTMLElement | null;
-  var customWrap = document.getElementById("np-parent-custom-wrap") as HTMLElement | null;
-
-  if (!presetBtn || !customBtn || !presetWrap || !customWrap) return;
-
-  var activeStyle = "background:rgba(124,140,255,0.15);color:var(--accent);border-color:rgba(124,140,255,0.3);";
-  var inactiveStyle = "background:transparent;color:var(--fg-2);border-color:var(--line);";
-
-  if (mode === "preset") {
-    presetBtn.style.cssText = presetBtn.style.cssText.replace(/background[^;]+;|color[^;]+;|border-color[^;]+;/g, "") + activeStyle;
-    presetBtn.classList.add("np-mode-active");
-    customBtn.style.cssText = customBtn.style.cssText.replace(/background[^;]+;|color[^;]+;|border-color[^;]+;/g, "") + inactiveStyle;
-    customBtn.classList.remove("np-mode-active");
-    presetWrap.style.display = "";
-    customWrap.style.display = "none";
-  } else {
-    customBtn.style.cssText = customBtn.style.cssText.replace(/background[^;]+;|color[^;]+;|border-color[^;]+;/g, "") + activeStyle;
-    customBtn.classList.add("np-mode-active");
-    presetBtn.style.cssText = presetBtn.style.cssText.replace(/background[^;]+;|color[^;]+;|border-color[^;]+;/g, "") + inactiveStyle;
-    presetBtn.classList.remove("np-mode-active");
-    customWrap.style.display = "";
-    presetWrap.style.display = "none";
-    var customInp = document.getElementById("np-parent-custom") as HTMLInputElement | null;
-    if (customInp) customInp.focus();
-  }
+function npSetParentDir(parentDir: string): void {
+  var inp = document.getElementById("np-parent-dir") as HTMLInputElement | null;
+  if (!inp) return;
+  inp.value = parentDir;
+  npShowParentErr(null);
   npUpdatePreview();
+}
+
+async function npChooseParentDir(): Promise<void> {
+  var api = window.dashboardAPI;
+  if (!api || typeof api.pickParentDirectory !== "function") {
+    npShowParentErr("Directory picker is not available.");
+    return;
+  }
+
+  try {
+    var current = npGetParentDir();
+    var result = await api.pickParentDirectory(current || undefined);
+    if (result.canceled || !result.path) return;
+    npSetParentDir(result.path);
+  } catch (err) {
+    var msg = err instanceof Error ? err.message : String(err);
+    npShowParentErr("Failed to open directory picker: " + msg);
+  }
+}
+
+function npUpdateInitSummary(): void {
+  var el = document.getElementById("np-init-files") as HTMLElement | null;
+  if (!el) return;
+  var selectedTool = npGetSelectedTool();
+  el.textContent = selectedTool === "codex"
+    ? "git, AGENT.md, codex-handoff.md"
+    : "git, CLAUDE.md, progress.md";
 }
 
 // ---------------------------------------------------------------------------
@@ -444,16 +381,20 @@ async function npHandleCreate(): Promise<void> {
     return;
   }
 
-  // 옵션 수집
-  var gitInit = (document.getElementById("np-opt-git") as HTMLInputElement | null)?.checked ?? false;
-  var claudeMd = (document.getElementById("np-opt-claude") as HTMLInputElement | null)?.checked ?? false;
-  var progressMd = (document.getElementById("np-opt-progress") as HTMLInputElement | null)?.checked ?? false;
-  var gitignoreNode = (document.getElementById("np-opt-gitignore") as HTMLInputElement | null)?.checked ?? false;
+  var selectedTool = npGetSelectedTool();
 
   var payload: NewProjectPayload = {
     projectName: nameTrimmed,
     parentDir,
-    options: { gitInit, claudeMd, progressMd, gitignoreNode },
+    options: {
+      tool: selectedTool,
+      gitInit: true,
+      claudeMd: selectedTool === "claude",
+      progressMd: selectedTool === "claude",
+      agentMd: selectedTool === "codex",
+      handoffMd: selectedTool === "codex",
+      gitignoreNode: false,
+    },
   };
 
   npSetCreateBtnLoading(true);
@@ -601,6 +542,7 @@ function openNewProjectModal(homeDir: string, onClose?: () => void): void {
 
   // preview 초기화
   npUpdatePreview();
+  npUpdateInitSummary();
 
   // 이벤트 바인딩
   var closeBtn = document.getElementById("np-close-btn");
@@ -645,17 +587,13 @@ function openNewProjectModal(homeDir: string, onClose?: () => void): void {
     });
   }
 
-  // Mode toggle 버튼
-  var presetBtn = document.getElementById("np-mode-preset");
-  if (presetBtn) presetBtn.addEventListener("click", () => npSetMode("preset"));
-  var customBtn = document.getElementById("np-mode-custom");
-  if (customBtn) customBtn.addEventListener("click", () => npSetMode("custom"));
+  var parentChoose = document.getElementById("np-parent-choose");
+  if (parentChoose) parentChoose.addEventListener("click", () => { void npChooseParentDir(); });
 
-  // Preset 변경 시 preview 업데이트
-  var presetSel = document.getElementById("np-parent-preset") as HTMLSelectElement | null;
-  if (presetSel) presetSel.addEventListener("change", () => npUpdatePreview());
-
-  // Custom 입력 시 preview 업데이트
-  var customInp = document.getElementById("np-parent-custom") as HTMLInputElement | null;
-  if (customInp) customInp.addEventListener("input", () => npUpdatePreview());
+  var claudeTool = document.getElementById("np-tool-claude");
+  if (claudeTool) claudeTool.addEventListener("change", () => npUpdateInitSummary());
+  var codexTool = document.getElementById("np-tool-codex");
+  if (codexTool) codexTool.addEventListener("change", () => npUpdateInitSummary());
 }
+
+window.openNewProjectModal = openNewProjectModal;

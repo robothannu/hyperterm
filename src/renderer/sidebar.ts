@@ -53,13 +53,8 @@ function updateSidebarCountPill(tabId: number): void {
   if (!li) return;
   const pill = li.querySelector(".card-count-pill") as HTMLElement | null;
   if (!pill) return;
-
-  const tab = tabMap.get(tabId);
-  if (!tab) return;
-  const count = getAllLeaves(tab.root).length;
-  pill.textContent = String(count);
-  // Reset to default style (agent-status may override later)
-  pill.className = "card-count-pill";
+  pill.textContent = "";
+  pill.style.display = "none";
 }
 
 // ---------------------------------------------------------------------------
@@ -272,13 +267,12 @@ function addSidebarEntryDOM(tabId: number, label: string): void {
   li.draggable = true;
 
   // Project card layout:
-  // Row 1: [dot-status] [name + tab-notif] [count pill] [actions]
+  // Row 1: [dot-status] [name + tab-notif] [actions]
   // Row 2: [meta: git + changes + ahead]
   li.innerHTML = `
     <div class="terminal-entry-row">
       <span class="card-dot-status" title="idle"></span>
       <span class="terminal-label">${escapeHtml(label)}</span>
-      <span class="card-count-pill">1</span>
       <span class="tab-notif hidden"></span>
       <span class="subagent-indicator-slot" style="display:none"></span>
       <div class="terminal-entry-actions">

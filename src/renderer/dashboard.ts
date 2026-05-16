@@ -20,6 +20,7 @@ declare const DOMPurify: {
 
 interface CardMeta {
   ws: WorkspaceEntry;
+  loadState?: "loading" | "ready" | "timeout";
   // Derived from IPC calls — populated async
   gitBranch: string | null;
   gitAhead: number;
@@ -28,16 +29,19 @@ interface CardMeta {
   gitUntracked: number;
   gitLastCommit: string | null;
   gitDirty: boolean;
-  isRunning: boolean;    // harnessPhase != null
+  isRunning: boolean;    // harnessPhase != null OR codexRunning
   isOpen: boolean;       // sessions.json has open cwd
   isMissing: boolean;
   goal: string | null;
   currentTask: string | null;
   nextSteps: string[];
   tags: string[];
-  group: "active" | "recent" | "archived";
+  group: WorkspaceGroup;
   updatedLabel: string;
   tool: WorkspaceTool;
+  primaryTool: WorkspacePrimaryTool | null;
+  claudeState: DashboardToolState | null;
+  codexState: DashboardToolState | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +49,7 @@ interface CardMeta {
 // ---------------------------------------------------------------------------
 
 type SortKey = "recent" | "name" | "lastCommit";
+type WorkspaceGroup = "active" | "archived";
 
 var _workspaces: WorkspaceEntry[] = [];
 var _cardMetas: CardMeta[] = [];
@@ -55,6 +60,8 @@ var _search: string = "";
 var _toastTimer: ReturnType<typeof setTimeout> | null = null;
 var _homeDir: string = "";
 var _expandedIds: Set<string> = new Set();
+var _loadRenderSeq = 0;
+var _renderedCardKeys: Map<string, string> = new Map();
 
 // Sprint 2: gitflow cache (`_gitFlowCache`, `_gitFlowInflight`) lives in
 // dashboard-gitflow.ts. Use clearGitflowCache() / ensureGitflowForWorkspace().
@@ -179,31 +186,28 @@ function ageMs(isoStr: string): number {
   }
 }
 
-var MS_24H = 24 * 60 * 60 * 1000;
 var MS_7D  = 7  * 24 * 60 * 60 * 1000;
-var MS_4W  = 28 * 24 * 60 * 60 * 1000;
 
 /**
- * Classify a workspace into active/recent/archived.
- * - archived: ws.archived === true  OR  4+ weeks since addedAt AND no recent git activity
- * - active:   isOpen, isRunning, gitDirty, gitChanged > 0, OR last commit < 24h
- * - recent:   last commit/activity < 7 days
- * - archived: everything else (>= 7d, no activity)
+ * Classify a workspace into the dashboard's visible groups.
+ * - archived: only when the user manually archives the workspace
+ * - active: all non-archived workspaces, with running/open/dirty/recent data
+ *   used for filters and sorting rather than automatic archival
  *
  * ws.archived flag always wins (sticky).
  */
-function classifyGroup(
+export function classifyGroup(
   ws: WorkspaceEntry,
   isOpen: boolean,
   isRunning: boolean,
   gitDirty: boolean,
   gitChanged: number,
   gitLastCommit: string | null
-): "active" | "recent" | "archived" {
+): WorkspaceGroup {
   // archived flag wins
   if (ws.archived === true) return "archived";
 
-  // Active: open session, harness running, dirty tree, or last commit < 24h
+  // Active: open session, running agent/session, or uncommitted changes.
   if (isOpen || isRunning || gitDirty || gitChanged > 0) return "active";
 
   // Try to interpret gitLastCommit relative time string into rough age
@@ -211,24 +215,19 @@ function classifyGroup(
   if (gitLastCommit) {
     var lastAge = parseGitRelTimeMs(gitLastCommit);
     if (lastAge !== null) {
-      if (lastAge < MS_24H) return "active";
-      if (lastAge < MS_7D)  return "recent";
-      if (lastAge < MS_4W)  return "recent"; // still recent within 4 weeks
-      return "archived";
+      if (lastAge < MS_7D) return "active";
     }
   }
 
-  // Fallback: use addedAt age
-  var age = ageMs(ws.addedAt);
-  if (age < MS_7D) return "recent";
-  return "archived";
+  // Non-archived workspaces remain active; "recent" is a sort mode, not a group.
+  return "active";
 }
 
 /**
  * Parse git relative time string (e.g. "3 minutes ago", "2 days ago", "1 hour ago")
  * into approximate milliseconds. Returns null if unparseable.
  */
-function parseGitRelTimeMs(rel: string): number | null {
+export function parseGitRelTimeMs(rel: string): number | null {
   var m = rel.match(/^(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago$/i);
   if (!m) return null;
   var n = parseInt(m[1], 10);
@@ -304,6 +303,68 @@ function sortMetas(metas: CardMeta[]): CardMeta[] {
   return copy;
 }
 
+function makeInitialCardMeta(ws: WorkspaceEntry): CardMeta {
+  return {
+    ws,
+    loadState: "loading",
+    gitBranch: null,
+    gitAhead: 0,
+    gitBehind: 0,
+    gitChanged: 0,
+    gitUntracked: 0,
+    gitLastCommit: null,
+    gitDirty: false,
+    isRunning: false,
+    isOpen: false,
+    isMissing: false,
+    goal: null,
+    currentTask: null,
+    nextSteps: [],
+    tags: [],
+    group: ws.archived === true ? "archived" : "active",
+    updatedLabel: relTime(ws.addedAt),
+    tool: "none",
+    primaryTool: null,
+    claudeState: null,
+    codexState: null,
+  };
+}
+
+function uiGroupFor(meta: CardMeta): "active" | "archived" {
+  return meta.group === "archived" ? "archived" : "active";
+}
+
+function cardRefreshKey(m: CardMeta): string {
+  return JSON.stringify({
+    id: m.ws.id,
+    name: m.ws.name,
+    path: m.ws.absolutePath,
+    archived: m.ws.archived === true,
+    group: m.group,
+    missing: m.isMissing,
+    open: m.isOpen,
+    running: m.isRunning,
+    branch: m.gitBranch,
+    ahead: m.gitAhead,
+    behind: m.gitBehind,
+    changed: m.gitChanged,
+    untracked: m.gitUntracked,
+    dirty: m.gitDirty,
+    goal: m.goal,
+    currentTask: m.currentTask,
+    nextSteps: m.nextSteps,
+    tags: m.tags,
+    tool: m.tool,
+    primaryTool: m.primaryTool,
+    updatedLabel: m.updatedLabel,
+    claudeUpdatedAt: m.claudeState?.updatedAt || null,
+    codexUpdatedAt: m.codexState?.updatedAt || null,
+    claudeState: m.claudeState,
+    codexState: m.codexState,
+    loadState: m.loadState || "loading",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Count helpers for filter chips
 // ---------------------------------------------------------------------------
@@ -312,8 +373,8 @@ function computeCounts(metas: CardMeta[]): Record<string, number> {
   var counts: Record<string, number> = { all: 0, active: 0, dirty: 0, running: 0, archived: 0 };
   for (var m of metas) {
     counts.all++;
-    if (m.isOpen || m.group === "active") counts.active++;
-    if (m.gitDirty || m.gitChanged > 0) counts.dirty++;
+    if (m.group !== "archived") counts.active++;
+    if (m.gitDirty || m.gitChanged > 0 || m.gitUntracked > 0) counts.dirty++;
     if (m.isRunning) counts.running++;
     if (m.group === "archived") counts.archived++;
   }
@@ -327,8 +388,8 @@ function computeCounts(metas: CardMeta[]): Record<string, number> {
 function filterMetas(metas: CardMeta[]): CardMeta[] {
   return metas.filter((m) => {
     // Status filter
-    if (_filter === "active" && !m.isOpen && m.group !== "active") return false;
-    if (_filter === "dirty" && !m.gitDirty && m.gitChanged === 0) return false;
+    if (_filter === "active" && m.group === "archived") return false;
+    if (_filter === "dirty" && !m.gitDirty && m.gitChanged === 0 && m.gitUntracked === 0) return false;
     if (_filter === "running" && !m.isRunning) return false;
     if (_filter === "archived" && m.group !== "archived") return false;
 
@@ -359,18 +420,84 @@ function filterMetas(metas: CardMeta[]): CardMeta[] {
  * Render a small tool marker badge for the card header.
  * Returns an HTML string. Returns empty string for tool="none".
  */
-function renderToolMarker(tool: WorkspaceTool): string {
+function renderToolMarker(tool: WorkspaceTool, primaryTool: WorkspacePrimaryTool | null): string {
   if (tool === "claude") {
     return '<span class="tool-marker tool-claude" title="Claude Code project (CLAUDE.md)">Claude</span>';
   }
   if (tool === "codex") {
-    return '<span class="tool-marker tool-codex" title="Codex project (AGENTS.md)">Codex</span>';
+    return '<span class="tool-marker tool-codex" title="Codex project (AGENT.md)">Codex</span>';
   }
   if (tool === "mixed") {
-    return '<span class="tool-marker tool-claude" title="Claude Code project (CLAUDE.md)">Claude</span>'
-         + '<span class="tool-marker tool-codex" title="Codex project (AGENTS.md)">Codex</span>';
+    var primaryIsCodex = primaryTool === "codex";
+    var first = primaryIsCodex
+      ? '<span class="tool-marker tool-codex tool-primary" title="Most recently updated: Codex">Codex</span>'
+      : '<span class="tool-marker tool-claude tool-primary" title="Most recently updated: Claude">Claude</span>';
+    var second = primaryIsCodex
+      ? '<span class="tool-marker tool-claude" title="Claude Code project (CLAUDE.md)">Claude</span>'
+      : '<span class="tool-marker tool-codex" title="Codex project (AGENT.md)">Codex</span>';
+    return first + second;
   }
   return ""; // "none" → no marker
+}
+
+function renderProjectStateSection(label: string, state: DashboardToolState | null, primary: boolean): string {
+  if (!state) return "";
+  var nextSteps = state.nextSteps || [];
+  var nextHTML = nextSteps.length > 0
+    ? `<ul class="tool-state-next">${nextSteps.slice(0, 3).map((step) => `<li>${mdInline(step)}</li>`).join("")}</ul>`
+    : `<div class="tool-state-empty">No next steps</div>`;
+  var updated = state.updatedAt ? relTime(state.updatedAt) : "unknown";
+  return `
+    <section class="tool-state-section${primary ? " primary" : ""}">
+      <div class="tool-state-head">
+        <span class="tool-state-label">${dashEsc(label)}</span>
+        ${primary ? '<span class="tool-state-primary">recent</span>' : ""}
+        <span class="tool-state-updated">${dashEsc(updated)}</span>
+      </div>
+      <div class="field">
+        <div class="field-label">Goal</div>
+        <div class="field-value">${mdInline(state.goal || state.objective || "—")}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Current</div>
+        <div class="field-value">${mdInline(state.currentTask || "—")}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Next</div>
+        <div class="field-value">${nextHTML}</div>
+      </div>
+    </section>
+    `;
+}
+
+interface ProjectStateDisplay {
+  label: "Claude" | "Codex";
+  state: DashboardToolState;
+  primary: boolean;
+}
+
+export function getProjectStateDisplays(
+  primaryTool: WorkspacePrimaryTool | null,
+  claudeState: DashboardToolState | null,
+  codexState: DashboardToolState | null
+): ProjectStateDisplay[] {
+  if (!claudeState && !codexState) return [];
+  if (claudeState && codexState) {
+    if (primaryTool === "codex") {
+      return [
+        { label: "Codex", state: codexState, primary: true },
+        { label: "Claude", state: claudeState, primary: false },
+      ];
+    }
+    return [
+      { label: "Claude", state: claudeState, primary: true },
+      { label: "Codex", state: codexState, primary: false },
+    ];
+  }
+  if (claudeState) {
+    return [{ label: "Claude", state: claudeState, primary: primaryTool === "claude" }];
+  }
+  return [{ label: "Codex", state: codexState!, primary: primaryTool === "codex" }];
 }
 
 // ---------------------------------------------------------------------------
@@ -421,7 +548,7 @@ function renderCard(m: CardMeta): HTMLElement {
     </div>
   `;
 
-  var toolMarkerHTML = renderToolMarker(m.tool);
+  var toolMarkerHTML = renderToolMarker(m.tool, m.primaryTool);
   card.innerHTML = `
     <div class="card-head">
       <div class="ws-icon ${dashEsc(iconInfo.color)}">${dashEsc(iconInfo.letter)}</div>
@@ -479,6 +606,8 @@ function renderCard(m: CardMeta): HTMLElement {
         if (p && confirmCrossTool("codex", btn.getAttribute("data-tool"))) {
           void handleOpenWithCodex(p);
         }
+      } else if (action === "refresh-all") {
+        void handleRefreshAll();
       } else if (action === "open-ide") {
         if (p) void handleOpenInIDE(p);
       } else if (action === "reveal-finder") {
@@ -510,6 +639,10 @@ function renderCard(m: CardMeta): HTMLElement {
 
 // Populate status strip + card body once IPC data is available
 function populateCardData(m: CardMeta): void {
+  if (m.loadState === "timeout") {
+    showCardDataError(m, "Card data timed out. Refresh to retry.");
+    return;
+  }
   var ssEl = document.getElementById("ss-" + m.ws.id);
   var cbEl = document.getElementById("cb-" + m.ws.id);
   var updEl = document.getElementById("upd-" + m.ws.id);
@@ -526,7 +659,7 @@ function populateCardData(m: CardMeta): void {
   var cardEl = document.querySelector(`.ws-card[data-id="${CSS.escape(m.ws.id)}"]`);
   if (cardEl) {
     var existingMarkerRow = cardEl.querySelector(".tool-marker-row");
-    var toolMarkerHTML2 = renderToolMarker(m.tool);
+    var toolMarkerHTML2 = renderToolMarker(m.tool, m.primaryTool);
     if (toolMarkerHTML2) {
       if (existingMarkerRow) {
         existingMarkerRow.innerHTML = toolMarkerHTML2;
@@ -551,7 +684,7 @@ function populateCardData(m: CardMeta): void {
     statusItems.push(`<span class="ss-item live"><span class="dot"></span>live</span>`);
   }
   if (m.isRunning) {
-    statusItems.push(`<span class="ss-item"><span style="color:var(--warn)">&#9679;</span> harness</span>`);
+    statusItems.push(`<span class="ss-item"><span style="color:var(--warn)">&#9679;</span> running</span>`);
   }
   if (m.gitBranch) {
     statusItems.push(`<span class="ss-item"><span class="branch">&#10567; ${dashEsc(m.gitBranch)}</span></span>`);
@@ -586,7 +719,7 @@ function populateCardData(m: CardMeta): void {
     tagsRow.className = "tags-row";
     tagsRow.id = "tr-" + m.ws.id;
     for (var tag of m.tags) {
-      var cls = tag === "archived" ? "gray" : tag === "harness" ? "warn" : tag === "open" ? "cyan" : "";
+      var cls = tag === "archived" ? "gray" : tag === "running" ? "warn" : tag === "open" ? "cyan" : "";
       tagsRow.innerHTML += `<span class="tag ${cls}">${dashEsc(tag)}</span>`;
     }
     // Insert tags-row after status-strip
@@ -669,8 +802,20 @@ function populateCardData(m: CardMeta): void {
     `);
   }
 
+  var stateDisplays = getProjectStateDisplays(m.primaryTool, m.claudeState, m.codexState);
+  if (stateDisplays.length > 0) {
+    bodyParts.push(`
+      <div class="tool-state-wrap">
+        <div class="field-label">Project states</div>
+        <div class="tool-state-grid">
+          ${stateDisplays.map((display) => renderProjectStateSection(display.label, display.state, display.primary)).join("")}
+        </div>
+      </div>
+    `);
+  }
+
   if (bodyParts.length === 0) {
-    bodyParts.push(`<span class="card-absent">No overview data — add CLAUDE.md or progress.md</span>`);
+    bodyParts.push(`<span class="card-absent">No overview data — add CLAUDE.md, progress.md, or AGENT.md + codex-handoff.md</span>`);
   }
 
   cbEl.innerHTML = bodyParts.join("");
@@ -738,6 +883,25 @@ function populateCardData(m: CardMeta): void {
       });
     });
   }
+}
+
+function showCardDataError(m: CardMeta, reason: string): void {
+  var ssEl = document.getElementById("ss-" + m.ws.id);
+  var cbEl = document.getElementById("cb-" + m.ws.id);
+  if (ssEl) ssEl.classList.remove("skeleton-strip");
+  if (!cbEl) return;
+  cbEl.classList.remove("skeleton-body");
+  cbEl.innerHTML = `
+    <div class="field">
+      <div class="field-label">Card data</div>
+      <div class="field-value">
+        <span class="card-absent">${dashEsc(reason)}</span>
+        <div style="margin-top:8px;">
+          <button class="open-btn primary" type="button" data-action="refresh-all">Retry</button>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // ---------------------------------------------------------------------------
@@ -811,6 +975,10 @@ function render(): void {
   var content = document.getElementById("content") as HTMLDivElement;
   var emptyState = document.getElementById("empty-state") as HTMLDivElement;
 
+  // Start from a clean shell every render so stale dashboard nodes cannot
+  // accumulate across refresh cycles or partial rerenders.
+  content.replaceChildren(emptyState);
+
   // Always remove a previous discovery banner; it gets re-added below if
   // conditions still match. Done before any early returns so the banner
   // also disappears when filter/search changes.
@@ -818,16 +986,12 @@ function render(): void {
 
   if (_cardMetas.length === 0) {
     emptyState.style.display = "";
-    // Clear previous content except empty-state
-    content.querySelectorAll(":not(#empty-state)").forEach((el) => el.remove());
     // Sprint 3: still render banner above empty-state if conditions match
     renderDiscoveryBanner(content);
     return;
   }
 
   emptyState.style.display = "none";
-  // Remove all previous rendered nodes
-  content.querySelectorAll(".ws-grid,.ws-list,.group-header,#no-match").forEach((el) => el.remove());
 
   // Sprint 3: render discovery banner at top of content (before card groups)
   renderDiscoveryBanner(content);
@@ -847,9 +1011,8 @@ function render(): void {
 
   // Log group classification result once per render
   var gActive = _cardMetas.filter((m) => m.group === "active").length;
-  var gRecent = _cardMetas.filter((m) => m.group === "recent").length;
   var gArchived = _cardMetas.filter((m) => m.group === "archived").length;
-  console.log(`[dashboard] grouped active=${gActive} recent=${gRecent} archived=${gArchived}`);
+  console.log(`[dashboard] grouped active=${gActive} archived=${gArchived}`);
 
   var visible = sortMetas(filterMetas(_cardMetas));
   var filterName = _filter;
@@ -868,7 +1031,12 @@ function render(): void {
     // Populate card bodies after DOM is built — runs on every render() call
     // (covers chip click, view toggle, search, and initial load)
     for (var i = 0; i < visible.length; i++) {
-      populateCardData(visible[i]);
+      try {
+        populateCardData(visible[i]);
+      } catch (err) {
+        console.error(`[dashboard] populateCardData failed for ${visible[i].ws.absolutePath}:`, err);
+        showCardDataError(visible[i], "Card data could not be rendered.");
+      }
     }
     // G1: cards restored as expanded from localStorage need gitflow data too,
     // not only fresh user-clicks. Trigger fetch (or paint from cache) for any
@@ -882,36 +1050,50 @@ function render(): void {
   } else {
     renderList(content, visible);
   }
+
+  _renderedCardKeys = new Map();
+  for (var meta of visible) {
+    _renderedCardKeys.set(meta.ws.id, cardRefreshKey(meta));
+  }
 }
 
 function renderGrid(container: HTMLElement, metas: CardMeta[]): void {
-  var grouped: Record<string, CardMeta[]> = { active: [], recent: [], archived: [] };
+  var grouped: Record<string, CardMeta[]> = { active: [], archived: [] };
   for (var m of metas) {
-    grouped[m.group] = grouped[m.group] || [];
-    grouped[m.group].push(m);
+    var uiGroup = uiGroupFor(m);
+    grouped[uiGroup] = grouped[uiGroup] || [];
+    grouped[uiGroup].push(m);
   }
 
-  if (grouped.active && grouped.active.length > 0) {
-    container.appendChild(makeGroupHeader("Active", grouped.active.length, "var(--ok)"));
-    container.appendChild(makeGrid(grouped.active));
-  }
-  if (grouped.recent && grouped.recent.length > 0) {
-    container.appendChild(makeGroupHeader("Recent", grouped.recent.length, "var(--fg-3)"));
-    container.appendChild(makeGrid(grouped.recent));
-  }
-  if (grouped.archived && grouped.archived.length > 0) {
-    container.appendChild(makeGroupHeader("Archived", grouped.archived.length, "var(--fg-3)"));
-    var g = makeGrid(grouped.archived);
-    g.style.opacity = "0.65";
-    container.appendChild(g);
+  for (var group of ["active", "archived"] as const) {
+    container.appendChild(makeGroupSection(group, grouped[group] || []));
   }
 }
 
 function makeGroupHeader(label: string, count: number, dotColor: string): HTMLElement {
   var h = document.createElement("div");
   h.className = "group-header";
+  h.dataset.group = label.toLowerCase();
   h.innerHTML = `<span style="color:${dotColor}">&#9679;</span> ${dashEsc(label)} <span class="count">${count}</span><span class="line"></span>`;
   return h;
+}
+
+function makeGroupSection(group: WorkspaceGroup, metas: CardMeta[]): HTMLElement {
+  var section = document.createElement("div");
+  section.className = "group-section";
+  section.dataset.group = group;
+  section.style.display = metas.length > 0 ? "contents" : "none";
+
+  var label = group === "active" ? "Active" : "Archived";
+  var dotColor = group === "active" ? "var(--ok)" : "var(--fg-3)";
+  section.appendChild(makeGroupHeader(label, metas.length, dotColor));
+
+  var grid = makeGrid(metas);
+  grid.id = `grid-${group}`;
+  grid.dataset.group = group;
+  if (group === "archived") grid.style.opacity = "0.65";
+  section.appendChild(grid);
+  return section;
 }
 
 function makeGrid(metas: CardMeta[]): HTMLDivElement {
@@ -939,14 +1121,236 @@ function renderList(container: HTMLElement, metas: CardMeta[]): void {
   container.appendChild(listEl);
 }
 
+function updateVisibleTimeLabels(metas: CardMeta[]): void {
+  for (var m of metas) {
+    var updEl = document.getElementById("upd-" + m.ws.id);
+    if (updEl) updEl.textContent = m.updatedLabel;
+    var ssEl = document.getElementById("ss-" + m.ws.id);
+    if (ssEl) {
+      var agoEl = ssEl.querySelector(".ago") as HTMLElement | null;
+      if (agoEl && m.gitLastCommit) {
+        agoEl.textContent = m.gitLastCommit;
+      }
+    }
+  }
+}
+
+function updateGroupHeaderCounts(metas: CardMeta[]): void {
+  var grouped: Record<string, number> = { active: 0, archived: 0 };
+  for (var m of metas) {
+    var uiGroup = uiGroupFor(m);
+    grouped[uiGroup] = (grouped[uiGroup] || 0) + 1;
+  }
+  for (var group of ["active", "archived"] as const) {
+    var section = document.querySelector(`.group-section[data-group="${group}"]`) as HTMLElement | null;
+    if (!section) continue;
+    var header = section.querySelector(".group-header");
+    var countEl = header?.querySelector(".count");
+    if (countEl) countEl.textContent = String(grouped[group] || 0);
+    section.style.display = (grouped[group] || 0) > 0 ? "contents" : "none";
+  }
+}
+
+function getRenderedCardsMap(): Map<string, HTMLElement> {
+  var cards = new Map<string, HTMLElement>();
+  document.querySelectorAll<HTMLElement>(".ws-card[data-id]").forEach((el) => {
+    cards.set(el.dataset.id || "", el);
+  });
+  return cards;
+}
+
+function reconcileRenderedGrid(metas: CardMeta[]): void {
+  var allCards = getRenderedCardsMap();
+  var grouped: Record<string, CardMeta[]> = { active: [], archived: [] };
+  for (var meta of metas) {
+    grouped[uiGroupFor(meta)].push(meta);
+  }
+
+  for (var group of ["active", "archived"] as const) {
+    var grid = document.getElementById(`grid-${group}`) as HTMLDivElement | null;
+    if (!grid) continue;
+
+    var desired = grouped[group];
+    var desiredIds = new Set(desired.map((m) => m.ws.id));
+    var ref: ChildNode | null = grid.firstChild;
+
+    for (var meta of desired) {
+      var existing = allCards.get(meta.ws.id);
+      var key = cardRefreshKey(meta);
+      var prevKey = _renderedCardKeys.get(meta.ws.id);
+      var node: HTMLElement;
+      var needsPopulate = false;
+
+      if (existing && prevKey === key) {
+        node = existing;
+      } else {
+        node = renderCard(meta);
+        if (existing) existing.replaceWith(node);
+        allCards.set(meta.ws.id, node);
+        needsPopulate = true;
+      }
+
+      if (node.parentNode !== grid || node !== ref) {
+        grid.insertBefore(node, ref);
+      }
+
+      ref = node.nextSibling;
+      _renderedCardKeys.set(meta.ws.id, key);
+      if (needsPopulate) {
+        try {
+          populateCardData(meta);
+        } catch (err) {
+          console.error(`[dashboard] populateCardData failed for ${meta.ws.absolutePath}:`, err);
+          showCardDataError(meta, "Card data could not be rendered.");
+        }
+      }
+    }
+
+    grid.querySelectorAll<HTMLElement>(".ws-card").forEach((card) => {
+      if (!desiredIds.has(card.dataset.id || "")) {
+        card.remove();
+      }
+    });
+  }
+}
+
+function reconcileRenderedList(metas: CardMeta[]): void {
+  var list = document.querySelector(".ws-list") as HTMLElement | null;
+  if (!list) return;
+  var allCards = getRenderedCardsMap();
+  var desiredIds = new Set(metas.map((m) => m.ws.id));
+  var header = list.querySelector(".list-header");
+  if (!header) return;
+  var ref: ChildNode | null = header.nextSibling;
+
+  for (var meta of metas) {
+    var existing = allCards.get(meta.ws.id);
+    var key = cardRefreshKey(meta);
+    var prevKey = _renderedCardKeys.get(meta.ws.id);
+    var node: HTMLElement;
+
+    if (existing && prevKey === key) {
+      node = existing;
+    } else {
+      node = renderListRow(meta);
+      if (existing) existing.replaceWith(node);
+      allCards.set(meta.ws.id, node);
+    }
+
+    if (node.parentNode !== list || node !== ref) {
+      list.insertBefore(node, ref);
+    }
+
+    ref = node.nextSibling;
+    _renderedCardKeys.set(meta.ws.id, key);
+  }
+
+  list.querySelectorAll<HTMLElement>(".list-row").forEach((row) => {
+    if (!desiredIds.has(row.dataset.id || "")) {
+      row.remove();
+    }
+  });
+}
+
+async function refreshVisibleCards(): Promise<void> {
+  var api = window.dashboardAPI!;
+  if (!api) return;
+
+  // Rebuild card data without tearing down the whole dashboard DOM.
+  var seq = ++_loadRenderSeq;
+  var updatedMetas = await Promise.all(_workspaces.map((ws) => buildCardMetaWithTimeout(ws)));
+  if (seq !== _loadRenderSeq) return;
+  _cardMetas = updatedMetas;
+
+  window.__dashboardWorkspaceCount = _workspaces.length;
+
+  var counts = computeCounts(_cardMetas);
+  var countAll = document.getElementById("count-all");
+  var countActive = document.getElementById("count-active");
+  var countDirty = document.getElementById("count-dirty");
+  var countRunning = document.getElementById("count-running");
+  var countArchived = document.getElementById("count-archived");
+  if (countAll) countAll.textContent = String(counts.all);
+  if (countActive) countActive.textContent = String(counts.active);
+  if (countDirty) countDirty.textContent = String(counts.dirty);
+  if (countRunning) countRunning.textContent = String(counts.running);
+  if (countArchived) countArchived.textContent = String(counts.archived);
+
+  var visible = sortMetas(filterMetas(_cardMetas));
+  var noMatch = document.getElementById("no-match");
+  if (noMatch) noMatch.remove();
+  updateVisibleTimeLabels(visible);
+  updateGroupHeaderCounts(visible);
+
+  if (visible.length === 0) {
+    if (_view === "grid") {
+      document.querySelectorAll(".group-section").forEach((el) => {
+        (el as HTMLElement).style.display = "none";
+      });
+      document.querySelectorAll(".ws-card").forEach((el) => el.remove());
+    } else {
+      var list = document.querySelector(".ws-list") as HTMLElement | null;
+      if (list) {
+        list.querySelectorAll(".list-row").forEach((el) => el.remove());
+        list.style.display = "none";
+      }
+    }
+    var content = document.getElementById("content") as HTMLDivElement | null;
+    if (content && !document.getElementById("no-match")) {
+      var empty = document.createElement("div");
+      empty.id = "no-match";
+      empty.innerHTML = `<div class="nm-title">No workspaces match</div><div>Try a different filter or search term.</div>`;
+      content.appendChild(empty);
+    }
+    return;
+  }
+
+  var list = document.querySelector(".ws-list") as HTMLElement | null;
+  if (list) list.style.display = "";
+
+  if (_view === "grid") {
+    reconcileRenderedGrid(visible);
+  } else {
+    reconcileRenderedList(visible);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Async data loading: build CardMeta from WorkspaceEntry + IPC
 // ---------------------------------------------------------------------------
 
+const CARD_META_TIMEOUT_MS = 10_000;
+
+function buildCardMetaFallback(ws: WorkspaceEntry): CardMeta {
+  var meta = makeInitialCardMeta(ws);
+  meta.loadState = "timeout";
+  return meta;
+}
+
+async function buildCardMetaWithTimeout(ws: WorkspaceEntry): Promise<CardMeta> {
+  var timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    var result = await Promise.race([
+      buildCardMeta(ws),
+      new Promise<CardMeta>((resolve) => {
+        timer = setTimeout(() => {
+          console.warn(
+            `[dashboard] buildCardMeta timeout for ${ws.absolutePath} after ${CARD_META_TIMEOUT_MS}ms`
+          );
+          resolve(buildCardMetaFallback(ws));
+        }, CARD_META_TIMEOUT_MS);
+      }),
+    ]);
+    return result;
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}
+
 async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
   var api = window.dashboardAPI!;
   // Initial group from archived flag (will be refined after IPC completes)
-  var initialGroup: "active" | "recent" | "archived" = ws.archived === true ? "archived" : "recent";
+  var initialGroup: WorkspaceGroup = ws.archived === true ? "archived" : "active";
 
   var meta: CardMeta = {
     ws,
@@ -967,6 +1371,9 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
     group: initialGroup,
     updatedLabel: relTime(ws.addedAt),
     tool: "none",
+    primaryTool: null,
+    claudeState: null,
+    codexState: null,
   };
 
   // Check existence
@@ -984,7 +1391,7 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
     var [statusResult, overviewResult, sessionResult] = await Promise.all([
       api.statusInfo(ws.absolutePath).catch(() => null),
       api.overviewSummary(ws.absolutePath).catch(() => null),
-      api.sessionState(ws.absolutePath).catch(() => ({ open: false, harnessPhase: null })),
+      api.sessionState(ws.absolutePath).catch(() => ({ open: false, harnessPhase: null, codexRunning: false })),
     ]);
 
     // Git status
@@ -1004,18 +1411,30 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
       meta.currentTask = overviewResult.currentTask;
       meta.nextSteps = overviewResult.nextSteps || [];
       meta.tool = overviewResult.tool || "none";
+      meta.primaryTool = overviewResult.primaryTool || null;
+      meta.claudeState = overviewResult.claudeState || null;
+      meta.codexState = overviewResult.codexState || null;
+      if (overviewResult.primaryTool === "claude" && overviewResult.claudeState?.updatedAt) {
+        meta.updatedLabel = `Claude updated ${relTime(overviewResult.claudeState.updatedAt)}`;
+      } else if (overviewResult.primaryTool === "codex" && overviewResult.codexState?.updatedAt) {
+        meta.updatedLabel = `Codex updated ${relTime(overviewResult.codexState.updatedAt)}`;
+      }
     }
 
     // Session state
     if (sessionResult) {
       meta.isOpen = sessionResult.open;
-      meta.isRunning = !!sessionResult.harnessPhase;
+      meta.isRunning = !!sessionResult.harnessPhase || !!sessionResult.codexRunning;
     }
 
     // Tags: derive from session state
     var tags: string[] = [];
     if (meta.isOpen) tags.push("open");
-    if (meta.isRunning) tags.push("harness");
+    if (meta.isRunning) tags.push("running");
+    if (overviewResult && !("error" in overviewResult) && overviewResult.tool === "mixed") {
+      if (overviewResult.primaryTool === "claude") tags.push("claude");
+      if (overviewResult.primaryTool === "codex") tags.push("codex");
+    }
     // Merge workspace-level tags from workspaces.json
     if (ws.tags && ws.tags.length > 0) {
       for (var wt of ws.tags) {
@@ -1036,6 +1455,7 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
 
     // updatedLabel: prefer gitLastCommit, fallback to addedAt
     meta.updatedLabel = meta.gitLastCommit || relTime(ws.addedAt);
+    meta.loadState = "ready";
 
   } catch (err) {
     console.error(`[dashboard] buildCardMeta error for ${ws.absolutePath}:`, err);
@@ -1050,6 +1470,7 @@ async function buildCardMeta(ws: WorkspaceEntry): Promise<CardMeta> {
 
 async function loadAndRender(): Promise<void> {
   var api = window.dashboardAPI!;
+  var seq = ++_loadRenderSeq;
   _workspaces = await api.listWorkspaces();
 
   // Expose count for dashboard-autorefresh.ts cycle log (AC #7)
@@ -1057,16 +1478,18 @@ async function loadAndRender(): Promise<void> {
 
   console.log(`[dashboard] init: loaded ${_workspaces.length} workspace(s)`);
 
+  _cardMetas = _workspaces.map(makeInitialCardMeta);
+  render();
+
   if (_workspaces.length === 0) {
-    _cardMetas = [];
-    render();
     return;
   }
 
-  // Build metas in parallel
-  _cardMetas = await Promise.all(_workspaces.map((ws) => buildCardMeta(ws)));
-
-  // render() internally calls populateCardData() for all visible cards
+  // Build metas in parallel without blocking the first paint. If another
+  // refresh starts while these requests are in flight, drop the stale result.
+  var hydratedMetas = await Promise.all(_workspaces.map((ws) => buildCardMetaWithTimeout(ws)));
+  if (seq !== _loadRenderSeq) return;
+  _cardMetas = hydratedMetas;
   render();
 }
 
@@ -1085,8 +1508,8 @@ async function handleAdd(): Promise<void> {
   _workspaces = result.workspaces;
   // Sprint 3: re-fetch candidates — the just-added workspace might have been
   // a discovery candidate, in which case it must drop out of the banner.
-  await fetchDiscoveryCandidates();
   await loadAndRender();
+  scheduleDiscoveryRefresh();
   if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
   showDashboardToast("Workspace added.", "ok");
 }
@@ -1098,6 +1521,7 @@ async function handleRemove(id: string): Promise<void> {
   if (!confirmed) return;
   _workspaces = await window.dashboardAPI!.removeWorkspace(id);
   await loadAndRender();
+  scheduleDiscoveryRefresh();
   if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
   showDashboardToast("Workspace removed.", "ok");
 }
@@ -1131,7 +1555,7 @@ async function handleOpen(workspacePath: string): Promise<void> {
 // preserved as a literal string and never executed.
 // Cross-tool guard (Phase B C.4): if the user clicks Claude on a Codex-only
 // workspace (or vice versa), the tool will start with no project guidance
-// because CLAUDE.md/AGENTS.md doesn't exist. Confirm before launching so the
+// because CLAUDE.md/AGENT.md doesn't exist. Confirm before launching so the
 // user knows the new session won't have its usual context.
 function confirmCrossTool(clicked: "claude" | "codex", workspaceTool: string | null): boolean {
   if (!workspaceTool) return true;
@@ -1142,7 +1566,7 @@ function confirmCrossTool(clicked: "claude" | "codex", workspaceTool: string | n
   }
   if (clicked === "codex" && (workspaceTool === "claude" || workspaceTool === "none")) {
     return window.confirm(
-      "이 워크스페이스에는 AGENTS.md가 없습니다.\nCodex를 빈 컨텍스트로 시작하시겠습니까?"
+      "이 워크스페이스에는 AGENT.md가 없습니다.\nCodex를 빈 컨텍스트로 시작하시겠습니까?"
     );
   }
   return true;
@@ -1233,6 +1657,7 @@ async function handleArchiveToggle(id: string, archived: boolean): Promise<void>
     console.log(`[dashboard] archive toggle: id=${id} archived=${archived}`);
     // Rebuild metas for affected workspace only then re-render
     await loadAndRender();
+    scheduleDiscoveryRefresh();
     if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
     showDashboardToast(archived ? "Moved to Archived." : "Restored from Archived.", "ok");
   } catch (err) {
@@ -1245,9 +1670,8 @@ async function handleRefreshAll(): Promise<void> {
   console.log("[dashboard] refresh all");
   // Drop cached gitflow data so re-expand re-fetches fresh git state.
   clearGitflowCache();
-  // Sprint 3: re-scan discovery candidates so banner reflects newly-cloned repos.
-  await fetchDiscoveryCandidates();
   await loadAndRender();
+  scheduleDiscoveryRefresh();
   if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
   showDashboardToast("Refreshed.", "ok");
 }
@@ -1465,8 +1889,8 @@ if (typeof window !== "undefined") {
     if (updatedWorkspaces) {
       _workspaces = updatedWorkspaces;
     }
-    await fetchDiscoveryCandidates();
     await loadAndRender();
+    scheduleDiscoveryRefresh();
     if (typeof window.resetAutoRefresh === "function") window.resetAutoRefresh();
   };
   window.npOpenWithClaude = (absolutePath: string) => {
@@ -1554,6 +1978,7 @@ if (typeof window !== "undefined") {
 
   // Register loadAndRender for dashboard-autorefresh.ts auto-refresh cycles (AC #2)
   window.__dashboardLoadAndRender = loadAndRender;
+  window.__dashboardRefreshCards = refreshVisibleCards;
 
   // Load workspaces
   (async () => {
@@ -1568,11 +1993,8 @@ if (typeof window !== "undefined") {
         console.warn("[dashboard] homedir fetch failed:", err);
         _homeDir = "";
       }
-      // Sprint 3: kick off discovery scan in parallel — does not block grid render.
-      // First-time load: fetch candidates first so the banner appears in the
-      // initial paint when conditions match.
-      await fetchDiscoveryCandidates();
       await loadAndRender();
+      scheduleDiscoveryRefresh();
       // Start auto-refresh after initial load completes (AC #2, #3, #4)
       if (typeof window.setupAutoRefresh === "function") {
         window.setupAutoRefresh();

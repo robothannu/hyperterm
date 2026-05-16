@@ -508,6 +508,10 @@
       white-space: nowrap;
     }
 
+    .tool-marker.tool-primary {
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset;
+    }
+
     .tool-claude {
       background: rgba(74, 222, 128, 0.12);
       color: #4ade80;
@@ -518,6 +522,75 @@
       background: rgba(96, 165, 250, 0.12);
       color: #60a5fa;
       border: 1px solid rgba(96, 165, 250, 0.25);
+    }
+
+    .tool-state-wrap {
+      margin-top: 10px;
+    }
+
+    .tool-state-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .tool-state-section {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: rgba(255,255,255,0.02);
+      min-width: 0;
+    }
+
+    .tool-state-section.primary {
+      border-color: rgba(96, 165, 250, 0.35);
+      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.08);
+    }
+
+    .tool-state-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .tool-state-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--fg-0);
+    }
+
+    .tool-state-primary {
+      font-size: 9.5px;
+      font-weight: 700;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: rgba(96, 165, 250, 0.12);
+      color: #60a5fa;
+      border: 1px solid rgba(96, 165, 250, 0.25);
+    }
+
+    .tool-state-updated {
+      margin-left: auto;
+      font-size: 10px;
+      color: var(--fg-3);
+    }
+
+    .tool-state-next {
+      margin: 0;
+      padding-left: 16px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .tool-state-next li {
+      margin: 0;
+    }
+
+    .tool-state-empty {
+      color: var(--fg-3);
+      font-style: italic;
     }
 
     .qbtn {
@@ -1583,7 +1656,7 @@
       <div id="empty-state" style="display:none">
         <span class="empty-icon">&#128193;</span>
         <span class="empty-title">No workspaces yet</span>
-        <span class="empty-sub">Add a folder to get started.<br/>HyperTerm will read CLAUDE.md and progress.md from each workspace.</span>
+        <span class="empty-sub">Add a folder to get started.<br/>HyperTerm will read Claude or Codex project files from each workspace.</span>
         <button id="btn-empty-add">
           <svg width="11" height="11" viewBox="0 0 16 16" fill="none" style="margin-right:4px">
             <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -1639,9 +1712,9 @@
   <script src="vendor/marked.umd.js"></script>
   <script src="commonjs-shim.js"></script>
   <script src="dashboard-autorefresh.js"></script>
-  <script src="dashboard.js"></script>
   <script src="dashboard-gitflow.js"></script>
   <script src="dashboard-discovery.js"></script>
   <script src="dashboard-newproject.js"></script>
+  <script src="dashboard.js"></script>
 </body>
 </html>
