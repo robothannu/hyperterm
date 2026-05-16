@@ -32,13 +32,15 @@ export interface CardData {
 }
 
 const CLAUDE_SIDE_FILES = ["CLAUDE.md", "progress.md"] as const;
-const CODEX_SIDE_FILES = [
-  "AGENT.md",
+const CODEX_CONFIG_FILES = ["AGENTS.md", "AGENT.md"] as const;
+const CODEX_HANDOFF_FILES = [
   ".codex/HANDOFF.md",
+  "docs/codex-handoff.md",
   "HANDOFF.md",
   "codex-handoff.md",
   "handoff.md",
 ] as const;
+const CODEX_SIDE_FILES = [...CODEX_CONFIG_FILES, ...CODEX_HANDOFF_FILES] as const;
 
 function latestExistingMtime(workspacePath: string, relPaths: readonly string[]): number | null {
   let latest: number | null = null;
@@ -145,26 +147,22 @@ function readClaudeMd(workspacePath: string): { content: string | null; error?: 
 }
 
 /**
- * Read AGENT.md from the workspace root (OpenAI Codex CLI convention).
+ * Read AGENTS.md / AGENT.md from the workspace root.
  * Returns raw markdown string, or null + error message on failure.
  * Parsing strategy: same as CLAUDE.md (first paragraph after H1 / ## Overview section).
  */
 function readAgentsMd(workspacePath: string): { content: string | null; error?: string } {
   console.log(`[workspace-reader] reading Codex agent files in ${workspacePath}`);
-  return readFirstExistingFile(workspacePath, ["AGENT.md"], "Codex agent file");
+  return readNewestExistingFile(workspacePath, CODEX_CONFIG_FILES, "Codex agent file");
 }
 
 /**
- * Read .codex/HANDOFF.md / codex-handoff.md / HANDOFF.md / handoff.md from the workspace root.
+ * Read Codex handoff files from the workspace root or docs directory.
  * Returns raw markdown string, or null + error message on failure.
  */
 function readCodexHandoffMd(workspacePath: string): { content: string | null; error?: string } {
   console.log(`[workspace-reader] reading Codex handoff files in ${workspacePath}`);
-  return readNewestExistingFile(
-    workspacePath,
-    [".codex/HANDOFF.md", "codex-handoff.md", "HANDOFF.md", "handoff.md"],
-    "Codex handoff file"
-  );
+  return readNewestExistingFile(workspacePath, CODEX_HANDOFF_FILES, "Codex handoff file");
 }
 
 /**
@@ -570,7 +568,7 @@ export async function summarizeOverview(
     notAGitRepo: false,
   };
 
-  // 1. Agent config file → goal (CLAUDE.md → AGENT.md → fallback chain)
+  // 1. Agent config file → goal (CLAUDE.md → AGENTS.md/AGENT.md → fallback chain)
   // Helper: extract goal from any markdown agent config (shared parsing logic)
   function extractGoalFromMd(content: string): { goal: string | null; objective: string | null } {
     let goalSection: string | null = null;
@@ -727,8 +725,8 @@ export async function summarizeOverview(
     const codexSummary = summarizeToolState(
       agentsConfig,
       handoffState,
-      ["AGENT.md"],
-      [".codex/HANDOFF.md", "codex-handoff.md", "HANDOFF.md", "handoff.md"]
+      CODEX_CONFIG_FILES,
+      CODEX_HANDOFF_FILES
     );
     codexState = codexSummary.state;
     if (codexSummary.error) {

@@ -1471,11 +1471,25 @@ interface GitFlowCommit {
   isHead: boolean;
 }
 
+interface GitFlowBranchSummary {
+  name: string;
+  shortHash: string | null;
+  lastMessage: string | null;
+  lastCommitRelTime: string | null;
+  upstream: string | null;
+  ahead: number | null;
+  behind: number | null;
+}
+
 interface GitFlowData {
   commits: GitFlowCommit[]; // newest first
   branches: string[];       // unique branch names referenced
+  branchSummaries: GitFlowBranchSummary[];
   head: string | null;      // hash of HEAD
   branch: string | null;    // current branch name
+  remoteUrl: string | null;
+  ahead: number | null;
+  behind: number | null;
   summary: string;          // "{N} commits · {branch}"
 }
 
@@ -1502,6 +1516,16 @@ function parseGitDecoration(decoration: string): { branches: string[]; tags: str
   return out;
 }
 
+function parseGitTrack(track: string): { ahead: number | null; behind: number | null } {
+  if (!track) return { ahead: null, behind: null };
+  const aheadMatch = track.match(/ahead\s+(\d+)/i);
+  const behindMatch = track.match(/behind\s+(\d+)/i);
+  return {
+    ahead: aheadMatch ? Number.parseInt(aheadMatch[1] ?? "0", 10) || 0 : 0,
+    behind: behindMatch ? Number.parseInt(behindMatch[1] ?? "0", 10) || 0 : 0,
+  };
+}
+
 ipcMain.handle("workspace:gitFlow", async (_event, workspacePath: string): Promise<GitFlowData | null> => {
   if (!workspacePath || typeof workspacePath !== "string") return null;
   if (!workspacePath.startsWith("/") || workspacePath.length < 2) return null;
@@ -1512,7 +1536,15 @@ ipcMain.handle("workspace:gitFlow", async (_event, workspacePath: string): Promi
     // one extra call for current branch.
     const SEP = "\x1F";
     const FIELDS = ["%H", "%h", "%P", "%an", "%cr", "%s", "%D"].join(SEP);
-    const [logResult, branchResult] = await Promise.all([
+    const branchSummaryFields = [
+      "%(refname:short)",
+      "%(objectname:short)",
+      "%(contents:subject)",
+      "%(committerdate:relative)",
+      "%(upstream:short)",
+      "%(upstream:track)",
+    ].join(SEP);
+    const [logResult, branchResult, branchSummaryResult, remoteResult] = await Promise.all([
       execFileAsync(
         "git",
         ["-C", workspacePath, "log", "--max-count=20", "--all", "--date-order", `--pretty=format:${FIELDS}`],
@@ -1521,6 +1553,16 @@ ipcMain.handle("workspace:gitFlow", async (_event, workspacePath: string): Promi
       execFileAsync(
         "git",
         ["-C", workspacePath, "symbolic-ref", "--short", "HEAD"],
+        { encoding: "utf8", timeout: 4000 }
+      ).catch(() => ({ stdout: "" })),
+      execFileAsync(
+        "git",
+        ["-C", workspacePath, "for-each-ref", "refs/heads", `--format=${branchSummaryFields}`],
+        { encoding: "utf8", timeout: 8000, maxBuffer: 512 * 1024 }
+      ).catch(() => ({ stdout: "" })),
+      execFileAsync(
+        "git",
+        ["-C", workspacePath, "remote", "get-url", "origin"],
         { encoding: "utf8", timeout: 4000 }
       ).catch(() => ({ stdout: "" })),
     ]);
@@ -1569,11 +1611,36 @@ ipcMain.handle("workspace:gitFlow", async (_event, workspacePath: string): Promi
     // Make sure current branch is in the set (even if no decoration was visible)
     if (currentBranch) branchSet.add(currentBranch);
 
+    const branchSummaries: GitFlowBranchSummary[] = [];
+    for (const line of branchSummaryResult.stdout.trim().split("\n")) {
+      if (!line.trim()) continue;
+      const parts = line.split(SEP);
+      const name = parts[0]?.trim() ?? "";
+      if (!name) continue;
+      const track = parseGitTrack(parts[5]?.trim() ?? "");
+      branchSummaries.push({
+        name,
+        shortHash: parts[1]?.trim() || null,
+        lastMessage: parts[2]?.trim() || null,
+        lastCommitRelTime: parts[3]?.trim() || null,
+        upstream: parts[4]?.trim() || null,
+        ahead: track.ahead,
+        behind: track.behind,
+      });
+      branchSet.add(name);
+    }
+
+    const currentBranchSummary = branchSummaries.find((b) => b.name === currentBranch) ?? null;
+
     return {
       commits,
       branches: Array.from(branchSet),
+      branchSummaries,
       head: headHash,
       branch: currentBranch,
+      remoteUrl: remoteResult.stdout.trim() || null,
+      ahead: currentBranchSummary?.ahead ?? null,
+      behind: currentBranchSummary?.behind ?? null,
       summary: `${commits.length} commits${currentBranch ? ` · ${currentBranch}` : ""}`,
     };
   } catch (err) {
@@ -1744,11 +1811,11 @@ ${today}
 - Verify with the relevant local checks before reporting completion.
 `;
     try {
-      await fsp.writeFile(path.join(absolutePath, "AGENT.md"), agentsContent, "utf8");
-      console.log("[new-project] AGENT.md written");
+      await fsp.writeFile(path.join(absolutePath, "AGENTS.md"), agentsContent, "utf8");
+      console.log("[new-project] AGENTS.md written");
     } catch (err) {
-      console.warn("[new-project] AGENT.md write failed (non-fatal):", err);
-      warnings.push("AGENT.md creation failed");
+      console.warn("[new-project] AGENTS.md write failed (non-fatal):", err);
+      warnings.push("AGENTS.md creation failed");
     }
   }
 

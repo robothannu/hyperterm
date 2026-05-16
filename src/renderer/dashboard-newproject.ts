@@ -350,7 +350,7 @@ function npUpdateInitSummary(): void {
   if (!el) return;
   var selectedTool = npGetSelectedTool();
   el.textContent = selectedTool === "codex"
-    ? "git, AGENT.md, codex-handoff.md"
+    ? "git, AGENTS.md, codex-handoff.md"
     : "git, CLAUDE.md, progress.md";
 }
 

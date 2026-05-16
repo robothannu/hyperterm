@@ -56,6 +56,73 @@ function gitflowLaneKey(branchName: string): string {
   return "feature";
 }
 
+function gitflowPushSummary(ahead: number | null | undefined, behind: number | null | undefined): string {
+  var a = typeof ahead === "number" ? ahead : null;
+  var b = typeof behind === "number" ? behind : null;
+  if (a === null && b === null) return "No upstream tracking";
+  if ((a || 0) === 0 && (b || 0) === 0) return "Up to date with upstream";
+  var parts: string[] = [];
+  if ((a || 0) > 0) parts.push(`${a} commit${a === 1 ? "" : "s"} ready to push`);
+  if ((b || 0) > 0) parts.push(`${b} commit${b === 1 ? "" : "s"} to pull`);
+  return parts.join(", ");
+}
+
+function gitflowBranchSummaryMap(data: DashboardGitFlowData): Record<string, DashboardGitFlowBranchSummary> {
+  var out: Record<string, DashboardGitFlowBranchSummary> = {};
+  var summaries = Array.isArray(data.branchSummaries) ? data.branchSummaries : [];
+  for (var b of summaries) out[b.name] = b;
+  return out;
+}
+
+function gitflowBranchTooltip(data: DashboardGitFlowData, branchName: string): string {
+  var summary = gitflowBranchSummaryMap(data)[branchName];
+  var lines = [`Branch: ${branchName}`];
+  if (data.branch === branchName) lines.push("Current branch");
+  if (summary) {
+    if (summary.shortHash) lines.push(`Latest commit: ${summary.shortHash}${summary.lastMessage ? " - " + summary.lastMessage : ""}`);
+    if (summary.lastCommitRelTime) lines.push(`Updated: ${summary.lastCommitRelTime}`);
+    lines.push(`Upstream: ${summary.upstream || "none"}`);
+    lines.push(`Push status: ${gitflowPushSummary(summary.ahead, summary.behind)}`);
+  } else {
+    lines.push("No local branch summary available");
+  }
+  return lines.join("\n");
+}
+
+function gitflowCommitTooltip(c: GitflowLayoutCommit): string {
+  var lines = [
+    `Commit: ${c.shortHash}`,
+    `Branch: ${c.lane}`,
+    `Message: ${c.msg || "(no message)"}`,
+  ];
+  if (c.author) lines.push(`Author: ${c.author}`);
+  if (c.relTime) lines.push(`Date: ${c.relTime}`);
+  if (c.parents.length > 0) lines.push(`Parents: ${c.parents.map((p) => p.slice(0, 8)).join(", ")}`);
+  if (c.tag) lines.push(`Tag: ${c.tag}`);
+  if (c.isHead) lines.push("HEAD");
+  return lines.join("\n");
+}
+
+function gitflowDataTooltip(data: DashboardGitFlowData): string {
+  var lines = [
+    `Git Flow: ${data.summary || data.commits.length + " commits"}`,
+    `Current branch: ${data.branch || "unknown"}`,
+  ];
+  if (data.remoteUrl) lines.push(`Remote: ${data.remoteUrl}`);
+  lines.push(`Current push status: ${gitflowPushSummary(data.ahead, data.behind)}`);
+  var summaries = Array.isArray(data.branchSummaries) ? data.branchSummaries : [];
+  if (summaries.length > 0) {
+    lines.push("");
+    lines.push("Branches:");
+    for (var b of summaries.slice(0, 8)) {
+      var msg = b.lastMessage ? ` - ${b.lastMessage}` : "";
+      lines.push(`- ${b.name}: ${gitflowPushSummary(b.ahead, b.behind)}${msg}`);
+    }
+    if (summaries.length > 8) lines.push(`- +${summaries.length - 8} more branches`);
+  }
+  return lines.join("\n");
+}
+
 interface GitflowLaneRow {
   key: string;
   label: string;
@@ -170,10 +237,14 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
     var color = GITFLOW_LANE_COLORS[l.colorKey] || "#888";
     var bg = GITFLOW_LANE_BG[l.colorKey] || "rgba(255,255,255,0.05)";
     var labelW = (l.label.length * 7.2) + 22;
+    var tooltip = gitflowBranchTooltip(data, l.label);
     return ""
       + `<line class="lane-line" x1="${padL - 6}" y1="${y}" x2="${W - padR}" y2="${y}"/>`
+      + `<g class="lane-meta">`
+      + `<title>${dashEsc(tooltip)}</title>`
       + `<rect x="${padL - labelW - 8}" y="${y - 12}" width="${labelW}" height="24" rx="12" fill="${bg}" stroke="${color}" stroke-opacity="0.4"/>`
-      + `<text x="${padL - labelW - 8 + labelW / 2}" y="${y + 4}" text-anchor="middle" class="lane-label" fill="${color}">${dashEsc(l.label)}</text>`;
+      + `<text x="${padL - labelW - 8 + labelW / 2}" y="${y + 4}" text-anchor="middle" class="lane-label" fill="${color}">${dashEsc(l.label)}</text>`
+      + `</g>`;
   }).join("");
 
   var arrowId = `gf-arrow-${workspaceId}`;
@@ -222,7 +293,7 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
         + `<text x="21" y="13" text-anchor="middle" class="head-label" fill="${color}">HEAD</text>`
         + `</g>`;
     }
-    var titleText = c.msg ? `${c.shortHash} — ${c.msg}` : c.shortHash;
+    var titleText = gitflowCommitTooltip(c);
     return ""
       + tagSVG
       + `<g class="commit ${c.isHead ? "head" : ""}">`
@@ -234,12 +305,14 @@ function renderGitflowSVG(workspaceId: string, data: DashboardGitFlowData): stri
 
   var legendItems = lanes.map(function (l) {
     var color = GITFLOW_LANE_COLORS[l.colorKey] || "#888";
-    return `<span class="lg-item"><span class="lg-dot" style="background:${color}"></span>${dashEsc(l.label)}</span>`;
+    var tooltip = gitflowBranchTooltip(data, l.label);
+    return `<span class="lg-item" title="${dashEsc(tooltip)}"><span class="lg-dot" style="background:${color}"></span>${dashEsc(l.label)}</span>`;
   }).join("");
+  var flowTooltip = gitflowDataTooltip(data);
 
   return ""
     + `<div class="gitflow-wrap">`
-    + `<div class="gitflow-head">`
+    + `<div class="gitflow-head" title="${dashEsc(flowTooltip)}">`
     + `<span>Git Flow · ${dashEsc(data.summary || "")}</span>`
     + `<span class="legend">${legendItems}</span>`
     + `</div>`
@@ -266,8 +339,9 @@ function paintGitflowInto(workspaceId: string, data: DashboardGitFlowData | null
     return;
   }
   var summary = data.summary || (data.commits.length + " commits");
+  var tooltip = gitflowDataTooltip(data);
   host.innerHTML = ""
-    + `<button class="gitflow-trigger" type="button" data-action="open-gitflow" data-id="${dashEsc(workspaceId)}">`
+    + `<button class="gitflow-trigger" type="button" data-action="open-gitflow" data-id="${dashEsc(workspaceId)}" title="${dashEsc(tooltip)}">`
     +   `<span class="gf-trig-icon">`
     +     `<svg width="14" height="14" viewBox="0 0 16 16" fill="none">`
     +       `<circle cx="4" cy="4" r="1.6" fill="currentColor"/>`

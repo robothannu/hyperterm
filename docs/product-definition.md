@@ -107,7 +107,7 @@ Examples:
 HyperTerm does not merge Claude and Codex state into one progress file.
 
 - Claude side files: `CLAUDE.md`, `progress.md`.
-- Codex side files: `AGENT.md`, `.codex/HANDOFF.md`, `codex-handoff.md`, `HANDOFF.md`, `handoff.md`.
+- Codex side files: `AGENTS.md`, `AGENT.md`, `.codex/HANDOFF.md`, `docs/codex-handoff.md`, `codex-handoff.md`, `HANDOFF.md`, `handoff.md`.
 - If only one side exists, the dashboard uses that side.
 - If both sides exist, the dashboard uses the side with the most recently modified project-state file as primary.
 - If multiple Codex handoff files exist, the dashboard reads the newest handoff file.
@@ -166,8 +166,10 @@ HyperTerm does not merge Claude and Codex state into one progress file.
 ## Reference Files
 
 - `CLAUDE.md`
+- `AGENTS.md`
 - `AGENT.md`
 - `.codex/HANDOFF.md`
+- `docs/codex-handoff.md`
 - `progress.md`
 - `src/main/workspace-reader.ts`
 - `src/main/session-state.ts`

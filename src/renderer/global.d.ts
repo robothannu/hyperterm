@@ -290,11 +290,25 @@ interface DashboardGitFlowCommit {
   isHead: boolean;
 }
 
+interface DashboardGitFlowBranchSummary {
+  name: string;
+  shortHash: string | null;
+  lastMessage: string | null;
+  lastCommitRelTime: string | null;
+  upstream: string | null;
+  ahead: number | null;
+  behind: number | null;
+}
+
 interface DashboardGitFlowData {
   commits: DashboardGitFlowCommit[];
   branches: string[];
+  branchSummaries: DashboardGitFlowBranchSummary[];
   head: string | null;
   branch: string | null;
+  remoteUrl: string | null;
+  ahead: number | null;
+  behind: number | null;
   summary: string;
 }
 

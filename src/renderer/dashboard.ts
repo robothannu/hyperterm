@@ -425,7 +425,7 @@ function renderToolMarker(tool: WorkspaceTool, primaryTool: WorkspacePrimaryTool
     return '<span class="tool-marker tool-claude" title="Claude Code project (CLAUDE.md)">Claude</span>';
   }
   if (tool === "codex") {
-    return '<span class="tool-marker tool-codex" title="Codex project (AGENT.md)">Codex</span>';
+    return '<span class="tool-marker tool-codex" title="Codex project (AGENTS.md)">Codex</span>';
   }
   if (tool === "mixed") {
     var primaryIsCodex = primaryTool === "codex";
@@ -434,7 +434,7 @@ function renderToolMarker(tool: WorkspaceTool, primaryTool: WorkspacePrimaryTool
       : '<span class="tool-marker tool-claude tool-primary" title="Most recently updated: Claude">Claude</span>';
     var second = primaryIsCodex
       ? '<span class="tool-marker tool-claude" title="Claude Code project (CLAUDE.md)">Claude</span>'
-      : '<span class="tool-marker tool-codex" title="Codex project (AGENT.md)">Codex</span>';
+      : '<span class="tool-marker tool-codex" title="Codex project (AGENTS.md)">Codex</span>';
     return first + second;
   }
   return ""; // "none" → no marker
@@ -815,7 +815,7 @@ function populateCardData(m: CardMeta): void {
   }
 
   if (bodyParts.length === 0) {
-    bodyParts.push(`<span class="card-absent">No overview data — add CLAUDE.md, progress.md, or AGENT.md + codex-handoff.md</span>`);
+    bodyParts.push(`<span class="card-absent">No overview data — add CLAUDE.md, progress.md, or AGENTS.md + codex-handoff.md</span>`);
   }
 
   cbEl.innerHTML = bodyParts.join("");
@@ -1555,7 +1555,7 @@ async function handleOpen(workspacePath: string): Promise<void> {
 // preserved as a literal string and never executed.
 // Cross-tool guard (Phase B C.4): if the user clicks Claude on a Codex-only
 // workspace (or vice versa), the tool will start with no project guidance
-// because CLAUDE.md/AGENT.md doesn't exist. Confirm before launching so the
+// because CLAUDE.md/AGENTS.md doesn't exist. Confirm before launching so the
 // user knows the new session won't have its usual context.
 function confirmCrossTool(clicked: "claude" | "codex", workspaceTool: string | null): boolean {
   if (!workspaceTool) return true;
@@ -1566,7 +1566,7 @@ function confirmCrossTool(clicked: "claude" | "codex", workspaceTool: string | n
   }
   if (clicked === "codex" && (workspaceTool === "claude" || workspaceTool === "none")) {
     return window.confirm(
-      "This workspace does not contain AGENT.md.\nStart Codex without project guidance?"
+      "This workspace does not contain AGENTS.md or AGENT.md.\nStart Codex without project guidance?"
     );
   }
   return true;

@@ -39,7 +39,7 @@ function makeWorkspace() {
   fs.writeFileSync(path.join(dir, "CLAUDE.md"), "# Claude\n\n## Overview\nClaude goal\n\n## Objective\nClaude objective\n", "utf8");
   fs.writeFileSync(path.join(dir, "progress.md"), "## Current Task\nClaude current\n\n## Next Steps\n- Claude next\n", "utf8");
   fs.mkdirSync(path.join(dir, ".codex"), { recursive: true });
-  fs.writeFileSync(path.join(dir, "AGENT.md"), "# Codex\n\n## Overview\nCodex goal\n\n## Objective\nCodex objective\n", "utf8");
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), "# Codex\n\n## Overview\nCodex goal\n\n## Objective\nCodex objective\n", "utf8");
   fs.writeFileSync(path.join(dir, ".codex", "HANDOFF.md"), "## Current Task\nCodex current\n\n## Next Steps\n- Codex next\n", "utf8");
   return dir;
 }
@@ -54,17 +54,33 @@ function makeClaudeOnlyWorkspace() {
 function makeCodexOnlyWorkspace() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "terminal-app-workspace-"));
   fs.mkdirSync(path.join(dir, ".codex"), { recursive: true });
-  fs.writeFileSync(path.join(dir, "AGENT.md"), "# Codex\n\n## Overview\nCodex-only goal\n\n## Objective\nCodex-only objective\n", "utf8");
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), "# Codex\n\n## Overview\nCodex-only goal\n\n## Objective\nCodex-only objective\n", "utf8");
   fs.writeFileSync(path.join(dir, ".codex", "HANDOFF.md"), "## Current Task\nCodex-only current\n\n## Next Steps\n- Codex-only next\n", "utf8");
+  return dir;
+}
+
+function makeLegacyCodexOnlyWorkspace() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "terminal-app-workspace-"));
+  fs.mkdirSync(path.join(dir, ".codex"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "AGENT.md"), "# Codex\n\n## Overview\nLegacy Codex goal\n\n## Objective\nLegacy Codex objective\n", "utf8");
+  fs.writeFileSync(path.join(dir, ".codex", "HANDOFF.md"), "## Current Task\nLegacy Codex current\n\n## Next Steps\n- Legacy Codex next\n", "utf8");
   return dir;
 }
 
 function makeCodexDualHandoffWorkspace() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "terminal-app-workspace-"));
   fs.mkdirSync(path.join(dir, ".codex"), { recursive: true });
-  fs.writeFileSync(path.join(dir, "AGENT.md"), "# Codex\n\n## Overview\nCodex dual goal\n\n## Objective\nCodex dual objective\n", "utf8");
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), "# Codex\n\n## Overview\nCodex dual goal\n\n## Objective\nCodex dual objective\n", "utf8");
   fs.writeFileSync(path.join(dir, ".codex", "HANDOFF.md"), "## Current Task\nOld codex current\n\n## Next Steps\n- Old codex next\n", "utf8");
   fs.writeFileSync(path.join(dir, "codex-handoff.md"), "## Current Task\nNew codex current\n\n## Next Steps\n- New codex next\n", "utf8");
+  return dir;
+}
+
+function makeDocsHandoffWorkspace() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "terminal-app-workspace-"));
+  fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), "# Codex\n\n## Overview\nDocs handoff goal\n\n## Objective\nDocs handoff objective\n", "utf8");
+  fs.writeFileSync(path.join(dir, "docs", "codex-handoff.md"), "## Current Task\nDocs handoff current\n\n## Next Steps\n- Docs handoff next\n", "utf8");
   return dir;
 }
 
@@ -77,7 +93,7 @@ async function main() {
     const newer = Date.now() - 10 * 1000;
     fs.utimesSync(path.join(ws, "CLAUDE.md"), new Date(newer), new Date(newer));
     fs.utimesSync(path.join(ws, "progress.md"), new Date(newer), new Date(newer));
-    fs.utimesSync(path.join(ws, "AGENT.md"), new Date(older), new Date(older));
+    fs.utimesSync(path.join(ws, "AGENTS.md"), new Date(older), new Date(older));
     fs.utimesSync(path.join(ws, ".codex", "HANDOFF.md"), new Date(older), new Date(older));
 
     assert.equal(detectTool(ws), "claude");
@@ -89,7 +105,7 @@ async function main() {
     const newer = Date.now() - 10 * 1000;
     fs.utimesSync(path.join(ws, "CLAUDE.md"), new Date(older), new Date(older));
     fs.utimesSync(path.join(ws, "progress.md"), new Date(older), new Date(older));
-    fs.utimesSync(path.join(ws, "AGENT.md"), new Date(newer), new Date(newer));
+    fs.utimesSync(path.join(ws, "AGENTS.md"), new Date(newer), new Date(newer));
     fs.utimesSync(path.join(ws, ".codex", "HANDOFF.md"), new Date(newer), new Date(newer));
 
     assert.equal(detectTool(ws), "codex");
@@ -100,7 +116,7 @@ async function main() {
     const same = Date.now() - 10 * 1000;
     fs.utimesSync(path.join(ws, "CLAUDE.md"), new Date(same), new Date(same));
     fs.utimesSync(path.join(ws, "progress.md"), new Date(same), new Date(same));
-    fs.utimesSync(path.join(ws, "AGENT.md"), new Date(same), new Date(same));
+    fs.utimesSync(path.join(ws, "AGENTS.md"), new Date(same), new Date(same));
     fs.utimesSync(path.join(ws, ".codex", "HANDOFF.md"), new Date(same), new Date(same));
 
     assert.equal(detectTool(ws), "claude");
@@ -112,7 +128,7 @@ async function main() {
     const newer = Date.now() - 10 * 1000;
     fs.utimesSync(path.join(ws, "CLAUDE.md"), new Date(older), new Date(older));
     fs.utimesSync(path.join(ws, "progress.md"), new Date(older), new Date(older));
-    fs.utimesSync(path.join(ws, "AGENT.md"), new Date(newer), new Date(newer));
+    fs.utimesSync(path.join(ws, "AGENTS.md"), new Date(newer), new Date(newer));
     fs.utimesSync(path.join(ws, ".codex", "HANDOFF.md"), new Date(newer), new Date(newer));
 
     const result = await summarizeOverview(ws);
@@ -144,7 +160,7 @@ async function main() {
     assert.equal(result.codexState, null);
   });
 
-  await test("summarizeOverview: reads Codex-only workspace from AGENT.md and handoff", async () => {
+  await test("summarizeOverview: reads Codex-only workspace from AGENTS.md and handoff", async () => {
     const ws = makeCodexOnlyWorkspace();
 
     const result = await summarizeOverview(ws);
@@ -159,13 +175,40 @@ async function main() {
     assert.equal(result.claudeState, null);
   });
 
+  await test("summarizeOverview: keeps legacy AGENT.md support", async () => {
+    const ws = makeLegacyCodexOnlyWorkspace();
+
+    const result = await summarizeOverview(ws);
+    assert.equal("error" in result, false);
+    if ("error" in result) return;
+
+    assert.equal(result.tool, "codex");
+    assert.equal(result.primaryTool, "codex");
+    assert.equal(result.goal, "Legacy Codex goal");
+    assert.equal(result.currentTask, "Legacy Codex current");
+  });
+
+  await test("summarizeOverview: reads docs/codex-handoff.md", async () => {
+    const ws = makeDocsHandoffWorkspace();
+
+    const result = await summarizeOverview(ws);
+    assert.equal("error" in result, false);
+    if ("error" in result) return;
+
+    assert.equal(result.tool, "codex");
+    assert.equal(result.primaryTool, "codex");
+    assert.equal(result.goal, "Docs handoff goal");
+    assert.equal(result.currentTask, "Docs handoff current");
+    assert.equal(result.nextSteps[0], "Docs handoff next");
+  });
+
   await test("summarizeOverview: prefers the newest Codex handoff file when multiple exist", async () => {
     const ws = makeCodexDualHandoffWorkspace();
     const older = Date.now() - 24 * 60 * 60 * 1000;
     const newer = Date.now() - 10 * 1000;
     fs.utimesSync(path.join(ws, ".codex", "HANDOFF.md"), new Date(older), new Date(older));
     fs.utimesSync(path.join(ws, "codex-handoff.md"), new Date(newer), new Date(newer));
-    fs.utimesSync(path.join(ws, "AGENT.md"), new Date(older), new Date(older));
+    fs.utimesSync(path.join(ws, "AGENTS.md"), new Date(older), new Date(older));
 
     const result = await summarizeOverview(ws);
     assert.equal("error" in result, false);

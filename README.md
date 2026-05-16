@@ -21,7 +21,7 @@ HyperTerm uses repo-local files to understand workspace state:
 | Tool | Files |
 |------|-------|
 | Claude | `CLAUDE.md`, `progress.md` |
-| Codex | `AGENT.md`, `.codex/HANDOFF.md`, `codex-handoff.md`, `HANDOFF.md`, `handoff.md` |
+| Codex | `AGENTS.md`, `AGENT.md`, `.codex/HANDOFF.md`, `docs/codex-handoff.md`, `codex-handoff.md`, `HANDOFF.md`, `handoff.md` |
 
 If both sides exist, the dashboard uses the side with the most recently modified state file as primary. If multiple Codex handoff files exist, the newest handoff file is read.
 
